@@ -1,0 +1,21 @@
+{
+  "name": "crypto-top-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny always-on-top BTC and ETH USD price monitor for Windows, macOS, and Linux.",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "build:windows": "tauri build --bundles nsis",
+    "test": "node --test",
+    "check": "node --check src/main.js && node --check src/price-feed.js && node --test",
+    "icon": "tauri icon assets/app-icon.svg"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

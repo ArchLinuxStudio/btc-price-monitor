@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "allow-window-controls"
+description = "Allows the bundled monitor window to minimize, close, and reassert always-on-top mode."
+commands.allow = [
+  "minimize_window",
+  "close_window",
+  "ensure_always_on_top",
+]

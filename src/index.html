@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Crypto Top</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <main class="monitor" aria-label="BTC 和 ETH 美元实时价格监视器">
+      <header class="titlebar" data-tauri-drag-region="deep">
+        <div class="brand" data-tauri-drag-region="deep">
+          <span class="live-dot is-connecting" id="live-dot" aria-hidden="true"></span>
+          <span class="status-text" id="status-text">连接中</span>
+          <span class="market-label">USD</span>
+          <span class="source-label" id="source-label">Coinbase + Kraken</span>
+        </div>
+        <div class="window-controls" aria-label="窗口控制">
+          <button id="minimize-button" type="button" title="最小化" aria-label="最小化">−</button>
+          <button id="close-button" class="close" type="button" title="退出" aria-label="退出">×</button>
+        </div>
+      </header>
+
+      <section class="quotes" aria-live="polite">
+        <article class="quote-row" id="btc-row">
+          <div class="asset">
+            <span class="coin btc">₿</span>
+            <div>
+              <strong>BTC</strong>
+              <small>Bitcoin</small>
+            </div>
+          </div>
+          <div class="quote-value">
+            <span class="price" id="btc-price">$—</span>
+            <span class="change neutral" id="btc-change">24h —</span>
+          </div>
+        </article>
+
+        <article class="quote-row" id="eth-row">
+          <div class="asset">
+            <span class="coin eth">◆</span>
+            <div>
+              <strong>ETH</strong>
+              <small>Ethereum</small>
+            </div>
+          </div>
+          <div class="quote-value">
+            <span class="price" id="eth-price">$—</span>
+            <span class="change neutral" id="eth-change">24h —</span>
+          </div>
+        </article>
+      </section>
+
+      <footer class="footer" data-tauri-drag-region="deep">
+        <span class="pin" title="窗口始终置顶">◆ 始终置顶</span>
+        <span id="update-time">等待首笔行情…</span>
+      </footer>
+    </main>
+  </body>
+</html>

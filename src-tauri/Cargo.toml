@@ -1,0 +1,23 @@
+[package]
+name = "crypto-top-monitor"
+version = "1.0.0"
+description = "Always-on-top BTC and ETH USD price monitor"
+authors = ["Crypto Top contributors"]
+edition = "2021"
+
+[lib]
+name = "crypto_top_monitor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true
