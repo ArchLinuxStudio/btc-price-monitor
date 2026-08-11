@@ -51,10 +51,10 @@ button {
 .drag-zone {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(3px, 1fr) auto;
+  grid-template-columns: auto minmax(2px, 1fr) auto;
   align-items: center;
-  column-gap: 5px;
-  padding-left: 7px;
+  column-gap: 3px;
+  padding-left: 6px;
   -webkit-app-region: drag;
 }
 
@@ -63,7 +63,7 @@ button {
   display: grid;
   grid-template-columns: 5px auto auto minmax(0, 38px);
   align-items: center;
-  column-gap: 5px;
+  column-gap: 3px;
   color: #7f8999;
   font-size: 9px;
   line-height: 1;
@@ -184,10 +184,10 @@ button {
 .quote-row {
   min-width: 0;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 56px;
+  grid-template-columns: 32px minmax(0, 1fr) 48px;
   align-items: center;
-  column-gap: 6px;
-  padding: 0 8px;
+  column-gap: 4px;
+  padding: 0 6px;
   border-bottom: 1px solid #1b222d;
 }
 
@@ -200,7 +200,7 @@ button {
   display: grid;
   grid-template-columns: 2px auto;
   align-items: center;
-  column-gap: 6px;
+  column-gap: 5px;
 }
 
 .asset-marker {
@@ -246,7 +246,7 @@ button {
 
 .change {
   color: #7f899a;
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 720;
   line-height: 1;
   text-align: right;
