@@ -6,6 +6,14 @@ const REST_ENDPOINTS = {
   BTC: "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
   ETH: "https://api.exchange.coinbase.com/products/ETH-USD/ticker",
 };
+const DAY_MS = 86_400_000;
+const UTC_OPEN_WINDOW_MS = 5 * 60_000;
+const UTC_OPEN_WINDOWS_MS = [UTC_OPEN_WINDOW_MS, 30 * 60_000, (300 * 60_000) - 1];
+const UTC_OPEN_ENDPOINTS = {
+  BTC: "https://api.exchange.coinbase.com/products/BTC-USD/candles",
+  ETH: "https://api.exchange.coinbase.com/products/ETH-USD/candles",
+};
+const KRAKEN_TICKER_ENDPOINT = "https://api.kraken.com/0/public/Ticker?pair=xbtusd,ethusd&assetVersion=1";
 
 const SOURCES = [
   {
@@ -103,7 +111,6 @@ export function parseCoinbaseMessage(raw, receivedAt = Date.now()) {
       quotes.push({
         asset,
         price,
-        change24h: finiteNumber(ticker.price_percent_chg_24_h),
         source: "coinbase",
         sourceLabel: "Coinbase",
         exchangeAt,
@@ -134,7 +141,6 @@ export function parseKrakenMessage(raw, receivedAt = Date.now()) {
     quotes.push({
       asset,
       price,
-      change24h: finiteNumber(ticker.change_pct),
       source: "kraken",
       sourceLabel: "Kraken",
       exchangeAt: timestamp(ticker.timestamp, receivedAt),
@@ -152,12 +158,72 @@ export function parseRestTicker(asset, payload, receivedAt = Date.now()) {
   return {
     asset,
     price,
-    change24h: null,
     source: "coinbaseRest",
     sourceLabel: "Coinbase REST",
     exchangeAt: timestamp(payload.time, receivedAt),
     receivedAt,
   };
+}
+
+export function utcDayStart(timestampMs) {
+  const value = finiteNumber(timestampMs);
+  return value === null ? null : Math.floor(value / DAY_MS) * DAY_MS;
+}
+
+export function calculateUtcChange(price, openPrice) {
+  const current = positivePrice(price);
+  const open = positivePrice(openPrice);
+  return current === null || open === null ? null : ((current / open) - 1) * 100;
+}
+
+function utcOpenSource(source) {
+  return source === "coinbaseRest" ? "coinbase" : source;
+}
+
+function utcOpenRetryDelay(attempt) {
+  return Math.min(2_000 * (2 ** Math.min(Math.max(0, attempt), 5)), 60_000);
+}
+
+export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = UTC_OPEN_WINDOW_MS) {
+  if (!Array.isArray(payload)) return null;
+  const startSeconds = Math.floor(dayStartMs / 1_000);
+  const endSeconds = Math.floor((dayStartMs + windowMs) / 1_000);
+  const matching = payload
+    .filter((candle) => (
+      Array.isArray(candle)
+      && finiteNumber(candle[0]) !== null
+      && Number(candle[0]) >= startSeconds
+      && Number(candle[0]) < endSeconds
+      && positivePrice(candle[3]) !== null
+    ))
+    .sort((left, right) => Number(left[0]) - Number(right[0]));
+  return matching.length > 0 ? positivePrice(matching[0][3]) : null;
+}
+
+export function parseKrakenUtcOpens(payload) {
+  if (
+    !payload
+    || typeof payload !== "object"
+    || !Array.isArray(payload.error)
+    || payload.error.length > 0
+    || !payload.result
+    || typeof payload.result !== "object"
+  ) return { BTC: null, ETH: null };
+
+  const parsed = { BTC: null, ETH: null };
+  for (const [key, value] of Object.entries(payload.result)) {
+    if (!value || typeof value !== "object") continue;
+    const normalized = key.toUpperCase().replace(/[^A-Z]/g, "");
+    if (normalized.includes("ETH") && normalized.endsWith("USD")) {
+      parsed.ETH = positivePrice(value.o);
+    } else if (
+      (normalized.includes("BTC") || normalized.includes("XBT"))
+      && normalized.endsWith("USD")
+    ) {
+      parsed.BTC = positivePrice(value.o);
+    }
+  }
+  return parsed;
 }
 
 export function reconnectDelay(attempt, random = Math.random) {
@@ -355,17 +421,30 @@ class ResilientSocket {
 export class PriceFeed {
   constructor({
     WebSocketImpl = globalThis.WebSocket,
-    fetchImpl = globalThis.fetch,
+    fetchImpl = typeof globalThis.fetch === "function"
+      ? globalThis.fetch.bind(globalThis)
+      : null,
     now = () => Date.now(),
+    utcOpenTimeoutMs = 8_000,
   } = {}) {
     if (!WebSocketImpl) throw new Error("WebSocket is not available in this runtime");
     this.now = now;
+    this.utcOpenTimeoutMs = utcOpenTimeoutMs;
     this.listeners = new Set();
     this.started = false;
     this.staleTimer = null;
     this.restTimer = null;
     this.restRequest = null;
     this.fetchImpl = fetchImpl;
+    this.utcOpens = {
+      coinbase: { BTC: null, ETH: null },
+      kraken: { BTC: null, ETH: null },
+    };
+    this.utcOpenDay = { coinbase: null, kraken: null };
+    this.utcOpenRequests = { coinbase: null, kraken: null };
+    this.utcOpenControllers = { coinbase: null, kraken: null };
+    this.utcOpenRetryAt = { coinbase: 0, kraken: 0 };
+    this.utcOpenRetryAttempt = { coinbase: 0, kraken: 0 };
     this.quotes = {
       BTC: { coinbase: null, kraken: null, coinbaseRest: null },
       ETH: { coinbase: null, kraken: null, coinbaseRest: null },
@@ -401,6 +480,11 @@ export class PriceFeed {
     this.restTimer = null;
     if (this.restRequest) this.restRequest.abort();
     this.restRequest = null;
+    for (const source of ["coinbase", "kraken"]) {
+      if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
+      this.utcOpenControllers[source] = null;
+      this.utcOpenRequests[source] = null;
+    }
     for (const connection of this.connections) connection.stop();
   }
 
@@ -460,6 +544,111 @@ export class PriceFeed {
     }
   }
 
+  ensureUtcOpen(quote) {
+    if (!this.started || !this.fetchImpl) return;
+    const source = utcOpenSource(quote.source);
+    if (!Object.prototype.hasOwnProperty.call(this.utcOpenDay, source)) return;
+
+    const dayStart = utcDayStart(quote.exchangeAt);
+    if (dayStart === null) return;
+    const trackedDay = this.utcOpenDay[source];
+
+    if (trackedDay === null || dayStart > trackedDay) {
+      if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
+      this.utcOpenDay[source] = dayStart;
+      this.utcOpens[source] = { BTC: null, ETH: null };
+      this.utcOpenRetryAttempt[source] = 0;
+      const millisecondsIntoDay = Math.max(0, quote.exchangeAt - dayStart);
+      this.utcOpenRetryAt[source] = this.now() + Math.max(0, 2_000 - millisecondsIntoDay);
+    } else if (dayStart < trackedDay) {
+      return;
+    }
+
+    const complete = ASSETS.every((asset) => {
+      const record = this.utcOpens[source][asset];
+      return record && record.dayStart === dayStart;
+    });
+    if (
+      complete
+      || this.utcOpenRequests[source]
+      || this.now() < this.utcOpenRetryAt[source]
+    ) return;
+
+    const controller = new AbortController();
+    this.utcOpenControllers[source] = controller;
+    const timeout = setTimeout(() => controller.abort(), this.utcOpenTimeoutMs);
+    const request = this.fetchUtcOpens(source, dayStart, controller)
+      .then((opens) => this.commitUtcOpens(source, dayStart, opens))
+      .catch(() => this.deferUtcOpenRetry(source, dayStart))
+      .finally(() => {
+        clearTimeout(timeout);
+        if (this.utcOpenRequests[source] === request) {
+          this.utcOpenRequests[source] = null;
+          this.utcOpenControllers[source] = null;
+        }
+      });
+    this.utcOpenRequests[source] = request;
+  }
+
+  async fetchUtcOpens(source, dayStart, controller) {
+    const options = {
+      signal: controller.signal,
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    };
+
+    if (source === "kraken") {
+      const response = await this.fetchImpl(KRAKEN_TICKER_ENDPOINT, options);
+      if (!response.ok) throw new Error(`Kraken UTC open ${response.status}`);
+      return parseKrakenUtcOpens(await response.json());
+    }
+
+    const start = encodeURIComponent(new Date(dayStart).toISOString());
+    const results = await Promise.all(ASSETS.map(async (asset) => {
+      try {
+        for (const windowMs of UTC_OPEN_WINDOWS_MS) {
+          const end = encodeURIComponent(new Date(dayStart + windowMs).toISOString());
+          const url = `${UTC_OPEN_ENDPOINTS[asset]}?granularity=60&start=${start}&end=${end}`;
+          const response = await this.fetchImpl(url, options);
+          if (!response.ok) throw new Error(`Coinbase UTC open ${response.status}`);
+          const open = parseCoinbaseUtcOpen(await response.json(), dayStart, windowMs);
+          if (open !== null) return [asset, open];
+        }
+        return [asset, null];
+      } catch {
+        return [asset, null];
+      }
+    }));
+    return Object.fromEntries(results);
+  }
+
+  commitUtcOpens(source, dayStart, opens) {
+    if (!this.started || this.utcOpenDay[source] !== dayStart) return;
+    for (const asset of ASSETS) {
+      const price = positivePrice(opens && opens[asset]);
+      if (price !== null) this.utcOpens[source][asset] = { dayStart, price };
+    }
+
+    const complete = ASSETS.every((asset) => {
+      const record = this.utcOpens[source][asset];
+      return record && record.dayStart === dayStart;
+    });
+    if (complete) {
+      this.utcOpenRetryAttempt[source] = 0;
+      this.utcOpenRetryAt[source] = 0;
+    } else {
+      this.deferUtcOpenRetry(source, dayStart);
+    }
+    this.emit();
+  }
+
+  deferUtcOpenRetry(source, dayStart) {
+    if (!this.started || this.utcOpenDay[source] !== dayStart) return;
+    const attempt = this.utcOpenRetryAttempt[source];
+    this.utcOpenRetryAttempt[source] += 1;
+    this.utcOpenRetryAt[source] = this.now() + utcOpenRetryDelay(attempt);
+  }
+
   handleQuotes(quotes) {
     for (const quote of quotes) {
       if (
@@ -467,6 +656,7 @@ export class PriceFeed {
         || !Object.prototype.hasOwnProperty.call(this.quotes[quote.asset], quote.source)
       ) continue;
       this.quotes[quote.asset][quote.source] = quote;
+      this.ensureUtcOpen(quote);
     }
     this.emit();
   }
@@ -478,8 +668,19 @@ export class PriceFeed {
 
   getState() {
     const now = this.now();
+    const currentDayStart = utcDayStart(now);
     const prices = Object.fromEntries(
-      ASSETS.map((asset) => [asset, selectQuote(this.quotes[asset], now)]),
+      ASSETS.map((asset) => {
+        const quote = selectQuote(this.quotes[asset], now);
+        if (!quote) return [asset, null];
+        const source = utcOpenSource(quote.source);
+        const dayStart = utcDayStart(quote.exchangeAt);
+        const record = this.utcOpens[source] && this.utcOpens[source][asset];
+        const changeUtc = dayStart === currentDayStart && record && record.dayStart === dayStart
+          ? calculateUtcChange(quote.price, record.price)
+          : null;
+        return [asset, { ...quote, changeUtc }];
+      }),
     );
     const current = Object.values(prices).filter(Boolean);
     const fresh = current.filter((quote) => !quote.stale);

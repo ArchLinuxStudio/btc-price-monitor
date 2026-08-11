@@ -10,53 +10,48 @@
   </head>
   <body>
     <main class="monitor" aria-label="BTC 和 ETH 美元实时价格监视器">
-      <header class="titlebar" data-tauri-drag-region="deep">
-        <div class="brand" data-tauri-drag-region="deep">
-          <span class="live-dot is-connecting" id="live-dot" aria-hidden="true"></span>
-          <span class="status-text" id="status-text">连接中</span>
-          <span class="market-label">USD</span>
-          <span class="source-label" id="source-label">Coinbase + Kraken</span>
+      <header class="titlebar">
+        <div class="drag-zone" data-tauri-drag-region="deep">
+          <div class="connection" data-tauri-drag-region="deep">
+            <span class="live-dot is-connecting" id="live-dot" aria-hidden="true"></span>
+            <span class="status-text" id="status-text" role="status" aria-live="polite">LINK</span>
+            <span class="market-label">USD</span>
+            <span class="source-label" id="source-label" title="Coinbase + Kraken">Coinbase</span>
+          </div>
+          <span aria-hidden="true"></span>
+          <span class="baseline-label" title="涨跌幅以当天 00:00 UTC 的价格为基准">Δ UTC 00:00</span>
+          <span class="sr-only" id="update-time">等待首笔行情</span>
         </div>
+
         <div class="window-controls" aria-label="窗口控制">
-          <button id="minimize-button" type="button" title="最小化" aria-label="最小化">−</button>
-          <button id="close-button" class="close" type="button" title="退出" aria-label="退出">×</button>
+          <button id="minimize-button" type="button" title="最小化" aria-label="最小化">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5h8" /></svg>
+          </button>
+          <button id="close-button" class="close" type="button" title="退出" aria-label="退出">
+            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 2.5 7 7m0-7-7 7" /></svg>
+          </button>
         </div>
       </header>
 
-      <section class="quotes" aria-live="polite">
+      <section class="quotes" aria-label="实时价格">
         <article class="quote-row" id="btc-row">
           <div class="asset">
-            <span class="coin btc">₿</span>
-            <div>
-              <strong>BTC</strong>
-              <small>Bitcoin</small>
-            </div>
+            <span class="asset-marker btc" aria-hidden="true"></span>
+            <strong>BTC</strong>
           </div>
-          <div class="quote-value">
-            <span class="price" id="btc-price">$—</span>
-            <span class="change neutral" id="btc-change">24h —</span>
-          </div>
+          <span class="price" id="btc-price">—</span>
+          <span class="change neutral" id="btc-change" title="相对当天 00:00 UTC">—</span>
         </article>
 
         <article class="quote-row" id="eth-row">
           <div class="asset">
-            <span class="coin eth">◆</span>
-            <div>
-              <strong>ETH</strong>
-              <small>Ethereum</small>
-            </div>
+            <span class="asset-marker eth" aria-hidden="true"></span>
+            <strong>ETH</strong>
           </div>
-          <div class="quote-value">
-            <span class="price" id="eth-price">$—</span>
-            <span class="change neutral" id="eth-change">24h —</span>
-          </div>
+          <span class="price" id="eth-price">—</span>
+          <span class="change neutral" id="eth-change" title="相对当天 00:00 UTC">—</span>
         </article>
       </section>
-
-      <footer class="footer" data-tauri-drag-region="deep">
-        <span class="pin" title="窗口始终置顶">◆ 始终置顶</span>
-        <span id="update-time">等待首笔行情…</span>
-      </footer>
     </main>
   </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Crypto Top",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "com.cryptotop.monitor",
   "build": {
     "frontendDist": "../src"
@@ -12,12 +12,12 @@
       {
         "label": "main",
         "title": "Crypto Top — BTC ETH USD",
-        "width": 372,
-        "height": 188,
-        "minWidth": 372,
-        "minHeight": 188,
-        "maxWidth": 372,
-        "maxHeight": 188,
+        "width": 264,
+        "height": 92,
+        "minWidth": 264,
+        "minHeight": 92,
+        "maxWidth": 264,
+        "maxHeight": 92,
         "resizable": false,
         "maximizable": false,
         "fullscreen": false,
@@ -41,6 +41,7 @@
           "ipc:",
           "http://ipc.localhost",
           "https://api.exchange.coinbase.com",
+          "https://api.kraken.com",
           "wss://advanced-trade-ws.coinbase.com",
           "wss://ws.kraken.com"
         ],

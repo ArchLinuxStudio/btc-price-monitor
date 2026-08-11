@@ -1,6 +1,6 @@
 {
   "name": "crypto-top-monitor",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "A tiny always-on-top BTC and ETH USD price monitor for Windows, macOS, and Linux.",

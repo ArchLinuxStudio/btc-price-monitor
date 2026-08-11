@@ -5,8 +5,10 @@
 ## 功能
 
 - **真实 USD 行情**：显示 `BTC-USD` 和 `ETH-USD`，不会把 USDT 静默当成美元。
+- **UTC 自然日涨跌**：涨跌幅严格以当天 `00:00 UTC` 后的首笔同交易所成交价为基准，不使用滚动 24 小时数据。
 - **WebSocket 实时推送**：成交发生后立即更新，不使用慢速轮询。
 - **双免费数据源**：Coinbase Advanced Trade 为主，Kraken v2 自动备用；都不需要 API Key。
+- **超紧凑界面**：固定 `264 × 92` 逻辑像素，保留两行价格、当日涨跌、数据源与窗口控制。
 - **自动恢复**：心跳监测、超时切源、带抖动的指数退避重连；若 WebSocket 被网络拦截，会启用免费的 HTTPS 最新价兜底。
 - **始终置顶**：启动、窗口重新获得焦点、系统唤醒和运行期间都会重新确认置顶状态。
 - **三平台打包**：Tauri 2 使用系统 WebView，常驻内存和安装体积明显小于 Electron。
@@ -43,8 +45,12 @@ npm.cmd run build:windows
 
 - [Coinbase Advanced Trade WebSocket](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-overview)：`wss://advanced-trade-ws.coinbase.com`
 - [Kraken WebSocket v2](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker)：`wss://ws.kraken.com/v2`
+- [Coinbase Exchange Candles](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles)：取得 Coinbase 当天 UTC 零点后的首根一分钟 K 线开盘价。
+- [Kraken Ticker](https://docs.kraken.com/api-reference/market-data/get-ticker-information)：字段 `o` 是 Kraken 官方定义的 UTC 当日开盘价。
 
 两条连接会同时保持健康状态。Coinbase 在 5 秒内有新价格时优先显示；否则自动使用更新的 Kraken 行情。12 秒没有任何 WebSocket 有效价格时，会每 5 秒从 Coinbase HTTPS 接口取得最新价，同时继续重连实时源；若所有渠道都失败，界面会把末次价格标为延迟。
+
+涨跌幅始终和当前显示价格使用同一交易所的日开盘价，避免跨交易所混算。程序根据交易所消息时间识别 UTC 换日；跨日后昨日基准立即失效，新基准加载完成前显示 `—`。
 
 ## 平台边界
 

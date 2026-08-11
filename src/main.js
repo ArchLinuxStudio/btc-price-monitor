@@ -25,11 +25,23 @@ const elements = {
 };
 
 const statusLabels = {
-  live: "实时",
-  partial: "部分数据",
-  connecting: "连接中",
-  reconnecting: "重连中",
-  offline: "离线",
+  live: { compact: "LIVE", full: "实时行情" },
+  partial: { compact: "PART", full: "部分行情可用" },
+  connecting: { compact: "LINK", full: "正在连接行情" },
+  reconnecting: { compact: "RETRY", full: "正在重新连接" },
+  offline: { compact: "OFF", full: "行情离线" },
+};
+
+const sourceLabels = {
+  Coinbase: "Coinbase",
+  Kraken: "Kraken",
+  "Coinbase REST": "REST",
+};
+
+const sourceAbbreviations = {
+  Coinbase: "CB",
+  Kraken: "KR",
+  "Coinbase REST": "REST",
 };
 
 const previousPrices = { BTC: null, ETH: null };
@@ -39,6 +51,11 @@ let pendingState = null;
 let renderScheduled = false;
 let lastRenderAt = 0;
 let lastDataSecond = null;
+
+function prefersReducedMotion() {
+  return typeof globalThis.matchMedia === "function"
+    && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
 
 function queueRender(state) {
   pendingState = state;
@@ -57,10 +74,19 @@ function queueRender(state) {
   });
 }
 
+function compactSourceLabel(sources) {
+  if (sources.length === 0) return "Coinbase";
+  if (sources.length === 1) return sourceLabels[sources[0]] || sources[0];
+  return sources.map((source) => sourceAbbreviations[source] || source).join("/");
+}
+
 function render(state) {
   const status = statusLabels[state.status] ? state.status : "offline";
+  const statusLabel = statusLabels[status];
   elements.liveDot.className = `live-dot is-${status}`;
-  elements.statusText.textContent = statusLabels[status];
+  elements.statusText.textContent = statusLabel.compact;
+  elements.statusText.title = statusLabel.full;
+  elements.statusText.setAttribute("aria-label", statusLabel.full);
 
   const sources = new Set();
   for (const asset of ["BTC", "ETH"]) {
@@ -68,9 +94,13 @@ function render(state) {
     renderQuote(asset, quote);
     if (quote && quote.sourceLabel) sources.add(quote.sourceLabel);
   }
-  elements.sourceLabel.textContent = sources.size > 0
-    ? [...sources].join(" / ")
-    : "Coinbase + Kraken";
+
+  const sourceList = Array.from(sources);
+  elements.sourceLabel.textContent = compactSourceLabel(sourceList);
+  elements.sourceLabel.title = sourceList.length > 0
+    ? sourceList.join(" / ")
+    : "等待 Coinbase 或 Kraken 行情";
+
   const dataSecond = state.lastUpdateAt ? Math.floor(state.lastUpdateAt / 1_000) : null;
   if (dataSecond !== lastDataSecond) {
     lastDataSecond = dataSecond;
@@ -81,37 +111,45 @@ function render(state) {
 function renderQuote(asset, quote) {
   const view = elements[asset];
   if (!quote) {
-    view.price.textContent = "$—";
-    view.change.textContent = "24h —";
+    view.price.textContent = "—";
+    view.price.removeAttribute("title");
+    view.change.textContent = "—";
     view.change.className = "change neutral";
+    view.change.setAttribute("aria-label", `${asset} 当日涨跌尚不可用`);
     view.row.classList.add("is-stale");
+    previousPrices[asset] = null;
     return;
   }
 
   const previous = previousPrices[asset];
-  view.price.textContent = `$${priceFormatter.format(quote.price)}`;
+  const formattedPrice = priceFormatter.format(quote.price);
+  view.price.textContent = formattedPrice;
+  view.price.title = `${asset} $${formattedPrice} USD`;
   view.row.classList.toggle("is-stale", quote.stale);
 
-  if (quote.change24h === null) {
-    view.change.textContent = "24h —";
+  if (quote.changeUtc === null) {
+    view.change.textContent = "—";
     view.change.className = "change neutral";
+    view.change.setAttribute("aria-label", `${asset} 相对当天 00:00 UTC 的涨跌尚不可用`);
   } else {
-    const direction = quote.change24h > 0 ? "up" : quote.change24h < 0 ? "down" : "neutral";
-    const sign = quote.change24h > 0 ? "+" : "";
-    view.change.textContent = `24h ${sign}${quote.change24h.toFixed(2)}%`;
+    const direction = quote.changeUtc > 0 ? "up" : quote.changeUtc < 0 ? "down" : "neutral";
+    const sign = quote.changeUtc > 0 ? "+" : quote.changeUtc < 0 ? "−" : "";
+    const changeText = `${sign}${Math.abs(quote.changeUtc).toFixed(2)}%`;
+    view.change.textContent = changeText;
     view.change.className = `change ${direction}`;
+    view.change.setAttribute(
+      "aria-label",
+      `${asset} 相对当天 00:00 UTC ${quote.changeUtc >= 0 ? "上涨" : "下跌"} ${Math.abs(quote.changeUtc).toFixed(2)}%`,
+    );
   }
 
-  if (previous !== null && quote.price !== previous) {
-    const tickColor = quote.price > previous ? "#4ce2a4" : "#ff747d";
+  if (previous !== null && quote.price !== previous && !prefersReducedMotion()) {
+    const tickColor = quote.price > previous ? "#3dd49a" : "#f16b75";
     if (priceAnimations[asset]) priceAnimations[asset].cancel();
     if (typeof view.price.animate === "function") {
       priceAnimations[asset] = view.price.animate(
-        [
-          { color: tickColor, textShadow: `0 0 10px ${tickColor}55` },
-          { color: "#f8f9fc", textShadow: "none" },
-        ],
-        { duration: 420, easing: "ease-out" },
+        [{ color: tickColor }, { color: "#f3f5f8" }],
+        { duration: 200, easing: "ease-out" },
       );
     }
   }
@@ -120,19 +158,13 @@ function renderQuote(asset, quote) {
 
 function renderUpdateTime(lastUpdateAt) {
   if (!lastUpdateAt) {
-    elements.updateTime.textContent = "等待首笔行情…";
+    elements.updateTime.textContent = "等待首笔行情";
     return;
   }
 
   const ageSeconds = Math.max(0, Math.floor((Date.now() - lastUpdateAt) / 1_000));
-  const clock = new Date(lastUpdateAt).toLocaleTimeString("zh-CN", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
   const age = ageSeconds < 2 ? "刚刚" : `${ageSeconds} 秒前`;
-  elements.updateTime.textContent = `${clock} · ${age}`;
+  elements.updateTime.textContent = `行情最后更新于${age}`;
 }
 
 function tauriInvoke(command) {
