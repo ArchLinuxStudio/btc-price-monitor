@@ -42,6 +42,8 @@ npm.cmd run build:windows
 - macOS：Apple Silicon 和 Intel `.dmg`
 - Linux x64：`.AppImage` 和 `.deb`
 
+推送与 `package.json` 版本一致的 `vMAJOR.MINOR.PATCH` 标签后，工作流会在四个平台构建完成后自动创建或更新对应的 GitHub Release，并把上述安装包全部附加到 Release。手动运行工作流时只保留 Actions Artifacts，不会创建 Release；若自动发布步骤失败，应重新运行全部工作，而不是只重跑发布任务。
+
 也可以在对应平台安装 [Tauri 官方前置依赖](https://v2.tauri.app/start/prerequisites/) 后运行 `npm run build`。
 
 ## 行情来源
