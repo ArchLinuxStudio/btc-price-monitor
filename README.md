@@ -70,3 +70,7 @@ Coinbase 在 5 秒内有新价格时优先显示；主源不够新鲜时，先�
 ## 平台边界
 
 “始终置顶”适用于正常桌面会话。操作系统安全桌面（例如 Windows UAC）、锁屏、独占全屏应用，以及部分 Linux Wayland 合成器可以覆盖或限制普通应用窗口；应用无法绕过这些系统安全边界。Linux 托盘图标依赖桌面环境提供 StatusNotifier/AppIndicator 支持，部分精简 Wayland 环境可能需要对应扩展。未签名的测试安装包也可能触发 Windows SmartScreen 或 macOS Gatekeeper 提示，正式分发时应配置代码签名。
+
+## 开发文档
+
+新的开发 Thread 请从 [`AGENTS.md`](AGENTS.md) 和 [`docs/INDEX.md`](docs/INDEX.md) 开始；当前状态与下一步见 [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)。这些文件是持久化开发上下文，README 继续只承担用户使用说明。
