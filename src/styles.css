@@ -27,6 +27,10 @@ button {
   font: inherit;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .monitor {
   width: 100vw;
   height: 100vh;
@@ -152,6 +156,26 @@ button {
   stroke-width: 1.25;
 }
 
+.window-controls svg path {
+  transform-origin: center;
+  transition: opacity 120ms ease, transform 140ms ease;
+}
+
+#watchlist-button .watchlist-back {
+  opacity: 0;
+  transform: translateX(2px);
+}
+
+#watchlist-button.is-open .watchlist-plus {
+  opacity: 0;
+  transform: rotate(45deg);
+}
+
+#watchlist-button.is-open .watchlist-back {
+  opacity: 1;
+  transform: translateX(0);
+}
+
 .window-controls button:hover {
   color: #f5f7fb;
   background: #222a36;
@@ -177,14 +201,46 @@ button {
 
 .quotes {
   min-height: 0;
-  display: grid;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: #3a4352 transparent;
+  scrollbar-width: thin;
+}
+
+.quotes::-webkit-scrollbar,
+.manager-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.quotes::-webkit-scrollbar-thumb,
+.manager-list::-webkit-scrollbar-thumb {
+  background: #3a4352;
+  border-radius: 3px;
+}
+
+.quotes:focus {
+  outline: 1px solid #766cf0;
+  outline-offset: -1px;
+}
+
+.quotes:focus:not(:focus-visible) {
+  outline: 0;
+}
+
+.quotes:focus-visible {
+  outline: 1px solid #766cf0;
+  outline-offset: -1px;
+}
+
+.quotes.is-scrollable .quote-row {
+  padding-right: 3px;
 }
 
 .quote-row {
+  height: 33px;
   min-width: 0;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) 48px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
   align-items: center;
   column-gap: 4px;
   padding: 0 6px;
@@ -207,23 +263,37 @@ button {
   width: 2px;
   height: 14px;
   border-radius: 2px;
+  background: #6d7a8c;
 }
 
-.asset-marker.btc {
-  background: #f5a33a;
-  box-shadow: 0 0 5px rgba(245, 163, 58, 0.22);
-}
-
-.asset-marker.eth {
-  background: #8176ee;
-  box-shadow: 0 0 5px rgba(129, 118, 238, 0.22);
+.asset-marker.marker-0 { background: #f5a33a; }
+.asset-marker.marker-1 { background: #8176ee; }
+.asset-marker.marker-2 { background: #3dc6a7; }
+.asset-marker.marker-3 { background: #4fa8e8; }
+.asset-marker.marker-4 { background: #e66b93; }
+.asset-marker.marker-5 { background: #d1b850; }
+.asset-marker.marker-6 { background: #7fc45d; }
+.asset-marker.marker-7 { background: #ad77dd; }
 }
 
 .asset strong {
+  min-width: 0;
+  overflow: hidden;
   color: #afb7c4;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 760;
-  letter-spacing: 0.035em;
+  letter-spacing: 0.02em;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.asset strong.is-long-symbol {
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.asset strong.is-very-long-symbol {
+  font-size: 6px;
 }
 
 .price,
@@ -246,7 +316,7 @@ button {
 
 .change {
   color: #7f899a;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 720;
   line-height: 1;
   text-align: right;
@@ -263,6 +333,210 @@ button {
 .quote-row.is-stale .price,
 .quote-row.is-stale .change {
   color: #646e7d;
+}
+
+.watchlist-manager {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 32px minmax(0, 1fr);
+  overflow: hidden;
+  background: #0b0f15;
+}
+
+.search-track {
+  position: relative;
+  display: grid;
+  align-items: center;
+  padding: 4px 5px;
+  border-bottom: 1px solid #1b222d;
+  -webkit-app-region: no-drag;
+}
+
+.search-icon {
+  position: absolute;
+  left: 11px;
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: #657184;
+  stroke-linecap: round;
+  stroke-width: 1.15;
+  pointer-events: none;
+}
+
+#coin-search {
+  width: 100%;
+  height: 24px;
+  min-width: 0;
+  padding: 0 7px 0 23px;
+  border: 1px solid #283140;
+  border-radius: 4px;
+  outline: 0;
+  background: #111720;
+  color: #e9edf3;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  user-select: text;
+  -webkit-app-region: no-drag;
+}
+
+#coin-search::placeholder {
+  color: #5f6a7b;
+}
+
+#coin-search:focus {
+  border-color: #7067df;
+  box-shadow: 0 0 0 1px rgba(112, 103, 223, 0.22);
+}
+
+#coin-search:focus:not(:focus-visible) {
+  border-color: #283140;
+  box-shadow: none;
+}
+
+#coin-search:focus-visible {
+  border-color: #7067df;
+  box-shadow: 0 0 0 1px rgba(112, 103, 223, 0.22);
+}
+
+#coin-search::-webkit-search-cancel-button {
+  display: none;
+}
+
+.manager-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: #3a4352 transparent;
+  scrollbar-width: thin;
+}
+
+.manager-row {
+  width: 100%;
+  height: 28px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 39px minmax(0, 1fr) 24px;
+  align-items: center;
+  column-gap: 4px;
+  padding: 0 5px 0 7px;
+  border: 0;
+  border-bottom: 1px solid #1b222d;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+button.manager-row {
+  cursor: pointer;
+}
+
+button.manager-row:hover,
+button.manager-row:focus {
+  background: #151c26;
+}
+
+button.manager-row:focus,
+.manager-remove:focus,
+.manager-retry:focus {
+  box-shadow: inset 2px 0 #766cf0;
+}
+
+button.manager-row:focus:not(:focus-visible),
+.manager-remove:focus:not(:focus-visible),
+.manager-retry:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+
+button.manager-row:focus-visible,
+.manager-remove:focus-visible,
+.manager-retry:focus-visible {
+  box-shadow: inset 2px 0 #766cf0;
+}
+
+button.manager-row:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.manager-symbol {
+  min-width: 0;
+  overflow: hidden;
+  color: #c7ced9;
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.02em;
+  text-overflow: clip;
+  white-space: nowrap;
+}
+
+.manager-name {
+  min-width: 0;
+  overflow: hidden;
+  color: #758094;
+  font-size: 9px;
+  font-weight: 560;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manager-action,
+.manager-remove,
+.manager-retry {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #677285;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.manager-action.is-added {
+  color: #3dd49a;
+  font-size: 11px;
+}
+
+.manager-action.is-fixed {
+  color: #596477;
+  font-size: 9px;
+}
+
+.manager-remove,
+.manager-retry {
+  cursor: pointer;
+}
+
+.manager-remove:hover,
+.manager-remove:focus-visible {
+  color: #f16b75;
+  background: rgba(241, 107, 117, 0.1);
+}
+
+.manager-retry:hover,
+.manager-retry:focus-visible {
+  color: #d9d4ff;
+  background: rgba(118, 108, 240, 0.12);
+}
+
+.manager-message {
+  min-height: 28px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px;
+  margin: 0;
+  padding: 0 7px;
+  color: #6e798b;
+  font-size: 9px;
+  line-height: 1.2;
 }
 
 .sr-only {

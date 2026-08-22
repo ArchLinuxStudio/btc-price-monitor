@@ -1,27 +1,28 @@
 import { PriceFeed } from "./price-feed.js";
-
-const priceFormatter = new Intl.NumberFormat("en-US", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+import { formatUsdPrice } from "./price-format.js";
+import {
+  MAX_PRODUCTS,
+  applyBackupSourceMappings,
+  fetchBackupSourceMappings,
+  fetchProductCatalog,
+  loadWatchlist,
+  saveWatchlist,
+  searchProducts,
+} from "./watchlist.js";
 
 const elements = {
   liveDot: document.querySelector("#live-dot"),
   statusText: document.querySelector("#status-text"),
   sourceLabel: document.querySelector("#source-label"),
   updateTime: document.querySelector("#update-time"),
-  minimize: document.querySelector("#minimize-button"),
+  watchlistButton: document.querySelector("#watchlist-button"),
   close: document.querySelector("#close-button"),
-  BTC: {
-    row: document.querySelector("#btc-row"),
-    price: document.querySelector("#btc-price"),
-    change: document.querySelector("#btc-change"),
-  },
-  ETH: {
-    row: document.querySelector("#eth-row"),
-    price: document.querySelector("#eth-price"),
-    change: document.querySelector("#eth-change"),
-  },
+  quotes: document.querySelector("#quotes"),
+  quoteTemplate: document.querySelector("#quote-row-template"),
+  manager: document.querySelector("#watchlist-manager"),
+  search: document.querySelector("#coin-search"),
+  managerList: document.querySelector("#manager-list"),
+  managerStatus: document.querySelector("#manager-status"),
 };
 
 const statusLabels = {
@@ -35,26 +36,127 @@ const statusLabels = {
 const sourceLabels = {
   Coinbase: "Coinbase",
   Kraken: "Kraken",
+  Bitstamp: "Bitstamp",
+  Bitfinex: "Bitfinex",
   "Coinbase REST": "REST",
 };
 
 const sourceAbbreviations = {
   Coinbase: "CB",
   Kraken: "KR",
+  Bitstamp: "BS",
+  Bitfinex: "BFX",
   "Coinbase REST": "REST",
 };
 
-const previousPrices = { BTC: null, ETH: null };
-const priceAnimations = { BTC: null, ETH: null };
+const markerColorCount = 8;
+
+let selectedProducts = loadWatchlist();
+let quoteViews = new Map();
+const previousPrices = new Map();
+const priceAnimations = new Map();
 let latestState = null;
 let pendingState = null;
 let renderScheduled = false;
 let lastRenderAt = 0;
 let lastDataSecond = null;
+let managementOpen = false;
+let catalogState = "idle";
+let catalog = [];
+let catalogRequest = null;
+let backupSourceMappings = { bitstamp: null, bitfinex: null };
+let backupSourceMappingState = "idle";
+let backupSourceMappingRequest = null;
+let visibleSearchResults = [];
+let pendingLayout = null;
+let layoutFrame = null;
+let layoutQueue = Promise.resolve();
 
 function prefersReducedMotion() {
   return typeof globalThis.matchMedia === "function"
     && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function tauriInvoke(command, args) {
+  const tauri = globalThis.__TAURI__;
+  const invoke = tauri && tauri.core && tauri.core.invoke;
+  if (!invoke) return Promise.resolve();
+  return invoke(command, args).catch(() => undefined);
+}
+
+function setMonitorLayout(itemCount) {
+  pendingLayout = {
+    rowCount: selectedProducts.length,
+    managementOpen,
+    itemCount: Number.isFinite(itemCount) ? itemCount : selectedProducts.length,
+  };
+  if (layoutFrame !== null) return;
+  layoutFrame = requestAnimationFrame(() => {
+    layoutFrame = null;
+    const requestedLayout = pendingLayout;
+    pendingLayout = null;
+    layoutQueue = layoutQueue
+      .then(() => tauriInvoke("set_monitor_layout", requestedLayout))
+      .catch(() => undefined);
+  });
+}
+
+function clearElement(element) {
+  while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function productColorIndex(product) {
+  if (product.id === "BTC-USD") return 0;
+  if (product.id === "ETH-USD") return 1;
+  let hash = 0;
+  for (let offset = 0; offset < product.id.length; offset += 1) {
+    hash = ((hash * 31) + product.id.charCodeAt(offset)) >>> 0;
+  }
+  return 2 + (hash % (markerColorCount - 2));
+}
+
+function rebuildQuoteRows() {
+  const activeIds = new Set(selectedProducts.map((product) => product.id));
+  for (const animation of priceAnimations.values()) {
+    if (animation) animation.cancel();
+  }
+  priceAnimations.clear();
+  for (const productId of previousPrices.keys()) {
+    if (!activeIds.has(productId)) previousPrices.delete(productId);
+  }
+
+  clearElement(elements.quotes);
+  quoteViews = new Map();
+  const fragment = document.createDocumentFragment();
+
+  selectedProducts.forEach((product, index) => {
+    const row = elements.quoteTemplate.content.firstElementChild.cloneNode(true);
+    const marker = row.querySelector(".asset-marker");
+    const symbol = row.querySelector(".asset strong");
+    const price = row.querySelector(".price");
+    const change = row.querySelector(".change");
+    row.dataset.productId = product.id;
+    row.setAttribute("aria-label", `${product.name}，${product.symbol} 美元行情`);
+    marker.classList.add(`marker-${productColorIndex(product)}`);
+    symbol.textContent = product.symbol;
+    if (product.symbol.length > 5) symbol.classList.add("is-long-symbol");
+    if (product.symbol.length > 8) symbol.classList.add("is-very-long-symbol");
+    quoteViews.set(product.id, { row, price, change });
+    fragment.appendChild(row);
+  });
+
+  elements.quotes.appendChild(fragment);
+  const scrollable = selectedProducts.length > 4;
+  elements.quotes.classList.toggle("is-scrollable", scrollable);
+  if (scrollable) {
+    elements.quotes.tabIndex = 0;
+    elements.quotes.setAttribute("aria-label", "自选币种实时价格，可用方向键滚动");
+  } else {
+    elements.quotes.removeAttribute("tabindex");
+    elements.quotes.setAttribute("aria-label", "自选币种实时价格");
+  }
+  if (latestState) render(latestState);
+  if (!managementOpen) void setMonitorLayout(selectedProducts.length);
 }
 
 function queueRender(state) {
@@ -77,7 +179,8 @@ function queueRender(state) {
 function compactSourceLabel(sources) {
   if (sources.length === 0) return "Coinbase";
   if (sources.length === 1) return sourceLabels[sources[0]] || sources[0];
-  return sources.map((source) => sourceAbbreviations[source] || source).join("/");
+  const compact = sources.map((source) => sourceAbbreviations[source] || source);
+  return compact.length === 2 ? compact.join("/") : `${compact[0]}+${compact.length - 1}`;
 }
 
 function render(state) {
@@ -85,21 +188,20 @@ function render(state) {
   const statusLabel = statusLabels[status];
   elements.liveDot.className = `live-dot is-${status}`;
   elements.statusText.textContent = statusLabel.compact;
-  elements.statusText.title = statusLabel.full;
   elements.statusText.setAttribute("aria-label", statusLabel.full);
 
   const sources = new Set();
-  for (const asset of ["BTC", "ETH"]) {
-    const quote = state.prices[asset];
-    renderQuote(asset, quote);
+  for (const product of selectedProducts) {
+    const quote = state.prices[product.id] || state.prices[product.symbol];
+    renderQuote(product, quote);
     if (quote && quote.sourceLabel) sources.add(quote.sourceLabel);
   }
 
   const sourceList = Array.from(sources);
   elements.sourceLabel.textContent = compactSourceLabel(sourceList);
-  elements.sourceLabel.title = sourceList.length > 0
+  elements.sourceLabel.setAttribute("aria-label", sourceList.length > 0
     ? sourceList.join(" / ")
-    : "等待 Coinbase 或 Kraken 行情";
+    : "等待 Coinbase、Kraken、Bitstamp 或 Bitfinex 行情");
 
   const dataSecond = state.lastUpdateAt ? Math.floor(state.lastUpdateAt / 1_000) : null;
   if (dataSecond !== lastDataSecond) {
@@ -108,29 +210,31 @@ function render(state) {
   }
 }
 
-function renderQuote(asset, quote) {
-  const view = elements[asset];
+function renderQuote(product, quote) {
+  const view = quoteViews.get(product.id);
+  if (!view) return;
+
   if (!quote) {
     view.price.textContent = "—";
-    view.price.removeAttribute("title");
+    view.price.setAttribute("aria-label", `${product.symbol} 价格尚不可用`);
     view.change.textContent = "—";
     view.change.className = "change neutral";
-    view.change.setAttribute("aria-label", `${asset} 当日涨跌尚不可用`);
+    view.change.setAttribute("aria-label", `${product.symbol} 当日涨跌尚不可用`);
     view.row.classList.add("is-stale");
-    previousPrices[asset] = null;
+    previousPrices.delete(product.id);
     return;
   }
 
-  const previous = previousPrices[asset];
-  const formattedPrice = priceFormatter.format(quote.price);
+  const previous = previousPrices.has(product.id) ? previousPrices.get(product.id) : null;
+  const formattedPrice = formatUsdPrice(quote.price);
   view.price.textContent = formattedPrice;
-  view.price.title = `${asset} $${formattedPrice} USD`;
+  view.price.setAttribute("aria-label", `${product.symbol} ${formattedPrice} 美元`);
   view.row.classList.toggle("is-stale", quote.stale);
 
   if (quote.changeUtc === null) {
     view.change.textContent = "—";
     view.change.className = "change neutral";
-    view.change.setAttribute("aria-label", `${asset} 相对当天 00:00 UTC 的涨跌尚不可用`);
+    view.change.setAttribute("aria-label", `${product.symbol} 相对当天 00:00 UTC 的涨跌尚不可用`);
   } else {
     const direction = quote.changeUtc > 0 ? "up" : quote.changeUtc < 0 ? "down" : "neutral";
     const sign = quote.changeUtc > 0 ? "+" : quote.changeUtc < 0 ? "−" : "";
@@ -139,21 +243,22 @@ function renderQuote(asset, quote) {
     view.change.className = `change ${direction}`;
     view.change.setAttribute(
       "aria-label",
-      `${asset} 相对当天 00:00 UTC ${quote.changeUtc >= 0 ? "上涨" : "下跌"} ${Math.abs(quote.changeUtc).toFixed(2)}%`,
+      `${product.symbol} 相对当天 00:00 UTC ${quote.changeUtc >= 0 ? "上涨" : "下跌"} ${Math.abs(quote.changeUtc).toFixed(2)}%`,
     );
   }
 
   if (previous !== null && quote.price !== previous && !prefersReducedMotion()) {
     const tickColor = quote.price > previous ? "#3dd49a" : "#f16b75";
-    if (priceAnimations[asset]) priceAnimations[asset].cancel();
+    const previousAnimation = priceAnimations.get(product.id);
+    if (previousAnimation) previousAnimation.cancel();
     if (typeof view.price.animate === "function") {
-      priceAnimations[asset] = view.price.animate(
+      priceAnimations.set(product.id, view.price.animate(
         [{ color: tickColor }, { color: "#f3f5f8" }],
         { duration: 200, easing: "ease-out" },
-      );
+      ));
     }
   }
-  previousPrices[asset] = quote.price;
+  previousPrices.set(product.id, quote.price);
 }
 
 function renderUpdateTime(lastUpdateAt) {
@@ -167,28 +272,365 @@ function renderUpdateTime(lastUpdateAt) {
   elements.updateTime.textContent = `行情最后更新于${age}`;
 }
 
-function tauriInvoke(command) {
-  const tauri = globalThis.__TAURI__;
-  const invoke = tauri && tauri.core && tauri.core.invoke;
-  return invoke ? invoke(command) : Promise.resolve();
+function announceManager(message) {
+  elements.managerStatus.textContent = message;
 }
 
-elements.minimize.addEventListener("click", () => {
-  void tauriInvoke("minimize_window");
+function managerCell(className, text) {
+  const cell = document.createElement("span");
+  cell.className = className;
+  cell.textContent = text;
+  return cell;
+}
+
+function renderSelectedProduct(product, index) {
+  const row = document.createElement("div");
+  row.className = "manager-row";
+  row.appendChild(managerCell("manager-symbol", product.symbol));
+  row.appendChild(managerCell("manager-name", product.name));
+
+  if (product.fixed) {
+    const fixed = managerCell("manager-action is-fixed", "•");
+    fixed.setAttribute("aria-hidden", "true");
+    row.setAttribute("aria-label", `${product.name}，固定币种`);
+    row.appendChild(fixed);
+  } else {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "manager-remove";
+    remove.setAttribute("aria-label", `删除 ${product.symbol}`);
+    remove.textContent = "×";
+    remove.addEventListener("click", () => removeProduct(product.id, index));
+    row.appendChild(remove);
+  }
+  elements.managerList.appendChild(row);
+}
+
+function renderSearchProduct(product) {
+  const selected = selectedProducts.some((entry) => entry.id === product.id);
+  const full = selectedProducts.length >= MAX_PRODUCTS;
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "manager-row";
+  row.disabled = selected || full;
+  row.setAttribute("aria-label", selected
+    ? `${product.name} 已添加`
+    : full
+      ? `自选已满，无法添加 ${product.name}`
+      : `添加 ${product.name} ${product.symbol}`);
+  row.appendChild(managerCell("manager-symbol", product.symbol));
+  row.appendChild(managerCell("manager-name", product.name));
+
+  const action = managerCell(
+    `manager-action${selected ? " is-added" : ""}${full && !selected ? " is-full" : ""}`,
+    selected ? "✓" : full ? "满" : "+",
+  );
+  action.setAttribute("aria-hidden", "true");
+  row.appendChild(action);
+  if (!selected && !full) row.addEventListener("click", () => addProduct(product));
+  elements.managerList.appendChild(row);
+}
+
+function renderManagerMessage(message, retry) {
+  const row = document.createElement("p");
+  row.className = "manager-message";
+  row.appendChild(document.createTextNode(message));
+  if (retry) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "manager-retry";
+    button.setAttribute("aria-label", "重新加载币种列表");
+    button.textContent = "↻";
+    button.addEventListener("click", () => void ensureCatalog(true));
+    row.appendChild(button);
+  }
+  elements.managerList.appendChild(row);
+  void setMonitorLayout(1);
+}
+
+function renderManager() {
+  if (!managementOpen) return;
+  clearElement(elements.managerList);
+  visibleSearchResults = [];
+  const query = elements.search.value.trim();
+
+  if (!query) {
+    selectedProducts.forEach(renderSelectedProduct);
+    void setMonitorLayout(selectedProducts.length);
+    return;
+  }
+
+  if (catalogState === "idle" || catalogState === "loading") {
+    renderManagerMessage("正在加载免费 USD 币种…", false);
+    return;
+  }
+  if (catalogState === "error") {
+    renderManagerMessage("币种列表加载失败", true);
+    return;
+  }
+
+  visibleSearchResults = searchProducts(catalog, query, 24);
+  if (visibleSearchResults.length === 0) {
+    renderManagerMessage("没有匹配的 USD 币种", false);
+    return;
+  }
+  visibleSearchResults.forEach(renderSearchProduct);
+  void setMonitorLayout(visibleSearchResults.length);
+}
+
+async function ensureCatalog(force) {
+  if (catalogRequest) return catalogRequest;
+  if (catalogState === "ready" && !force) return catalog;
+  void ensureBackupSourceMappings(force);
+  catalogState = "loading";
+  renderManager();
+
+  const fetchImpl = typeof globalThis.fetch === "function"
+    ? globalThis.fetch.bind(globalThis)
+    : null;
+  const controller = new AbortController();
+  let timeout = null;
+  const catalogFetch = fetchProductCatalog(fetchImpl
+    ? (url, options) => fetchImpl(url, { ...options, signal: controller.signal })
+    : null);
+  const deadline = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("catalog request timed out"));
+    }, 8_000);
+  });
+  catalogRequest = Promise.race([catalogFetch, deadline])
+    .then((products) => {
+      if (products.length === 0) throw new Error("catalog is empty");
+      catalog = applyBackupSourceMappings(products, backupSourceMappings);
+      catalogState = "ready";
+      const catalogById = new Map(catalog.map((product) => [product.id, product]));
+      const enriched = selectedProducts.map((product) => {
+        const current = catalogById.get(product.id);
+        if (!current) return product;
+        return { ...product, name: current.name };
+      });
+      const namesChanged = enriched.some((product, index) => (
+        product.name !== selectedProducts[index].name
+      ));
+      selectedProducts = applyBackupSourceMappings(
+        saveWatchlist(enriched),
+        backupSourceMappings,
+      );
+      if (namesChanged) rebuildQuoteRows();
+      renderManager();
+      return catalog;
+    })
+    .catch(() => {
+      catalogState = "error";
+      renderManager();
+      return [];
+    })
+    .finally(() => {
+      clearTimeout(timeout);
+      catalogRequest = null;
+    });
+  return catalogRequest;
+}
+
+function backupCoverageSignature(products) {
+  return products.map((product) => (
+    `${product.id}\u0000${product.bitstampSymbol || ""}\u0000${product.bitfinexSymbol || ""}`
+  )).join("\u0001");
+}
+
+async function ensureBackupSourceMappings(force) {
+  if (backupSourceMappingRequest) return backupSourceMappingRequest;
+  if (backupSourceMappingState === "ready" && !force) return backupSourceMappings;
+
+  const fetchImpl = typeof globalThis.fetch === "function"
+    ? globalThis.fetch.bind(globalThis)
+    : null;
+  if (!fetchImpl) return backupSourceMappings;
+
+  backupSourceMappingState = "loading";
+  const controller = new AbortController();
+  let timeout = null;
+  const mappingFetch = fetchBackupSourceMappings((url, options) => (
+    fetchImpl(url, { ...options, signal: controller.signal })
+  ));
+  const deadline = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("backup source directory request timed out"));
+    }, 8_000);
+  });
+
+  backupSourceMappingRequest = Promise.race([mappingFetch, deadline])
+    .then((mappings) => {
+      if (!(mappings.bitstamp instanceof Map) && !(mappings.bitfinex instanceof Map)) {
+        throw new Error("backup source directories are unavailable");
+      }
+      const before = backupCoverageSignature(selectedProducts);
+      backupSourceMappings = {
+        bitstamp: mappings.bitstamp instanceof Map
+          ? mappings.bitstamp
+          : backupSourceMappings.bitstamp,
+        bitfinex: mappings.bitfinex instanceof Map
+          ? mappings.bitfinex
+          : backupSourceMappings.bitfinex,
+      };
+      selectedProducts = applyBackupSourceMappings(
+        saveWatchlist(applyBackupSourceMappings(selectedProducts, backupSourceMappings)),
+        backupSourceMappings,
+      );
+      if (catalogState === "ready") {
+        catalog = applyBackupSourceMappings(catalog, backupSourceMappings);
+      }
+      backupSourceMappingState = "ready";
+      if (backupCoverageSignature(selectedProducts) !== before) {
+        feed.setProducts(selectedProducts);
+      }
+      renderManager();
+      return backupSourceMappings;
+    })
+    .catch(() => {
+      backupSourceMappingState = "error";
+      return backupSourceMappings;
+    })
+    .finally(() => {
+      clearTimeout(timeout);
+      backupSourceMappingRequest = null;
+    });
+  return backupSourceMappingRequest;
+}
+
+function openManager() {
+  managementOpen = true;
+  elements.quotes.hidden = true;
+  elements.manager.hidden = false;
+  elements.watchlistButton.classList.add("is-open");
+  elements.watchlistButton.setAttribute("aria-expanded", "true");
+  elements.watchlistButton.setAttribute("aria-label", "返回价格列表");
+  elements.search.value = "";
+  renderManager();
+  void ensureCatalog(false);
+  requestAnimationFrame(() => {
+    if (managementOpen && !elements.manager.hidden) elements.search.focus();
+  });
+}
+
+function closeManager(restoreFocus) {
+  if (!managementOpen) return;
+  managementOpen = false;
+  elements.manager.hidden = true;
+  elements.quotes.hidden = false;
+  elements.watchlistButton.classList.remove("is-open");
+  elements.watchlistButton.setAttribute("aria-expanded", "false");
+  elements.watchlistButton.setAttribute("aria-label", "添加或管理自选币种");
+  elements.search.value = "";
+  clearElement(elements.managerList);
+  void setMonitorLayout(selectedProducts.length);
+  if (restoreFocus) elements.watchlistButton.focus();
+}
+
+function addProduct(product) {
+  if (selectedProducts.some((entry) => entry.id === product.id)) return;
+  if (selectedProducts.length >= MAX_PRODUCTS) {
+    announceManager(`最多可显示 ${MAX_PRODUCTS} 个币种`);
+    return;
+  }
+
+  selectedProducts = saveWatchlist(selectedProducts.concat([product]));
+  feed.setProducts(selectedProducts);
+  rebuildQuoteRows();
+  announceManager(`已添加 ${product.symbol}`);
+  closeManager(true);
+}
+
+function removeProduct(productId, previousIndex) {
+  const product = selectedProducts.find((entry) => entry.id === productId);
+  if (!product || product.fixed) return;
+  selectedProducts = saveWatchlist(selectedProducts.filter((entry) => entry.id !== productId));
+  feed.setProducts(selectedProducts);
+  rebuildQuoteRows();
+  announceManager(`已删除 ${product.symbol}`);
+  renderManager();
+  requestAnimationFrame(() => {
+    if (!managementOpen || elements.manager.hidden) return;
+    const buttons = elements.managerList.querySelectorAll(".manager-remove");
+    if (buttons.length > 0) {
+      const targetIndex = Math.min(Math.max(0, previousIndex - 2), buttons.length - 1);
+      if (buttons[targetIndex].isConnected) buttons[targetIndex].focus();
+    } else {
+      elements.search.focus();
+    }
+  });
+}
+
+elements.watchlistButton.addEventListener("click", () => {
+  if (managementOpen) closeManager(true);
+  else openManager();
+});
+
+elements.search.addEventListener("input", renderManager);
+elements.search.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && elements.search.value.trim()) {
+    const firstAvailable = visibleSearchResults.find((product) => (
+      !selectedProducts.some((entry) => entry.id === product.id)
+    ));
+    if (firstAvailable && selectedProducts.length < MAX_PRODUCTS) {
+      event.preventDefault();
+      addProduct(firstAvailable);
+    }
+  }
+});
+
+elements.manager.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeManager(true);
+    return;
+  }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+
+  const targets = [
+    elements.search,
+    ...Array.from(elements.manager.querySelectorAll("button:not(:disabled)")),
+  ];
+  const currentIndex = targets.indexOf(document.activeElement);
+  if (currentIndex < 0) return;
+  const step = event.key === "ArrowDown" ? 1 : -1;
+  const nextIndex = Math.min(Math.max(0, currentIndex + step), targets.length - 1);
+  if (nextIndex !== currentIndex) {
+    event.preventDefault();
+    targets[nextIndex].focus();
+  }
+});
+
+elements.quotes.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  elements.quotes.scrollTop += event.key === "ArrowDown" ? 33 : -33;
 });
 
 elements.close.addEventListener("click", () => {
+  closeManager(false);
   void tauriInvoke("close_window");
 });
 
-const feed = new PriceFeed();
+rebuildQuoteRows();
+const feed = new PriceFeed({ products: selectedProducts });
 feed.subscribe(queueRender);
 feed.start();
+void ensureBackupSourceMappings(false);
 
-globalThis.addEventListener("online", () => feed.reconnectAll());
+globalThis.addEventListener("online", () => {
+  feed.reconnectAll();
+  void ensureBackupSourceMappings(true);
+});
 globalThis.addEventListener("offline", () => queueRender(feed.getState()));
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") feed.reconnectAll();
+  if (document.visibilityState === "visible") {
+    feed.reconnectAll();
+  } else {
+    closeManager(false);
+  }
 });
 globalThis.addEventListener("beforeunload", () => feed.stop(), { once: true });
 

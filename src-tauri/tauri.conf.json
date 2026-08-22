@@ -11,13 +11,13 @@
     "windows": [
       {
         "label": "main",
-        "title": "Crypto Top — BTC ETH USD",
+        "title": "Crypto Top — USD Watchlist",
         "width": 208,
         "height": 92,
         "minWidth": 208,
         "minHeight": 92,
         "maxWidth": 208,
-        "maxHeight": 92,
+        "maxHeight": 170,
         "resizable": false,
         "maximizable": false,
         "fullscreen": false,
@@ -43,8 +43,11 @@
           "http://ipc.localhost",
           "https://api.exchange.coinbase.com",
           "https://api.kraken.com",
+          "https://www.bitstamp.net",
           "wss://advanced-trade-ws.coinbase.com",
-          "wss://ws.kraken.com"
+          "wss://ws.kraken.com",
+          "wss://ws.bitstamp.net",
+          "wss://api-pub.bitfinex.com"
         ],
         "object-src": ["'none'"],
         "base-uri": ["'none'"]
@@ -54,8 +57,8 @@
   "bundle": {
     "active": true,
     "category": "Finance",
-    "shortDescription": "Real-time BTC and ETH prices in USD",
-    "longDescription": "A compact always-on-top monitor for live BTC/USD and ETH/USD prices.",
+    "shortDescription": "Compact real-time crypto prices in USD",
+    "longDescription": "A compact always-on-top USD crypto watchlist with free live market data.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

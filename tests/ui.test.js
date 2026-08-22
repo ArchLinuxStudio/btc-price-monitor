@@ -1,0 +1,60 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+function readProjectFile(relativePath) {
+  return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
+}
+
+test("does not expose mouse-hover text tooltips", () => {
+  const html = readProjectFile("src/index.html");
+  const javascript = readProjectFile("src/main.js");
+  const rust = readProjectFile("src-tauri/src/lib.rs");
+
+  assert.doesNotMatch(html, /\btitle\s*=/i);
+  assert.doesNotMatch(javascript, /(?:\.title\s*=|(?:set|remove)Attribute\(\s*["']title["'])/);
+  assert.doesNotMatch(rust, /\.tooltip\s*\(/);
+});
+
+test("uses a compact watchlist manager instead of permanent row controls", () => {
+  const html = readProjectFile("src/index.html");
+  const css = readProjectFile("src/styles.css");
+  const javascript = readProjectFile("src/main.js");
+  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json"));
+  const windowConfig = tauriConfig.app.windows[0];
+
+  assert.match(html, /id="watchlist-button"/);
+  assert.match(html, /id="watchlist-manager"/);
+  assert.match(html, /id="coin-search"[\s\S]*?type="search"/);
+  assert.match(html, /id="quote-row-template"/);
+  assert.doesNotMatch(html, /id="minimize-button"/);
+  assert.doesNotMatch(javascript, /\.innerHTML\s*=/);
+  assert.match(javascript, /feed\.setProducts\(selectedProducts\)/);
+  assert.match(css, /grid-template-columns:\s*40px minmax\(0, 1fr\) 40px/);
+  assert.equal(windowConfig.width, 208);
+  assert.equal(windowConfig.minWidth, 208);
+  assert.equal(windowConfig.maxWidth, 208);
+  assert.equal(windowConfig.height, 92);
+  assert.equal(windowConfig.maxHeight, 170);
+  assert.equal(windowConfig.resizable, false);
+});
+
+test("keeps market-data CSP origins explicit and aligned with browser-safe transports", () => {
+  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json"));
+  const connectSources = tauriConfig.app.security.csp["connect-src"];
+
+  for (const origin of [
+    "https://api.exchange.coinbase.com",
+    "https://api.kraken.com",
+    "https://www.bitstamp.net",
+    "wss://advanced-trade-ws.coinbase.com",
+    "wss://ws.kraken.com",
+    "wss://ws.bitstamp.net",
+    "wss://api-pub.bitfinex.com",
+  ]) {
+    assert.equal(connectSources.includes(origin), true, `missing CSP origin ${origin}`);
+  }
+  assert.equal(connectSources.includes("https://api-pub.bitfinex.com"), false);
+  assert.equal(connectSources.some((origin) => origin.includes("*")), false);
+});

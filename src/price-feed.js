@@ -1,61 +1,26 @@
-const ASSETS = ["BTC", "ETH"];
+import { DEFAULT_PRODUCTS } from "./watchlist.js";
+
 const STALE_AFTER_MS = 12_000;
 const PRIMARY_PREFERENCE_MS = 5_000;
 const REST_FALLBACK_INTERVAL_MS = 5_000;
-const REST_ENDPOINTS = {
-  BTC: "https://api.exchange.coinbase.com/products/BTC-USD/ticker",
-  ETH: "https://api.exchange.coinbase.com/products/ETH-USD/ticker",
-};
 const DAY_MS = 86_400_000;
-const UTC_OPEN_WINDOW_MS = 5 * 60_000;
-const UTC_OPEN_WINDOWS_MS = [UTC_OPEN_WINDOW_MS, 30 * 60_000, (300 * 60_000) - 1];
-const UTC_OPEN_ENDPOINTS = {
-  BTC: "https://api.exchange.coinbase.com/products/BTC-USD/candles",
-  ETH: "https://api.exchange.coinbase.com/products/ETH-USD/candles",
-};
-const KRAKEN_TICKER_ENDPOINT = "https://api.kraken.com/0/public/Ticker?pair=xbtusd,ethusd&assetVersion=1";
+const UTC_OPEN_GRANULARITY_SECONDS = 3_600;
+const COINBASE_API_ROOT = "https://api.exchange.coinbase.com/products";
+const KRAKEN_TICKER_ROOT = "https://api.kraken.com/0/public/Ticker";
+const BITSTAMP_API_ROOT = "https://www.bitstamp.net/api/v2";
+const SOURCE_IDS = ["coinbase", "kraken", "bitstamp", "bitfinex"];
+const QUOTE_SOURCE_IDS = SOURCE_IDS.concat(["coinbaseRest"]);
+const REST_CONCURRENCY = 3;
+const SOURCE_PRIORITY = new Map(QUOTE_SOURCE_IDS.map((source, index) => [source, index]));
 
-const SOURCES = [
-  {
-    id: "coinbase",
-    label: "Coinbase",
-    url: "wss://advanced-trade-ws.coinbase.com",
-    subscriptions: [
-      {
-        type: "subscribe",
-        product_ids: ["BTC-USD", "ETH-USD"],
-        channel: "ticker",
-      },
-      { type: "subscribe", channel: "heartbeats" },
-    ],
-    parser: parseCoinbaseMessage,
-    idleTimeoutMs: 10_000,
-    quoteTimeoutMs: 20_000,
-    assets: ["BTC", "ETH"],
-  },
-  {
-    id: "kraken",
-    label: "Kraken",
-    url: "wss://ws.kraken.com/v2",
-    subscriptions: [
-      {
-        method: "subscribe",
-        params: {
-          channel: "ticker",
-          symbol: ["BTC/USD", "ETH/USD"],
-          event_trigger: "trades",
-          snapshot: true,
-        },
-        req_id: 1,
-      },
-    ],
-    parser: parseKrakenMessage,
-    idleTimeoutMs: 10_000,
-    quoteTimeoutMs: 20_000,
-    assets: ["BTC", "ETH"],
-    pingMessage: () => ({ method: "ping", req_id: Date.now() % 2_147_483_647 }),
-  },
-];
+const LEGACY_COINBASE_ASSETS = new Map([
+  ["BTC-USD", "BTC"],
+  ["ETH-USD", "ETH"],
+]);
+const LEGACY_KRAKEN_ASSETS = new Map([
+  ["BTC/USD", "BTC"],
+  ["ETH/USD", "ETH"],
+]);
 
 function parseJson(raw) {
   try {
@@ -87,7 +52,110 @@ function timestamp(value, fallback) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function parseCoinbaseMessage(raw, receivedAt = Date.now()) {
+function hasOwn(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, Math.max(1, limit));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function newestQuoteFirst(left, right) {
+  const recency = right.receivedAt - left.receivedAt;
+  if (recency !== 0) return recency;
+  return (SOURCE_PRIORITY.get(left.source) || 0) - (SOURCE_PRIORITY.get(right.source) || 0);
+}
+
+function mappedAsset(mapping, key, legacyMapping) {
+  if (mapping instanceof Map) return mapping.get(key) || null;
+  if (mapping && typeof mapping === "object") {
+    return hasOwn(mapping, key) ? mapping[key] : null;
+  }
+  return legacyMapping.get(key) || null;
+}
+
+function normalizeProduct(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const rawId = raw.id || raw.coinbaseProductId || raw.productId;
+  const id = typeof rawId === "string" ? rawId.trim().toUpperCase() : "";
+  if (!id || !id.endsWith("-USD")) return null;
+
+  const rawSymbol = typeof raw.symbol === "string"
+    ? raw.symbol.trim().toUpperCase()
+    : id.slice(0, -4);
+  if (!rawSymbol) return null;
+
+  const rawKrakenSymbol = raw.krakenSymbol || raw.krakenWsSymbol || raw.krakenPair;
+  const krakenSymbol = typeof rawKrakenSymbol === "string" && rawKrakenSymbol.trim()
+    ? rawKrakenSymbol.trim().toUpperCase()
+    : null;
+  const bitstampSymbol = typeof raw.bitstampSymbol === "string" && raw.bitstampSymbol.trim()
+    ? raw.bitstampSymbol.trim().toLowerCase()
+    : null;
+  const bitfinexSymbol = typeof raw.bitfinexSymbol === "string" && raw.bitfinexSymbol.trim()
+    ? raw.bitfinexSymbol.trim()
+    : null;
+
+  return {
+    ...raw,
+    id,
+    symbol: rawSymbol,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim() : rawSymbol,
+    krakenSymbol,
+    bitstampSymbol,
+    bitfinexSymbol,
+    fixed: raw.fixed === true,
+  };
+}
+
+function normalizeProducts(products) {
+  const normalized = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(products) ? products : []) {
+    const product = normalizeProduct(raw);
+    if (!product || seen.has(product.id)) continue;
+    seen.add(product.id);
+    normalized.push(product);
+  }
+
+  if (normalized.length > 0 || products === DEFAULT_PRODUCTS) return normalized;
+  return normalizeProducts(DEFAULT_PRODUCTS);
+}
+
+function sourceSupportsProduct(source, product) {
+  if (source === "coinbase") return true;
+  if (source === "kraken") return Boolean(product.krakenSymbol);
+  if (source === "bitstamp") return Boolean(product.bitstampSymbol);
+  if (source === "bitfinex") return Boolean(product.bitfinexSymbol);
+  return false;
+}
+
+function sourceSymbol(source, product) {
+  if (source === "coinbase") return product.id;
+  if (source === "kraken") return product.krakenSymbol;
+  if (source === "bitstamp") return product.bitstampSymbol;
+  if (source === "bitfinex") return product.bitfinexSymbol;
+  return null;
+}
+
+function sourceProductIds(source, products) {
+  return products
+    .filter((product) => sourceSupportsProduct(source, product))
+    .map((product) => product.id);
+}
+
+export function parseCoinbaseMessage(raw, receivedAt = Date.now(), productMapping = null) {
   const message = parseJson(raw);
   if (!message || message.channel !== "ticker" || !Array.isArray(message.events)) {
     return [];
@@ -100,11 +168,11 @@ export function parseCoinbaseMessage(raw, receivedAt = Date.now()) {
     if (!event || !Array.isArray(event.tickers)) continue;
 
     for (const ticker of event.tickers) {
-      const asset = ticker.product_id === "BTC-USD"
-        ? "BTC"
-        : ticker.product_id === "ETH-USD"
-          ? "ETH"
-          : null;
+      const asset = mappedAsset(
+        productMapping,
+        ticker.product_id,
+        LEGACY_COINBASE_ASSETS,
+      );
       const price = positivePrice(ticker.price);
       if (!asset || price === null) continue;
 
@@ -112,6 +180,8 @@ export function parseCoinbaseMessage(raw, receivedAt = Date.now()) {
         asset,
         price,
         source: "coinbase",
+        marketSource: "coinbase",
+        transport: "ws",
         sourceLabel: "Coinbase",
         exchangeAt,
         receivedAt,
@@ -122,7 +192,7 @@ export function parseCoinbaseMessage(raw, receivedAt = Date.now()) {
   return quotes;
 }
 
-export function parseKrakenMessage(raw, receivedAt = Date.now()) {
+export function parseKrakenMessage(raw, receivedAt = Date.now(), symbolMapping = null) {
   const message = parseJson(raw);
   if (!message || message.channel !== "ticker" || !Array.isArray(message.data)) {
     return [];
@@ -130,11 +200,7 @@ export function parseKrakenMessage(raw, receivedAt = Date.now()) {
 
   const quotes = [];
   for (const ticker of message.data) {
-    const asset = ticker.symbol === "BTC/USD"
-      ? "BTC"
-      : ticker.symbol === "ETH/USD"
-        ? "ETH"
-        : null;
+    const asset = mappedAsset(symbolMapping, ticker.symbol, LEGACY_KRAKEN_ASSETS);
     const price = positivePrice(ticker.last);
     if (!asset || price === null) continue;
 
@@ -142,6 +208,8 @@ export function parseKrakenMessage(raw, receivedAt = Date.now()) {
       asset,
       price,
       source: "kraken",
+      marketSource: "kraken",
+      transport: "ws",
       sourceLabel: "Kraken",
       exchangeAt: timestamp(ticker.timestamp, receivedAt),
       receivedAt,
@@ -151,17 +219,158 @@ export function parseKrakenMessage(raw, receivedAt = Date.now()) {
   return quotes;
 }
 
+function bitstampExchangeAt(data, receivedAt) {
+  const microseconds = finiteNumber(data && data.microtimestamp);
+  if (microseconds !== null && microseconds > 0) return Math.floor(microseconds / 1_000);
+  const seconds = finiteNumber(data && data.timestamp);
+  return seconds !== null && seconds > 0 ? Math.floor(seconds * 1_000) : receivedAt;
+}
+
+export function parseBitstampMessage(raw, receivedAt = Date.now(), symbolMapping = null) {
+  const message = parseJson(raw);
+  if (
+    !message
+    || message.event !== "trade"
+    || typeof message.channel !== "string"
+    || !message.channel.startsWith("live_trades_")
+    || !message.data
+    || typeof message.data !== "object"
+  ) return [];
+
+  const marketSymbol = message.channel.slice("live_trades_".length);
+  const asset = mappedAsset(symbolMapping, marketSymbol, new Map());
+  const price = positivePrice(message.data.price_str || message.data.price);
+  if (!asset || price === null) return [];
+  return [{
+    asset,
+    price,
+    source: "bitstamp",
+    marketSource: "bitstamp",
+    transport: "ws",
+    sourceLabel: "Bitstamp",
+    exchangeAt: bitstampExchangeAt(message.data, receivedAt),
+    receivedAt,
+  }];
+}
+
+function bitfinexTradeQuote(asset, trade, receivedAt, snapshot) {
+  if (!Array.isArray(trade)) return null;
+  const exchangeAt = finiteNumber(trade[1]);
+  const price = positivePrice(trade[3]);
+  if (exchangeAt === null || exchangeAt <= 0 || price === null) return null;
+  return {
+    asset,
+    price,
+    source: "bitfinex",
+    marketSource: "bitfinex",
+    transport: "ws",
+    sourceLabel: "Bitfinex",
+    exchangeAt,
+    receivedAt: snapshot ? Math.min(receivedAt, exchangeAt) : receivedAt,
+  };
+}
+
+function bitfinexUtcOpenEvent(asset, candle) {
+  if (!Array.isArray(candle)) return null;
+  const candleAt = finiteNumber(candle[0]);
+  const openPrice = positivePrice(candle[1]);
+  const volume = positivePrice(candle[5]);
+  if (candleAt === null || candleAt <= 0 || openPrice === null || volume === null) return null;
+  return {
+    kind: "utcOpen",
+    asset,
+    source: "bitfinex",
+    marketSource: "bitfinex",
+    candleAt,
+    openPrice,
+  };
+}
+
+export function createBitfinexTradesParser(symbolMapping = null) {
+  const channels = new Map();
+  const candleMapping = new Map();
+  if (symbolMapping instanceof Map) {
+    for (const [symbol, asset] of symbolMapping.entries()) {
+      candleMapping.set(`trade:1D:${symbol}`, asset);
+    }
+  }
+  return (raw, receivedAt = Date.now()) => {
+    const message = parseJson(raw);
+    if (!message) return [];
+
+    if (!Array.isArray(message)) {
+      if (message.event === "subscribed" && finiteNumber(message.chanId) !== null) {
+        if (message.channel === "trades") {
+          const asset = mappedAsset(symbolMapping, message.symbol, new Map());
+          if (asset) {
+            channels.set(Number(message.chanId), { asset, channel: "trades" });
+            return [{ kind: "subscriptionAck", key: `trades:${message.symbol}` }];
+          }
+        } else if (message.channel === "candles") {
+          const asset = candleMapping.get(message.key);
+          if (asset) {
+            channels.set(Number(message.chanId), { asset, channel: "candles" });
+            return [{ kind: "subscriptionAck", key: `candles:${message.key}` }];
+          }
+        }
+      }
+      if (message.event === "error") {
+        return [{
+          kind: "subscriptionError",
+          code: finiteNumber(message.code),
+          message: typeof message.msg === "string" ? message.msg : "Bitfinex subscription error",
+        }];
+      }
+      return [];
+    }
+
+    const channel = channels.get(Number(message[0]));
+    if (!channel || message[1] === "hb") return [];
+    if (channel.channel === "candles") {
+      const candles = Array.isArray(message[1]) && Array.isArray(message[1][0])
+        ? message[1]
+        : [message[1]];
+      let newest = null;
+      for (const candle of candles) {
+        const event = bitfinexUtcOpenEvent(channel.asset, candle);
+        if (event && (!newest || event.candleAt > newest.candleAt)) newest = event;
+      }
+      return newest ? [newest] : [];
+    }
+    if (Array.isArray(message[1])) {
+      let newest = null;
+      for (const trade of message[1]) {
+        const quote = bitfinexTradeQuote(channel.asset, trade, receivedAt, true);
+        if (quote && (!newest || quote.exchangeAt > newest.exchangeAt)) newest = quote;
+      }
+      return newest ? [newest] : [];
+    }
+    if ((message[1] === "te" || message[1] === "tu") && Array.isArray(message[2])) {
+      const quote = bitfinexTradeQuote(channel.asset, message[2], receivedAt, false);
+      return quote ? [quote] : [];
+    }
+    return [];
+  };
+}
+
 export function parseRestTicker(asset, payload, receivedAt = Date.now()) {
-  if (!ASSETS.includes(asset) || !payload || typeof payload !== "object") return null;
+  if (typeof asset !== "string" || !asset || !payload || typeof payload !== "object") {
+    return null;
+  }
   const price = positivePrice(payload.price);
   if (price === null) return null;
+  const tickerAt = timestamp(payload.time, receivedAt);
   return {
     asset,
     price,
     source: "coinbaseRest",
+    marketSource: "coinbase",
+    transport: "rest",
     sourceLabel: "Coinbase REST",
-    exchangeAt: timestamp(payload.time, receivedAt),
-    receivedAt,
+    exchangeAt: tickerAt,
+    // Coinbase's ticker time is the last trade time. Using it for freshness
+    // prevents a quiet market's old last trade from looking newly received.
+    receivedAt: tickerAt,
   };
 }
 
@@ -176,7 +385,13 @@ export function calculateUtcChange(price, openPrice) {
   return current === null || open === null ? null : ((current / open) - 1) * 100;
 }
 
-function utcOpenSource(source) {
+function utcOpenSource(quoteOrSource) {
+  if (quoteOrSource && typeof quoteOrSource === "object" && quoteOrSource.marketSource) {
+    return quoteOrSource.marketSource;
+  }
+  const source = quoteOrSource && typeof quoteOrSource === "object"
+    ? quoteOrSource.source
+    : quoteOrSource;
   return source === "coinbaseRest" ? "coinbase" : source;
 }
 
@@ -184,7 +399,7 @@ function utcOpenRetryDelay(attempt) {
   return Math.min(2_000 * (2 ** Math.min(Math.max(0, attempt), 5)), 60_000);
 }
 
-export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = UTC_OPEN_WINDOW_MS) {
+export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
   if (!Array.isArray(payload)) return null;
   const startSeconds = Math.floor(dayStartMs / 1_000);
   const endSeconds = Math.floor((dayStartMs + windowMs) / 1_000);
@@ -200,7 +415,27 @@ export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = UTC_OPEN_WI
   return matching.length > 0 ? positivePrice(matching[0][3]) : null;
 }
 
-export function parseKrakenUtcOpens(payload) {
+export function parseBitstampUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
+  const candles = payload && payload.data && payload.data.ohlc;
+  if (!Array.isArray(candles)) return null;
+  const startSeconds = Math.floor(dayStartMs / 1_000);
+  const endSeconds = Math.floor((dayStartMs + windowMs) / 1_000);
+  const matching = candles
+    .filter((candle) => (
+      candle
+      && typeof candle === "object"
+      && finiteNumber(candle.timestamp) !== null
+      && Number(candle.timestamp) >= startSeconds
+      && Number(candle.timestamp) < endSeconds
+      && positivePrice(candle.open) !== null
+      && positivePrice(candle.volume) !== null
+    ))
+    .sort((left, right) => Number(left.timestamp) - Number(right.timestamp));
+  return matching.length > 0 ? positivePrice(matching[0].open) : null;
+}
+
+function legacyKrakenUtcOpens(payload) {
+  const parsed = { BTC: null, ETH: null };
   if (
     !payload
     || typeof payload !== "object"
@@ -208,9 +443,8 @@ export function parseKrakenUtcOpens(payload) {
     || payload.error.length > 0
     || !payload.result
     || typeof payload.result !== "object"
-  ) return { BTC: null, ETH: null };
+  ) return parsed;
 
-  const parsed = { BTC: null, ETH: null };
   for (const [key, value] of Object.entries(payload.result)) {
     if (!value || typeof value !== "object") continue;
     const normalized = key.toUpperCase().replace(/[^A-Z]/g, "");
@@ -222,6 +456,41 @@ export function parseKrakenUtcOpens(payload) {
     ) {
       parsed.BTC = positivePrice(value.o);
     }
+  }
+  return parsed;
+}
+
+export function parseKrakenUtcOpens(payload, products = null) {
+  if (!products) return legacyKrakenUtcOpens(payload);
+
+  const targets = products instanceof Map
+    ? products
+    : new Map(
+      (Array.isArray(products) ? products : [])
+        .filter((product) => product && product.krakenSymbol)
+        .map((product) => [product.krakenSymbol, product.id]),
+    );
+  const parsed = {};
+  for (const asset of targets.values()) parsed[asset] = null;
+
+  if (
+    !payload
+    || typeof payload !== "object"
+    || !Array.isArray(payload.error)
+    || payload.error.length > 0
+    || !payload.result
+    || typeof payload.result !== "object"
+  ) return parsed;
+
+  const normalizedTargets = new Map();
+  for (const [symbol, asset] of targets.entries()) {
+    normalizedTargets.set(String(symbol).toUpperCase(), asset);
+  }
+  for (const [key, value] of Object.entries(payload.result)) {
+    if (!value || typeof value !== "object") continue;
+    const asset = normalizedTargets.get(key.toUpperCase());
+    if (!asset) continue;
+    parsed[asset] = positivePrice(value.o);
   }
   return parsed;
 }
@@ -242,20 +511,27 @@ export function selectQuote(sourceQuotes, now = Date.now()) {
     return { ...coinbase, stale: false };
   }
 
-  const fresh = quotes
+  const freshWebSockets = quotes
+    .filter((quote) => quote.source !== "coinbaseRest")
     .filter((quote) => now - quote.receivedAt <= STALE_AFTER_MS)
-    .sort((a, b) => b.receivedAt - a.receivedAt);
-  if (fresh.length > 0) return { ...fresh[0], stale: false };
+    .sort(newestQuoteFirst);
+  if (freshWebSockets.length > 0) return { ...freshWebSockets[0], stale: false };
 
-  const newest = quotes.sort((a, b) => b.receivedAt - a.receivedAt)[0];
+  const restFallback = sourceQuotes.coinbaseRest;
+  if (restFallback && now - restFallback.receivedAt <= STALE_AFTER_MS) {
+    return { ...restFallback, stale: false };
+  }
+
+  const newest = quotes.sort(newestQuoteFirst)[0];
   return { ...newest, stale: true };
 }
 
 class ResilientSocket {
-  constructor(config, WebSocketImpl, handlers) {
+  constructor(config, WebSocketImpl, handlers, now = () => Date.now()) {
     this.config = config;
     this.WebSocketImpl = WebSocketImpl;
     this.handlers = handlers;
+    this.now = now;
     this.socket = null;
     this.status = "idle";
     this.stopped = true;
@@ -266,6 +542,8 @@ class ResilientSocket {
     this.openTimer = null;
     this.watchdogTimer = null;
     this.reconnectTimer = null;
+    this.subscriptionAckTimer = null;
+    this.pendingSubscriptionAcks = new Set();
   }
 
   start() {
@@ -306,6 +584,13 @@ class ResilientSocket {
     this.connect();
   }
 
+  hasExpiredSentinelQuotes(now = this.now()) {
+    return this.config.sentinelAssets.some((asset) => {
+      const lastQuoteAt = this.lastQuoteAt[asset] || this.openedAt;
+      return now - lastQuoteAt > this.config.quoteTimeoutMs;
+    });
+  }
+
   connect() {
     if (this.stopped || this.socket) return;
     clearTimeout(this.reconnectTimer);
@@ -333,7 +618,7 @@ class ResilientSocket {
       if (socket !== this.socket || this.stopped) return;
       clearTimeout(this.openTimer);
       this.openTimer = null;
-      this.lastMessageAt = Date.now();
+      this.lastMessageAt = this.now();
       this.openedAt = this.lastMessageAt;
       for (const asset of this.config.assets) this.lastQuoteAt[asset] = 0;
       this.setStatus("open");
@@ -342,18 +627,27 @@ class ResilientSocket {
         socket.send(JSON.stringify(subscription));
       }
 
+      this.pendingSubscriptionAcks = new Set(this.config.subscriptionAckKeys || []);
+      if (this.pendingSubscriptionAcks.size > 0) {
+        this.subscriptionAckTimer = setTimeout(() => {
+          if (socket === this.socket && socket.readyState === 1) {
+            try { socket.close(4003, "subscription acknowledgement timeout"); } catch { /* no-op */ }
+          }
+        }, this.config.subscriptionAckTimeoutMs || 10_000);
+      }
+
       this.watchdogTimer = setInterval(() => {
         if (socket !== this.socket || socket.readyState !== 1) return;
-        const idleFor = Date.now() - this.lastMessageAt;
+        const idleFor = this.now() - this.lastMessageAt;
         if (idleFor > this.config.idleTimeoutMs) {
           try { socket.close(4000, "feed timeout"); } catch { /* no-op */ }
           return;
         }
-        const missingQuotes = this.config.assets.some((asset) => {
-          const lastQuoteAt = this.lastQuoteAt[asset] || this.openedAt;
-          return Date.now() - lastQuoteAt > this.config.quoteTimeoutMs;
-        });
-        if (missingQuotes) {
+        // Custom products can legitimately go many seconds without a trade.
+        // Only the always-present BTC/ETH sentinels may declare a shared ticker
+        // subscription unhealthy; individual custom products become stale and
+        // use the REST fallback without disrupting every other product.
+        if (this.hasExpiredSentinelQuotes()) {
           try { socket.close(4002, "ticker timeout"); } catch { /* no-op */ }
           return;
         }
@@ -365,11 +659,32 @@ class ResilientSocket {
 
     socket.addEventListener("message", (event) => {
       if (socket !== this.socket || this.stopped) return;
-      this.lastMessageAt = Date.now();
-      const quotes = this.config.parser(event.data, this.lastMessageAt);
+      this.lastMessageAt = this.now();
+      const events = this.config.parser(event.data, this.lastMessageAt);
+      const quotes = [];
+      let subscriptionFailed = false;
+      for (const item of events) {
+        if (item.kind === "subscriptionAck") {
+          this.pendingSubscriptionAcks.delete(item.key);
+          if (this.pendingSubscriptionAcks.size === 0) {
+            clearTimeout(this.subscriptionAckTimer);
+            this.subscriptionAckTimer = null;
+          }
+        } else if (item.kind === "subscriptionError") {
+          subscriptionFailed = true;
+        } else {
+          quotes.push(item);
+        }
+      }
+      if (subscriptionFailed) {
+        try { socket.close(4003, "subscription rejected"); } catch { /* no-op */ }
+        return;
+      }
       if (quotes.length > 0) {
         this.reconnectAttempt = 0;
-        for (const quote of quotes) this.lastQuoteAt[quote.asset] = this.lastMessageAt;
+        for (const item of quotes) {
+          if (item.kind !== "utcOpen") this.lastQuoteAt[item.asset] = this.lastMessageAt;
+        }
         this.handlers.onQuotes(quotes);
       }
     });
@@ -385,8 +700,11 @@ class ResilientSocket {
       this.socket = null;
       clearTimeout(this.openTimer);
       clearInterval(this.watchdogTimer);
+      clearTimeout(this.subscriptionAckTimer);
       this.openTimer = null;
       this.watchdogTimer = null;
+      this.subscriptionAckTimer = null;
+      this.pendingSubscriptionAcks.clear();
       if (!this.stopped) this.scheduleReconnect();
     });
   }
@@ -412,10 +730,133 @@ class ResilientSocket {
     clearTimeout(this.openTimer);
     clearTimeout(this.reconnectTimer);
     clearInterval(this.watchdogTimer);
+    clearTimeout(this.subscriptionAckTimer);
     this.openTimer = null;
     this.reconnectTimer = null;
     this.watchdogTimer = null;
+    this.subscriptionAckTimer = null;
+    this.pendingSubscriptionAcks.clear();
   }
+}
+
+function buildSourceConfigs(products) {
+  const coinbaseMapping = new Map(products.map((product) => [product.id, product.id]));
+  const krakenProducts = products.filter((product) => product.krakenSymbol);
+  const krakenMapping = new Map(
+    krakenProducts.map((product) => [product.krakenSymbol, product.id]),
+  );
+  const sentinelIds = products
+    .filter((product) => product.symbol === "BTC" || product.symbol === "ETH")
+    .map((product) => product.id);
+  const bitstampProducts = products.filter((product) => product.bitstampSymbol);
+  const bitstampMapping = new Map(
+    bitstampProducts.map((product) => [product.bitstampSymbol, product.id]),
+  );
+  const bitfinexProducts = products.filter((product) => product.bitfinexSymbol);
+  const bitfinexMapping = new Map(
+    bitfinexProducts.map((product) => [product.bitfinexSymbol, product.id]),
+  );
+  const bitfinexSubscriptions = [];
+  for (const product of bitfinexProducts) {
+    bitfinexSubscriptions.push(
+      {
+        event: "subscribe",
+        channel: "trades",
+        symbol: product.bitfinexSymbol,
+      },
+      {
+        event: "subscribe",
+        channel: "candles",
+        key: `trade:1D:${product.bitfinexSymbol}`,
+      },
+    );
+  }
+
+  const configs = [{
+    id: "coinbase",
+    label: "Coinbase",
+    url: "wss://advanced-trade-ws.coinbase.com",
+    subscriptions: [
+      {
+        type: "subscribe",
+        product_ids: products.map((product) => product.id),
+        channel: "ticker",
+      },
+      { type: "subscribe", channel: "heartbeats" },
+    ],
+    parser: (raw, receivedAt) => parseCoinbaseMessage(raw, receivedAt, coinbaseMapping),
+    idleTimeoutMs: 10_000,
+    quoteTimeoutMs: 20_000,
+    assets: products.map((product) => product.id),
+    sentinelAssets: sentinelIds,
+  }];
+
+  if (krakenProducts.length > 0) {
+    configs.push({
+      id: "kraken",
+      label: "Kraken",
+      url: "wss://ws.kraken.com/v2",
+      subscriptions: [{
+        method: "subscribe",
+        params: {
+          channel: "ticker",
+          symbol: krakenProducts.map((product) => product.krakenSymbol),
+          event_trigger: "trades",
+          snapshot: true,
+        },
+        req_id: 1,
+      }],
+      parser: (raw, receivedAt) => parseKrakenMessage(raw, receivedAt, krakenMapping),
+      idleTimeoutMs: 10_000,
+      quoteTimeoutMs: 20_000,
+      assets: krakenProducts.map((product) => product.id),
+      sentinelAssets: sentinelIds.filter((id) => krakenProducts.some((product) => product.id === id)),
+      pingMessage: () => ({ method: "ping", req_id: Date.now() % 2_147_483_647 }),
+    });
+  }
+
+  if (bitstampProducts.length > 0) {
+    configs.push({
+      id: "bitstamp",
+      label: "Bitstamp",
+      url: "wss://ws.bitstamp.net",
+      subscriptions: bitstampProducts.map((product) => ({
+        event: "bts:subscribe",
+        data: { channel: `live_trades_${product.bitstampSymbol}` },
+      })),
+      parser: (raw, receivedAt) => parseBitstampMessage(raw, receivedAt, bitstampMapping),
+      idleTimeoutMs: 30_000,
+      quoteTimeoutMs: 30_000,
+      assets: bitstampProducts.map((product) => product.id),
+      sentinelAssets: sentinelIds.filter((id) => (
+        bitstampProducts.some((product) => product.id === id)
+      )),
+    });
+  }
+
+  if (bitfinexProducts.length > 0) {
+    configs.push({
+      id: "bitfinex",
+      label: "Bitfinex",
+      url: "wss://api-pub.bitfinex.com/ws/2",
+      subscriptions: bitfinexSubscriptions,
+      parser: createBitfinexTradesParser(bitfinexMapping),
+      subscriptionAckKeys: bitfinexSubscriptions.map((subscription) => (
+        subscription.channel === "trades"
+          ? `trades:${subscription.symbol}`
+          : `candles:${subscription.key}`
+      )),
+      subscriptionAckTimeoutMs: 10_000,
+      idleTimeoutMs: 30_000,
+      quoteTimeoutMs: 30_000,
+      assets: bitfinexProducts.map((product) => product.id),
+      sentinelAssets: sentinelIds.filter((id) => (
+        bitfinexProducts.some((product) => product.id === id)
+      )),
+    });
+  }
+
+  return configs;
 }
 
 export class PriceFeed {
@@ -426,34 +867,110 @@ export class PriceFeed {
       : null,
     now = () => Date.now(),
     utcOpenTimeoutMs = 8_000,
+    utcOpenRetryDelayImpl = utcOpenRetryDelay,
+    products = DEFAULT_PRODUCTS,
   } = {}) {
     if (!WebSocketImpl) throw new Error("WebSocket is not available in this runtime");
+    this.WebSocketImpl = WebSocketImpl;
     this.now = now;
     this.utcOpenTimeoutMs = utcOpenTimeoutMs;
+    this.utcOpenRetryDelay = typeof utcOpenRetryDelayImpl === "function"
+      ? utcOpenRetryDelayImpl
+      : utcOpenRetryDelay;
     this.listeners = new Set();
     this.started = false;
+    this.revision = 0;
     this.staleTimer = null;
     this.restTimer = null;
     this.restRequest = null;
     this.fetchImpl = fetchImpl;
-    this.utcOpens = {
-      coinbase: { BTC: null, ETH: null },
-      kraken: { BTC: null, ETH: null },
-    };
-    this.utcOpenDay = { coinbase: null, kraken: null };
-    this.utcOpenRequests = { coinbase: null, kraken: null };
-    this.utcOpenControllers = { coinbase: null, kraken: null };
-    this.utcOpenRetryAt = { coinbase: 0, kraken: 0 };
-    this.utcOpenRetryAttempt = { coinbase: 0, kraken: 0 };
-    this.quotes = {
-      BTC: { coinbase: null, kraken: null, coinbaseRest: null },
-      ETH: { coinbase: null, kraken: null, coinbaseRest: null },
-    };
-    this.sourceStatus = { coinbase: "idle", kraken: "idle", coinbaseRest: "idle" };
-    this.connections = SOURCES.map((source) => new ResilientSocket(source, WebSocketImpl, {
-      onQuotes: (quotes) => this.handleQuotes(quotes),
-      onStatus: (id, status) => this.handleStatus(id, status),
-    }));
+    this.sourceStatus = Object.fromEntries(
+      SOURCE_IDS.concat(["coinbaseRest"]).map((source) => [source, "idle"]),
+    );
+    this.utcOpenDay = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
+    this.utcOpenRequests = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
+    this.utcOpenControllers = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
+    this.utcOpenPending = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, new Set()]),
+    );
+    this.utcOpenRetryTimers = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
+    this.utcOpenRetryTimerAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, 0]));
+    this.products = [];
+    this.productById = new Map();
+    this.productIdBySymbol = new Map();
+    this.quotes = {};
+    this.utcOpens = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpenRetryAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpenRetryAttempt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.applyProducts(normalizeProducts(products), false);
+    this.connections = this.createConnections();
+  }
+
+  createConnections() {
+    return buildSourceConfigs(this.products).map((source) => new ResilientSocket(
+      source,
+      this.WebSocketImpl,
+      {
+        onQuotes: (quotes) => this.handleQuotes(quotes),
+        onStatus: (id, status) => this.handleStatus(id, status),
+      },
+      this.now,
+    ));
+  }
+
+  applyProducts(products, preserve) {
+    const previousProducts = this.productById;
+    const previousQuotes = this.quotes;
+    const previousOpens = this.utcOpens;
+    const previousRetryAt = this.utcOpenRetryAt;
+    const previousRetryAttempt = this.utcOpenRetryAttempt;
+
+    this.products = products;
+    this.productById = new Map(products.map((product) => [product.id, product]));
+    this.productIdBySymbol = new Map();
+    for (const product of products) {
+      if (!this.productIdBySymbol.has(product.symbol)) {
+        this.productIdBySymbol.set(product.symbol, product.id);
+      }
+    }
+
+    this.quotes = {};
+    this.utcOpens = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpenRetryAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpenRetryAttempt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+
+    for (const product of products) {
+      const oldProduct = previousProducts && previousProducts.get(product.id);
+      const oldQuotes = preserve && previousQuotes ? previousQuotes[product.id] : null;
+      const sameSourcePair = Object.fromEntries(SOURCE_IDS.map((source) => [
+        source,
+        Boolean(
+          oldProduct
+          && sourceSymbol(source, oldProduct)
+          && sourceSymbol(source, oldProduct) === sourceSymbol(source, product),
+        ),
+      ]));
+      this.quotes[product.id] = Object.fromEntries(QUOTE_SOURCE_IDS.map((source) => {
+        const marketSource = source === "coinbaseRest" ? "coinbase" : source;
+        const mayPreserve = marketSource === "coinbase" || sameSourcePair[marketSource];
+        return [source, oldQuotes && mayPreserve ? oldQuotes[source] || null : null];
+      }));
+
+      for (const source of SOURCE_IDS) {
+        const mayPreserve = source === "coinbase" || sameSourcePair[source];
+        this.utcOpens[source][product.id] = preserve && mayPreserve && previousOpens[source]
+          ? previousOpens[source][product.id] || null
+          : null;
+        this.utcOpenRetryAt[source][product.id] = preserve && mayPreserve && previousRetryAt[source]
+          ? previousRetryAt[source][product.id] || 0
+          : 0;
+        this.utcOpenRetryAttempt[source][product.id] = preserve
+          && mayPreserve
+          && previousRetryAttempt[source]
+          ? previousRetryAttempt[source][product.id] || 0
+          : 0;
+      }
+    }
   }
 
   subscribe(listener) {
@@ -474,18 +991,61 @@ export class PriceFeed {
   stop() {
     if (!this.started) return;
     this.started = false;
+    this.revision += 1;
     clearInterval(this.staleTimer);
     clearInterval(this.restTimer);
     this.staleTimer = null;
     this.restTimer = null;
+    this.abortRequests();
+    for (const connection of this.connections) connection.stop();
+  }
+
+  abortRequests() {
     if (this.restRequest) this.restRequest.abort();
     this.restRequest = null;
-    for (const source of ["coinbase", "kraken"]) {
+    for (const source of SOURCE_IDS) {
       if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
+      clearTimeout(this.utcOpenRetryTimers[source]);
       this.utcOpenControllers[source] = null;
       this.utcOpenRequests[source] = null;
+      this.utcOpenRetryTimers[source] = null;
+      this.utcOpenRetryTimerAt[source] = 0;
+      this.utcOpenPending[source].clear();
     }
+  }
+
+  setProducts(products) {
+    const nextProducts = normalizeProducts(products);
+    const currentSignature = this.products
+      .map((product) => SOURCE_IDS
+        .map((source) => sourceSymbol(source, product) || "")
+        .join("\u0000"))
+      .join("\u0001");
+    const nextSignature = nextProducts
+      .map((product) => SOURCE_IDS
+        .map((source) => sourceSymbol(source, product) || "")
+        .join("\u0000"))
+      .join("\u0001");
+
+    if (currentSignature === nextSignature) {
+      this.applyProducts(nextProducts, true);
+      this.emit();
+      return;
+    }
+
+    const wasStarted = this.started;
+    this.revision += 1;
+    this.abortRequests();
     for (const connection of this.connections) connection.stop();
+    this.sourceStatus.coinbaseRest = "idle";
+    this.applyProducts(nextProducts, true);
+    this.connections = this.createConnections();
+
+    if (wasStarted) {
+      for (const connection of this.connections) connection.start();
+      void this.pollRestFallback();
+    }
+    this.emit();
   }
 
   reconnectAll() {
@@ -497,100 +1057,224 @@ export class PriceFeed {
     if (!this.started || !this.fetchImpl || this.restRequest) return;
 
     const now = this.now();
-    const webSocketsAreFresh = ASSETS.every((asset) => ["coinbase", "kraken"].some((source) => {
-      const quote = this.quotes[asset][source];
-      return quote && now - quote.receivedAt <= STALE_AFTER_MS;
-    }));
-    const needsFallback = !webSocketsAreFresh;
-    if (!needsFallback) {
+    const neededProducts = this.products.filter((product) => {
+      const sourceQuotes = this.quotes[product.id];
+      return !SOURCE_IDS.map((source) => sourceQuotes[source]).some((quote) => (
+        quote && now - quote.receivedAt <= STALE_AFTER_MS
+      ));
+    });
+    if (neededProducts.length === 0) {
       this.handleStatus("coinbaseRest", "idle");
       return;
     }
 
     const controller = new AbortController();
+    const revision = this.revision;
     this.restRequest = controller;
     this.handleStatus("coinbaseRest", "connecting");
     const timeout = setTimeout(() => controller.abort(), 8_000);
 
     try {
-      const receivedAt = this.now();
-      const results = await Promise.all(ASSETS.map(async (asset) => {
+      const fetchedAt = this.now();
+      const results = await mapWithConcurrency(neededProducts, REST_CONCURRENCY, async (product) => {
         try {
-          const response = await this.fetchImpl(REST_ENDPOINTS[asset], {
+          const productId = encodeURIComponent(product.id);
+          const response = await this.fetchImpl(`${COINBASE_API_ROOT}/${productId}/ticker`, {
             signal: controller.signal,
             cache: "no-store",
             headers: { Accept: "application/json" },
           });
           if (!response.ok) throw new Error(`REST ${response.status}`);
-          return {
-            status: "fulfilled",
-            value: parseRestTicker(asset, await response.json(), receivedAt),
-          };
-        } catch (reason) {
-          return { status: "rejected", reason };
+          return parseRestTicker(product.id, await response.json(), fetchedAt);
+        } catch {
+          return null;
         }
-      }));
-      const quotes = results
-        .filter((result) => result.status === "fulfilled" && result.value)
-        .map((result) => result.value);
+      });
+      if (!this.started || revision !== this.revision) return;
+      const quotes = results.filter(Boolean);
       if (quotes.length === 0) throw new Error("all REST fallback requests failed");
       this.handleQuotes(quotes);
       this.handleStatus("coinbaseRest", "open");
     } catch {
-      if (this.started) this.handleStatus("coinbaseRest", "reconnecting");
+      if (this.started && revision === this.revision) {
+        this.handleStatus("coinbaseRest", "reconnecting");
+      }
     } finally {
       clearTimeout(timeout);
       if (this.restRequest === controller) this.restRequest = null;
     }
   }
 
+  resetUtcOpenDay(source, dayStart, exchangeAt) {
+    if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
+    clearTimeout(this.utcOpenRetryTimers[source]);
+    this.utcOpenControllers[source] = null;
+    this.utcOpenRequests[source] = null;
+    this.utcOpenRetryTimers[source] = null;
+    this.utcOpenRetryTimerAt[source] = 0;
+    this.utcOpenPending[source].clear();
+    this.utcOpenDay[source] = dayStart;
+    const millisecondsIntoDay = Math.max(0, exchangeAt - dayStart);
+    const firstRetryAt = this.now() + Math.max(0, 2_000 - millisecondsIntoDay);
+    for (const product of this.products) {
+      this.utcOpens[source][product.id] = null;
+      this.utcOpenRetryAttempt[source][product.id] = 0;
+      this.utcOpenRetryAt[source][product.id] = firstRetryAt;
+    }
+  }
+
   ensureUtcOpen(quote) {
+    this.ensureUtcOpens([quote]);
+  }
+
+  ensureSelectedUtcOpens() {
+    const now = this.now();
+    const selected = [];
+    for (const product of this.products) {
+      const quote = selectQuote(this.quotes[product.id], now);
+      if (quote) selected.push(quote);
+    }
+    this.ensureUtcOpens(selected);
+  }
+
+  ensureUtcOpens(quotes) {
     if (!this.started || !this.fetchImpl) return;
-    const source = utcOpenSource(quote.source);
-    if (!Object.prototype.hasOwnProperty.call(this.utcOpenDay, source)) return;
+    const currentDayStart = utcDayStart(this.now());
+    const touchedSources = new Set();
 
-    const dayStart = utcDayStart(quote.exchangeAt);
-    if (dayStart === null) return;
-    const trackedDay = this.utcOpenDay[source];
+    for (const quote of quotes) {
+      const productId = this.resolveProductId(quote.asset);
+      const product = productId ? this.productById.get(productId) : null;
+      const source = utcOpenSource(quote);
+      if (
+        !product
+        || !SOURCE_IDS.includes(source)
+        || !sourceSupportsProduct(source, product)
+      ) continue;
 
-    if (trackedDay === null || dayStart > trackedDay) {
-      if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
-      this.utcOpenDay[source] = dayStart;
-      this.utcOpens[source] = { BTC: null, ETH: null };
-      this.utcOpenRetryAttempt[source] = 0;
-      const millisecondsIntoDay = Math.max(0, quote.exchangeAt - dayStart);
-      this.utcOpenRetryAt[source] = this.now() + Math.max(0, 2_000 - millisecondsIntoDay);
-    } else if (dayStart < trackedDay) {
+      const dayStart = utcDayStart(quote.exchangeAt);
+      if (dayStart === null || dayStart !== currentDayStart) continue;
+      // Bitfinex sends the UTC daily candle on the same public socket as
+      // trades. Its REST API does not expose browser CORS, so the WebView must
+      // not attempt a REST candle request for this source.
+      if (source === "bitfinex") continue;
+      const trackedDay = this.utcOpenDay[source];
+      if (trackedDay === null || dayStart > trackedDay) {
+        this.resetUtcOpenDay(source, dayStart, quote.exchangeAt);
+      } else if (dayStart < trackedDay) {
+        continue;
+      }
+
+      const record = this.utcOpens[source][productId];
+      if (!record || record.dayStart !== dayStart) {
+        this.utcOpenPending[source].add(productId);
+        touchedSources.add(source);
+      }
+    }
+
+    for (const source of touchedSources) {
+      this.drainUtcOpen(source, this.utcOpenDay[source]);
+    }
+  }
+
+  scheduleUtcOpenRetry(source, dayStart, revision = this.revision) {
+    if (
+      !this.started
+      || revision !== this.revision
+      || this.utcOpenDay[source] !== dayStart
+    ) return;
+
+    let nextRetryAt = Number.POSITIVE_INFINITY;
+    for (const productId of Array.from(this.utcOpenPending[source])) {
+      const product = this.productById.get(productId);
+      const record = this.utcOpens[source][productId];
+      if (
+        !product
+        || !sourceSupportsProduct(source, product)
+        || (record && record.dayStart === dayStart)
+      ) {
+        this.utcOpenPending[source].delete(productId);
+        continue;
+      }
+      nextRetryAt = Math.min(
+        nextRetryAt,
+        this.utcOpenRetryAt[source][productId] || 0,
+      );
+    }
+
+    clearTimeout(this.utcOpenRetryTimers[source]);
+    this.utcOpenRetryTimers[source] = null;
+    this.utcOpenRetryTimerAt[source] = 0;
+    if (!Number.isFinite(nextRetryAt)) return;
+
+    const delay = Math.max(0, nextRetryAt - this.now());
+    this.utcOpenRetryTimerAt[source] = nextRetryAt;
+    this.utcOpenRetryTimers[source] = setTimeout(() => {
+      this.utcOpenRetryTimers[source] = null;
+      this.utcOpenRetryTimerAt[source] = 0;
+      if (
+        !this.started
+        || revision !== this.revision
+        || this.utcOpenDay[source] !== dayStart
+      ) return;
+      this.drainUtcOpen(source, dayStart);
+    }, delay);
+  }
+
+  drainUtcOpen(source, dayStart) {
+    if (
+      !this.started
+      || !this.fetchImpl
+      || this.utcOpenRequests[source]
+      || this.utcOpenDay[source] !== dayStart
+    ) return;
+
+    const now = this.now();
+    const productIds = [];
+    for (const productId of this.utcOpenPending[source]) {
+      const product = this.productById.get(productId);
+      const record = this.utcOpens[source][productId];
+      if (
+        product
+        && sourceSupportsProduct(source, product)
+        && (!record || record.dayStart !== dayStart)
+        && now >= (this.utcOpenRetryAt[source][productId] || 0)
+      ) productIds.push(productId);
+    }
+    for (const productId of productIds) this.utcOpenPending[source].delete(productId);
+    if (productIds.length === 0) {
+      this.scheduleUtcOpenRetry(source, dayStart);
       return;
     }
 
-    const complete = ASSETS.every((asset) => {
-      const record = this.utcOpens[source][asset];
-      return record && record.dayStart === dayStart;
-    });
-    if (
-      complete
-      || this.utcOpenRequests[source]
-      || this.now() < this.utcOpenRetryAt[source]
-    ) return;
-
+    const requestedProducts = productIds.map((id) => this.productById.get(id)).filter(Boolean);
     const controller = new AbortController();
+    const revision = this.revision;
     this.utcOpenControllers[source] = controller;
     const timeout = setTimeout(() => controller.abort(), this.utcOpenTimeoutMs);
-    const request = this.fetchUtcOpens(source, dayStart, controller)
-      .then((opens) => this.commitUtcOpens(source, dayStart, opens))
-      .catch(() => this.deferUtcOpenRetry(source, dayStart))
+    const request = this.fetchUtcOpens(source, dayStart, requestedProducts, controller)
+      .then((opens) => this.commitUtcOpens(
+        source,
+        dayStart,
+        opens,
+        productIds,
+        revision,
+      ))
+      .catch(() => this.deferUtcOpenRetry(source, dayStart, productIds, revision))
       .finally(() => {
         clearTimeout(timeout);
         if (this.utcOpenRequests[source] === request) {
           this.utcOpenRequests[source] = null;
           this.utcOpenControllers[source] = null;
+          if (this.utcOpenPending[source].size > 0) {
+            this.drainUtcOpen(source, dayStart);
+          }
         }
       });
     this.utcOpenRequests[source] = request;
   }
 
-  async fetchUtcOpens(source, dayStart, controller) {
+  async fetchUtcOpens(source, dayStart, products, controller) {
     const options = {
       signal: controller.signal,
       cache: "no-store",
@@ -598,66 +1282,151 @@ export class PriceFeed {
     };
 
     if (source === "kraken") {
-      const response = await this.fetchImpl(KRAKEN_TICKER_ENDPOINT, options);
+      const pairs = products.map((product) => product.krakenSymbol).filter(Boolean);
+      if (pairs.length === 0) return {};
+      const pair = encodeURIComponent(pairs.join(","));
+      const response = await this.fetchImpl(
+        `${KRAKEN_TICKER_ROOT}?pair=${pair}&assetVersion=1`,
+        options,
+      );
       if (!response.ok) throw new Error(`Kraken UTC open ${response.status}`);
-      return parseKrakenUtcOpens(await response.json());
+      return parseKrakenUtcOpens(await response.json(), products);
     }
 
-    const start = encodeURIComponent(new Date(dayStart).toISOString());
-    const results = await Promise.all(ASSETS.map(async (asset) => {
-      try {
-        for (const windowMs of UTC_OPEN_WINDOWS_MS) {
-          const end = encodeURIComponent(new Date(dayStart + windowMs).toISOString());
-          const url = `${UTC_OPEN_ENDPOINTS[asset]}?granularity=60&start=${start}&end=${end}`;
+    if (source === "bitstamp") {
+      const endMs = Math.max(dayStart + 1_000, this.now());
+      const startSeconds = Math.floor(dayStart / 1_000);
+      const endSeconds = Math.floor(endMs / 1_000);
+      const windowMs = Math.max(1_000, endMs - dayStart + 1);
+      const results = await mapWithConcurrency(products, REST_CONCURRENCY, async (product) => {
+        try {
+          const marketSymbol = encodeURIComponent(product.bitstampSymbol);
+          const url = `${BITSTAMP_API_ROOT}/ohlc/${marketSymbol}/`
+            + `?step=${UTC_OPEN_GRANULARITY_SECONDS}&limit=24`
+            + `&start=${startSeconds}&end=${endSeconds}`;
           const response = await this.fetchImpl(url, options);
-          if (!response.ok) throw new Error(`Coinbase UTC open ${response.status}`);
-          const open = parseCoinbaseUtcOpen(await response.json(), dayStart, windowMs);
-          if (open !== null) return [asset, open];
+          if (!response.ok) throw new Error(`Bitstamp UTC open ${response.status}`);
+          return [product.id, parseBitstampUtcOpen(await response.json(), dayStart, windowMs)];
+        } catch {
+          return [product.id, null];
         }
-        return [asset, null];
+      });
+      return Object.fromEntries(results);
+    }
+
+    const endMs = Math.max(dayStart + 1_000, this.now());
+    const start = encodeURIComponent(new Date(dayStart).toISOString());
+    const end = encodeURIComponent(new Date(endMs).toISOString());
+    const results = await mapWithConcurrency(products, REST_CONCURRENCY, async (product) => {
+      try {
+        const productId = encodeURIComponent(product.id);
+        const url = `${COINBASE_API_ROOT}/${productId}/candles`
+          + `?granularity=${UTC_OPEN_GRANULARITY_SECONDS}&start=${start}&end=${end}`;
+        const response = await this.fetchImpl(url, options);
+        if (!response.ok) throw new Error(`Coinbase UTC open ${response.status}`);
+        const windowMs = Math.max(1_000, endMs - dayStart + 1);
+        return [product.id, parseCoinbaseUtcOpen(await response.json(), dayStart, windowMs)];
       } catch {
-        return [asset, null];
+        return [product.id, null];
       }
-    }));
+    });
     return Object.fromEntries(results);
   }
 
-  commitUtcOpens(source, dayStart, opens) {
-    if (!this.started || this.utcOpenDay[source] !== dayStart) return;
-    for (const asset of ASSETS) {
-      const price = positivePrice(opens && opens[asset]);
-      if (price !== null) this.utcOpens[source][asset] = { dayStart, price };
-    }
+  commitUtcOpens(source, dayStart, opens, productIds, revision = this.revision) {
+    if (
+      !this.started
+      || revision !== this.revision
+      || this.utcOpenDay[source] !== dayStart
+    ) return;
 
-    const complete = ASSETS.every((asset) => {
-      const record = this.utcOpens[source][asset];
-      return record && record.dayStart === dayStart;
-    });
-    if (complete) {
-      this.utcOpenRetryAttempt[source] = 0;
-      this.utcOpenRetryAt[source] = 0;
-    } else {
-      this.deferUtcOpenRetry(source, dayStart);
+    const missing = [];
+    for (const productId of productIds) {
+      if (!this.productById.has(productId)) continue;
+      const price = positivePrice(opens && opens[productId]);
+      if (price !== null) {
+        this.utcOpens[source][productId] = { dayStart, price };
+        this.utcOpenRetryAttempt[source][productId] = 0;
+        this.utcOpenRetryAt[source][productId] = 0;
+      } else {
+        missing.push(productId);
+      }
+    }
+    if (missing.length > 0) {
+      this.deferUtcOpenRetry(source, dayStart, missing, revision);
     }
     this.emit();
   }
 
-  deferUtcOpenRetry(source, dayStart) {
-    if (!this.started || this.utcOpenDay[source] !== dayStart) return;
-    const attempt = this.utcOpenRetryAttempt[source];
-    this.utcOpenRetryAttempt[source] += 1;
-    this.utcOpenRetryAt[source] = this.now() + utcOpenRetryDelay(attempt);
+  deferUtcOpenRetry(source, dayStart, productIds = null, revision = this.revision) {
+    if (
+      !this.started
+      || revision !== this.revision
+      || this.utcOpenDay[source] !== dayStart
+    ) return;
+    const targets = productIds || sourceProductIds(source, this.products);
+    for (const productId of targets) {
+      if (!this.productById.has(productId)) continue;
+      const attempt = this.utcOpenRetryAttempt[source][productId] || 0;
+      this.utcOpenRetryAttempt[source][productId] = attempt + 1;
+      this.utcOpenRetryAt[source][productId] = this.now() + this.utcOpenRetryDelay(attempt);
+      this.utcOpenPending[source].add(productId);
+    }
+    this.scheduleUtcOpenRetry(source, dayStart, revision);
+  }
+
+  resolveProductId(asset) {
+    if (this.productById.has(asset)) return asset;
+    return this.productIdBySymbol.get(asset) || null;
+  }
+
+  handleStreamUtcOpen(rawEvent) {
+    const productId = this.resolveProductId(rawEvent.asset);
+    const product = productId ? this.productById.get(productId) : null;
+    const source = utcOpenSource(rawEvent);
+    const dayStart = utcDayStart(rawEvent.candleAt);
+    const openPrice = positivePrice(rawEvent.openPrice);
+    if (
+      !product
+      || !SOURCE_IDS.includes(source)
+      || !sourceSupportsProduct(source, product)
+      || dayStart === null
+      || rawEvent.candleAt !== dayStart
+      || dayStart !== utcDayStart(this.now())
+      || openPrice === null
+    ) return false;
+
+    const trackedDay = this.utcOpenDay[source];
+    if (trackedDay === null || dayStart > trackedDay) {
+      this.resetUtcOpenDay(source, dayStart, rawEvent.candleAt);
+    } else if (dayStart < trackedDay) {
+      return false;
+    }
+    this.utcOpens[source][productId] = { dayStart, price: openPrice };
+    this.utcOpenRetryAttempt[source][productId] = 0;
+    this.utcOpenRetryAt[source][productId] = 0;
+    this.utcOpenPending[source].delete(productId);
+    return true;
   }
 
   handleQuotes(quotes) {
-    for (const quote of quotes) {
-      if (
-        !this.quotes[quote.asset]
-        || !Object.prototype.hasOwnProperty.call(this.quotes[quote.asset], quote.source)
-      ) continue;
-      this.quotes[quote.asset][quote.source] = quote;
-      this.ensureUtcOpen(quote);
+    const accepted = [];
+    for (const rawQuote of quotes) {
+      if (rawQuote && rawQuote.kind === "utcOpen") {
+        this.handleStreamUtcOpen(rawQuote);
+        continue;
+      }
+      const productId = this.resolveProductId(rawQuote.asset);
+      const product = productId ? this.productById.get(productId) : null;
+      if (!product) continue;
+      const marketSource = utcOpenSource(rawQuote);
+      if (!SOURCE_IDS.includes(marketSource) || !sourceSupportsProduct(marketSource, product)) continue;
+      if (!hasOwn(this.quotes[productId], rawQuote.source)) continue;
+      const quote = { ...rawQuote, asset: productId, marketSource };
+      this.quotes[productId][quote.source] = quote;
+      accepted.push(quote);
     }
+    if (accepted.length > 0) this.ensureSelectedUtcOpens();
     this.emit();
   }
 
@@ -670,16 +1439,16 @@ export class PriceFeed {
     const now = this.now();
     const currentDayStart = utcDayStart(now);
     const prices = Object.fromEntries(
-      ASSETS.map((asset) => {
-        const quote = selectQuote(this.quotes[asset], now);
-        if (!quote) return [asset, null];
-        const source = utcOpenSource(quote.source);
+      this.products.map((product) => {
+        const quote = selectQuote(this.quotes[product.id], now);
+        if (!quote) return [product.id, null];
+        const source = utcOpenSource(quote);
         const dayStart = utcDayStart(quote.exchangeAt);
-        const record = this.utcOpens[source] && this.utcOpens[source][asset];
+        const record = this.utcOpens[source] && this.utcOpens[source][product.id];
         const changeUtc = dayStart === currentDayStart && record && record.dayStart === dayStart
           ? calculateUtcChange(quote.price, record.price)
           : null;
-        return [asset, { ...quote, changeUtc }];
+        return [product.id, { ...quote, changeUtc }];
       }),
     );
     const current = Object.values(prices).filter(Boolean);
@@ -687,12 +1456,13 @@ export class PriceFeed {
     const sourceStates = Object.values(this.sourceStatus);
 
     let status;
-    if (fresh.length === ASSETS.length) status = "live";
+    if (this.products.length > 0 && fresh.length === this.products.length) status = "live";
     else if (fresh.length > 0) status = "partial";
     else if (current.length > 0) status = "reconnecting";
-    else if (sourceStates.some((state) => state === "connecting" || state === "reconnecting" || state === "open")) {
-      status = "connecting";
-    } else status = "offline";
+    else if (sourceStates.some((state) => (
+      state === "connecting" || state === "reconnecting" || state === "open"
+    ))) status = "connecting";
+    else status = "offline";
 
     return {
       status,
@@ -705,6 +1475,7 @@ export class PriceFeed {
   }
 
   emit() {
+    this.ensureSelectedUtcOpens();
     const state = this.getState();
     for (const listener of this.listeners) listener(state);
   }

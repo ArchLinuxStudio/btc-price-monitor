@@ -9,49 +9,79 @@
     <script type="module" src="./main.js"></script>
   </head>
   <body>
-    <main class="monitor" aria-label="BTC 和 ETH 美元实时价格监视器">
+    <main class="monitor" aria-label="加密货币美元实时价格监视器">
       <header class="titlebar">
         <div class="drag-zone" data-tauri-drag-region="deep">
           <div class="connection" data-tauri-drag-region="deep">
             <span class="live-dot is-connecting" id="live-dot" aria-hidden="true"></span>
             <span class="status-text" id="status-text" role="status" aria-live="polite">LINK</span>
             <span class="market-label">USD</span>
-            <span class="source-label" id="source-label" title="Coinbase + Kraken">Coinbase</span>
+            <span class="source-label" id="source-label" aria-label="Coinbase 和 Kraken">Coinbase</span>
           </div>
           <span aria-hidden="true"></span>
-          <span class="baseline-label" title="涨跌幅以 UTC+0 当天 00:00 的价格为基准">Δ UTC+0</span>
+          <span class="baseline-label" aria-label="涨跌幅以 UTC+0 当天 00:00 的价格为基准">Δ UTC+0</span>
           <span class="sr-only" id="update-time">等待首笔行情</span>
         </div>
 
         <div class="window-controls" aria-label="窗口控制">
-          <button id="minimize-button" type="button" title="隐藏到系统托盘" aria-label="隐藏到系统托盘">
-            <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6.5h8" /></svg>
+          <button
+            id="watchlist-button"
+            type="button"
+            aria-label="添加或管理自选币种"
+            aria-controls="watchlist-manager"
+            aria-expanded="false"
+          >
+            <svg viewBox="0 0 12 12" aria-hidden="true">
+              <path class="watchlist-plus" d="M6 2v8M2 6h8" />
+              <path class="watchlist-back" d="M8.5 2.5 5 6l3.5 3.5M5 6h5" />
+            </svg>
           </button>
-          <button id="close-button" class="close" type="button" title="隐藏到系统托盘；退出请右键托盘图标" aria-label="隐藏到系统托盘">
+          <button id="close-button" class="close" type="button" aria-label="隐藏到系统托盘">
             <svg viewBox="0 0 12 12" aria-hidden="true"><path d="m2.5 2.5 7 7m0-7-7 7" /></svg>
           </button>
         </div>
       </header>
 
-      <section class="quotes" aria-label="实时价格">
-        <article class="quote-row" id="btc-row">
-          <div class="asset">
-            <span class="asset-marker btc" aria-hidden="true"></span>
-            <strong>BTC</strong>
-          </div>
-          <span class="price" id="btc-price">—</span>
-          <span class="change neutral" id="btc-change" title="相对当天 00:00 UTC">—</span>
-        </article>
+      <section class="quotes" id="quotes" aria-label="自选币种实时价格"></section>
 
-        <article class="quote-row" id="eth-row">
-          <div class="asset">
-            <span class="asset-marker eth" aria-hidden="true"></span>
-            <strong>ETH</strong>
-          </div>
-          <span class="price" id="eth-price">—</span>
-          <span class="change neutral" id="eth-change" title="相对当天 00:00 UTC">—</span>
-        </article>
+      <section
+        class="watchlist-manager"
+        id="watchlist-manager"
+        role="dialog"
+        aria-label="管理自选币种"
+        hidden
+      >
+        <div class="search-track">
+          <svg class="search-icon" viewBox="0 0 12 12" aria-hidden="true">
+            <circle cx="5" cy="5" r="3.25" />
+            <path d="m7.5 7.5 2.25 2.25" />
+          </svg>
+          <input
+            id="coin-search"
+            type="search"
+            inputmode="search"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="30"
+            placeholder="搜索币种"
+            aria-label="按代码或名称搜索美元币种"
+          />
+        </div>
+        <div class="manager-list" id="manager-list"></div>
       </section>
+
+      <span class="sr-only" id="manager-status" role="status" aria-live="polite"></span>
+
+      <template id="quote-row-template">
+        <article class="quote-row">
+          <div class="asset">
+            <span class="asset-marker" aria-hidden="true"></span>
+            <strong></strong>
+          </div>
+          <span class="price">—</span>
+          <span class="change neutral">—</span>
+        </article>
+      </template>
     </main>
   </body>
 </html>
