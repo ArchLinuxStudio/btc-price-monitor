@@ -67,7 +67,7 @@ The Windows dot after `Crypto` is intentional compatibility with v1.1.0+ assets 
 
 1. Confirm explicit user authorization to release, not merely to commit/push source.
 2. Review `git status`, choose a new version, and synchronize all version sources.
-3. Run JavaScript and Rust checks plus a relevant native smoke test.
+3. Run TypeScript/frontend and Rust checks plus a relevant native smoke test.
 4. Build and inspect the local Windows installer when on Windows; do not publish a stale same-version verification package.
 5. Commit/push authorized changes to `main`.
 6. Create and push a strict `vMAJOR.MINOR.PATCH` tag matching the package version.

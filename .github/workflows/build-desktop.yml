@@ -52,14 +52,14 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 20
           cache: npm
 
-      - name: Install JavaScript tooling
+      - name: Install frontend tooling
         run: npm ci
 
-      - name: Run parser tests
-        run: npm test
+      - name: Run frontend checks
+        run: npm run check
 
       - name: Build desktop bundle
         uses: tauri-apps/tauri-action@v1

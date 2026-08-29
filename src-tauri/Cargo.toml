@@ -1,6 +1,6 @@
 [package]
 name = "crypto-top-monitor"
-version = "1.2.1"
+version = "1.3.0"
 description = "Always-on-top BTC and ETH USD price monitor"
 authors = ["Crypto Top contributors"]
 edition = "2021"

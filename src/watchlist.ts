@@ -6,9 +6,46 @@ const PRODUCTS_ENDPOINT = "https://api.exchange.coinbase.com/products";
 const CURRENCIES_ENDPOINT = "https://api.exchange.coinbase.com/currencies";
 const BITSTAMP_MARKETS_ENDPOINT = "https://www.bitstamp.net/api/v2/markets/";
 
+export interface Product {
+  id: string;
+  symbol: string;
+  name: string;
+  krakenSymbol: string | null;
+  bitstampSymbol: string | null;
+  bitfinexSymbol: string | null;
+  fixed: boolean;
+}
+
+export interface BackupSourceMappings {
+  bitstamp: Map<string, string> | null;
+  bitfinex: Map<string, string> | null;
+}
+
+export interface SearchableProduct {
+  id: string;
+  symbol: string;
+  name: string;
+}
+
+export type FetchImplementation = (url: string, options: RequestInit) => Promise<unknown>;
+
+type UnknownRecord = Record<string, unknown>;
+
+interface BitfinexPairParts {
+  base: string;
+  quote: string;
+  pair: string;
+}
+
+interface ResponseLike {
+  ok: unknown;
+  status?: unknown;
+  json(): unknown;
+}
+
 export const MAX_PRODUCTS = 8;
 
-export const DEFAULT_PRODUCTS = Object.freeze([
+export const DEFAULT_PRODUCTS: readonly Readonly<Product>[] = Object.freeze([
   Object.freeze({
     id: "BTC-USD",
     symbol: "BTC",
@@ -29,7 +66,11 @@ export const DEFAULT_PRODUCTS = Object.freeze([
   }),
 ]);
 
-function cloneProduct(product) {
+function isRecord(value: unknown): value is UnknownRecord {
+  return value !== null && typeof value === "object";
+}
+
+function cloneProduct(product: Readonly<Product>): Product {
   return {
     id: product.id,
     symbol: product.symbol,
@@ -41,11 +82,11 @@ function cloneProduct(product) {
   };
 }
 
-function defaultProducts() {
+function defaultProducts(): Product[] {
   return DEFAULT_PRODUCTS.map(cloneProduct);
 }
 
-function cleanText(value, fallback) {
+function cleanText(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const cleaned = value
     .replace(/[\u0000-\u001f\u007f]/g, " ")
@@ -55,14 +96,14 @@ function cleanText(value, fallback) {
   return cleaned || fallback;
 }
 
-function fixedProduct(id) {
+function fixedProduct(id: string): Product | null {
   for (const product of DEFAULT_PRODUCTS) {
     if (product.id === id) return cloneProduct(product);
   }
   return null;
 }
 
-export function inferProduct(productId) {
+export function inferProduct(productId: unknown): Product | null {
   if (typeof productId !== "string") return null;
   const id = productId.trim().toUpperCase();
   const match = PRODUCT_ID_PATTERN.exec(id);
@@ -83,7 +124,7 @@ export function inferProduct(productId) {
   };
 }
 
-function storedBitstampSymbol(value, productSymbol) {
+function storedBitstampSymbol(value: unknown, productSymbol: unknown): string | null {
   if (typeof value !== "string") return null;
   const marketSymbol = value.trim().toLowerCase();
   if (
@@ -96,7 +137,7 @@ function storedBitstampSymbol(value, productSymbol) {
   return base.toUpperCase() === productSymbol ? marketSymbol : null;
 }
 
-function bitfinexPairParts(value) {
+function bitfinexPairParts(value: unknown): BitfinexPairParts | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   const pair = (trimmed.startsWith("t") ? trimmed.slice(1) : trimmed).toUpperCase();
@@ -111,7 +152,7 @@ function bitfinexPairParts(value) {
   return { base: pair.slice(0, -3), quote: "USD", pair };
 }
 
-function storedBitfinexSymbol(value, productSymbol) {
+function storedBitfinexSymbol(value: unknown, productSymbol: unknown): string | null {
   const parts = bitfinexPairParts(value);
   if (!parts || parts.quote !== "USD") return null;
   return typeof productSymbol === "string" && parts.base === productSymbol.toUpperCase()
@@ -119,8 +160,8 @@ function storedBitfinexSymbol(value, productSymbol) {
     : null;
 }
 
-function normalizeProduct(value) {
-  if (!value || typeof value !== "object") return null;
+function normalizeProduct(value: unknown): Product | null {
+  if (!isRecord(value)) return null;
   const inferred = inferProduct(value.id);
   if (!inferred) return null;
   if (inferred.fixed) return inferred;
@@ -130,7 +171,7 @@ function normalizeProduct(value) {
   return inferred;
 }
 
-function normalizeWatchlist(products) {
+function normalizeWatchlist(products: unknown): Product[] {
   const normalized = defaultProducts();
   const seen = new Set(normalized.map((product) => product.id));
   if (!Array.isArray(products)) return normalized;
@@ -145,7 +186,7 @@ function normalizeWatchlist(products) {
   return normalized;
 }
 
-function resolveStorage(storage) {
+function resolveStorage(storage?: unknown): unknown {
   if (storage) return storage;
   try {
     return globalThis.localStorage || null;
@@ -154,17 +195,17 @@ function resolveStorage(storage) {
   }
 }
 
-export function loadWatchlist(storage) {
+export function loadWatchlist(storage?: unknown): Product[] {
   const target = resolveStorage(storage);
-  if (!target || typeof target.getItem !== "function") return defaultProducts();
+  const candidate = target as { getItem?: unknown } | null | undefined;
+  if (!candidate || typeof candidate.getItem !== "function") return defaultProducts();
 
   try {
-    const raw = target.getItem(STORAGE_KEY);
+    const raw = candidate.getItem(STORAGE_KEY);
     if (typeof raw !== "string") return defaultProducts();
-    const payload = JSON.parse(raw);
+    const payload: unknown = JSON.parse(raw);
     if (
-      !payload
-      || typeof payload !== "object"
+      !isRecord(payload)
       || payload.version !== STORAGE_VERSION
       || !Array.isArray(payload.products)
     ) return defaultProducts();
@@ -174,13 +215,14 @@ export function loadWatchlist(storage) {
   }
 }
 
-export function saveWatchlist(products, storage) {
+export function saveWatchlist(products: unknown, storage?: unknown): Product[] {
   const normalized = normalizeWatchlist(products);
   const target = resolveStorage(storage);
-  if (!target || typeof target.setItem !== "function") return normalized;
+  const candidate = target as { setItem?: unknown } | null | undefined;
+  if (!candidate || typeof candidate.setItem !== "function") return normalized;
 
   try {
-    target.setItem(STORAGE_KEY, JSON.stringify({
+    candidate.setItem(STORAGE_KEY, JSON.stringify({
       version: STORAGE_VERSION,
       products: normalized,
     }));
@@ -190,19 +232,19 @@ export function saveWatchlist(products, storage) {
   return normalized;
 }
 
-function currencyNames(currenciesPayload) {
-  const names = new Map();
+function currencyNames(currenciesPayload: unknown): Map<string, string> {
+  const names = new Map<string, string>();
   if (!Array.isArray(currenciesPayload)) return names;
 
   for (const currency of currenciesPayload) {
-    if (!currency || typeof currency !== "object") continue;
+    if (!isRecord(currency)) continue;
     if (typeof currency.id !== "string" || !SYMBOL_PATTERN.test(currency.id)) continue;
     names.set(currency.id, cleanText(currency.name, currency.id));
   }
   return names;
 }
 
-function compareProducts(left, right) {
+function compareProducts(left: SearchableProduct, right: SearchableProduct): number {
   if (left.symbol < right.symbol) return -1;
   if (left.symbol > right.symbol) return 1;
   if (left.id < right.id) return -1;
@@ -210,14 +252,14 @@ function compareProducts(left, right) {
   return 0;
 }
 
-export function parseProductCatalog(productsPayload, currenciesPayload) {
+export function parseProductCatalog(productsPayload: unknown, currenciesPayload: unknown): Product[] {
   if (!Array.isArray(productsPayload)) return [];
   const names = currencyNames(currenciesPayload);
-  const seen = new Set();
-  const catalog = [];
+  const seen = new Set<string>();
+  const catalog: Product[] = [];
 
   for (const product of productsPayload) {
-    if (!product || typeof product !== "object") continue;
+    if (!isRecord(product)) continue;
     if (
       product.status !== "online"
       || product.quote_currency !== "USD"
@@ -238,17 +280,22 @@ export function parseProductCatalog(productsPayload, currenciesPayload) {
   return catalog.sort(compareProducts);
 }
 
-async function responseJson(response, label) {
-  if (!response || response.ok !== true) {
-    const status = response && Number.isFinite(response.status) ? ` ${response.status}` : "";
+async function responseJson(response: unknown, label: string): Promise<unknown> {
+  const candidate = response as ResponseLike | null | undefined;
+  if (!candidate || candidate.ok !== true) {
+    const status = candidate && Number.isFinite(candidate.status as number)
+      ? ` ${candidate.status}`
+      : "";
     throw new Error(`${label} request failed${status}`);
   }
-  return response.json();
+  return candidate.json();
 }
 
-export async function fetchProductCatalog(fetchImpl) {
+export async function fetchProductCatalog(
+  fetchImpl?: FetchImplementation | null,
+): Promise<Product[]> {
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
-  const options = {
+  const options: RequestInit = {
     cache: "no-store",
     headers: { Accept: "application/json" },
   };
@@ -268,11 +315,11 @@ export async function fetchProductCatalog(fetchImpl) {
   return catalog;
 }
 
-export function parseBitstampMarkets(payload) {
+export function parseBitstampMarkets(payload: unknown): Map<string, string> | null {
   if (!Array.isArray(payload)) return null;
-  const mappings = new Map();
+  const mappings = new Map<string, string>();
   for (const market of payload) {
-    if (!market || typeof market !== "object") continue;
+    if (!isRecord(market)) continue;
     if (
       market.counter_currency !== "USD"
       || market.market_type !== "SPOT"
@@ -287,9 +334,9 @@ export function parseBitstampMarkets(payload) {
   return mappings;
 }
 
-export function parseBitfinexPairs(payload) {
+export function parseBitfinexPairs(payload: unknown): Map<string, string> | null {
   if (!Array.isArray(payload) || !Array.isArray(payload[0])) return null;
-  const mappings = new Map();
+  const mappings = new Map<string, string>();
   for (const value of payload[0]) {
     const parts = bitfinexPairParts(value);
     if (
@@ -304,9 +351,22 @@ export function parseBitfinexPairs(payload) {
   return mappings;
 }
 
-export function applyBackupSourceMappings(products, sourceMappings) {
-  const bitstamp = sourceMappings && sourceMappings.bitstamp;
-  const bitfinex = sourceMappings && sourceMappings.bitfinex;
+export function applyBackupSourceMappings(
+  products: readonly Product[],
+  sourceMappings: Partial<BackupSourceMappings> | null | undefined,
+): Product[];
+export function applyBackupSourceMappings<T>(
+  products: readonly T[],
+  sourceMappings: unknown,
+): Array<T | Product>;
+export function applyBackupSourceMappings(products: unknown, sourceMappings: unknown): unknown[];
+export function applyBackupSourceMappings(products: unknown, sourceMappings: unknown): unknown[] {
+  const mappingContainer = sourceMappings as {
+    bitstamp?: unknown;
+    bitfinex?: unknown;
+  } | null | undefined;
+  const bitstamp = mappingContainer && mappingContainer.bitstamp;
+  const bitfinex = mappingContainer && mappingContainer.bitfinex;
   return (Array.isArray(products) ? products : []).map((raw) => {
     const product = normalizeProduct(raw);
     if (!product) return raw;
@@ -320,7 +380,13 @@ export function applyBackupSourceMappings(products, sourceMappings) {
   });
 }
 
-async function fetchOptionalDirectory(fetchImpl, url, label, parser, options) {
+async function fetchOptionalDirectory(
+  fetchImpl: FetchImplementation,
+  url: string,
+  label: string,
+  parser: (payload: unknown) => Map<string, string> | null,
+  options: RequestInit,
+): Promise<Map<string, string> | null> {
   try {
     const payload = await responseJson(await fetchImpl(url, options), label);
     const parsed = parser(payload);
@@ -330,9 +396,11 @@ async function fetchOptionalDirectory(fetchImpl, url, label, parser, options) {
   }
 }
 
-export async function fetchBackupSourceMappings(fetchImpl) {
+export async function fetchBackupSourceMappings(
+  fetchImpl?: FetchImplementation | null,
+): Promise<BackupSourceMappings> {
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
-  const options = {
+  const options: RequestInit = {
     cache: "no-store",
     headers: { Accept: "application/json" },
   };
@@ -350,7 +418,7 @@ export async function fetchBackupSourceMappings(fetchImpl) {
   return { bitstamp, bitfinex: null };
 }
 
-function searchRank(product, query) {
+function searchRank(product: SearchableProduct, query: string): number | null {
   if (!query) return 0;
   const symbol = product.symbol.toLowerCase();
   const id = product.id.toLowerCase();
@@ -365,7 +433,29 @@ function searchRank(product, query) {
   return null;
 }
 
-export function searchProducts(catalog, query, limit) {
+function isSearchableProduct(value: unknown): value is SearchableProduct {
+  const candidate = value as Partial<SearchableProduct> | null | undefined;
+  return !!candidate
+    && typeof candidate.id === "string"
+    && typeof candidate.symbol === "string"
+    && typeof candidate.name === "string";
+}
+
+export function searchProducts<T extends SearchableProduct>(
+  catalog: readonly T[],
+  query: unknown,
+  limit?: unknown,
+): T[];
+export function searchProducts(
+  catalog: unknown,
+  query: unknown,
+  limit?: unknown,
+): SearchableProduct[];
+export function searchProducts(
+  catalog: unknown,
+  query: unknown,
+  limit?: unknown,
+): SearchableProduct[] {
   if (!Array.isArray(catalog)) return [];
   const normalizedQuery = query == null ? "" : String(query).trim().toLowerCase();
   const requestedLimit = limit == null ? catalog.length : Number(limit);
@@ -373,14 +463,9 @@ export function searchProducts(catalog, query, limit) {
   const resultLimit = Math.floor(requestedLimit);
 
   return catalog
-    .filter((product) => (
-      product
-      && typeof product.id === "string"
-      && typeof product.symbol === "string"
-      && typeof product.name === "string"
-    ))
+    .filter(isSearchableProduct)
     .map((product) => ({ product, rank: searchRank(product, normalizedQuery) }))
-    .filter((entry) => entry.rank !== null)
+    .filter((entry): entry is { product: SearchableProduct; rank: number } => entry.rank !== null)
     .sort((left, right) => left.rank - right.rank || compareProducts(left.product, right.product))
     .slice(0, resultLimit)
     .map((entry) => entry.product);

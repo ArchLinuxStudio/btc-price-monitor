@@ -1,19 +1,25 @@
 {
   "name": "crypto-top-monitor",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "A tiny always-on-top USD crypto watchlist for Windows, macOS, and Linux.",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "npm run frontend:build && tauri dev",
     "build": "tauri build",
     "build:windows": "tauri build --bundles nsis",
-    "test": "node --test",
-    "check": "node --check src/main.js && node --check src/price-feed.js && node --check src/price-format.js && node --check src/watchlist.js && node --test",
+    "frontend:build": "tsx scripts/frontend.ts",
+    "frontend:watch": "tsx scripts/frontend.ts --watch",
+    "typecheck": "tsc --project tsconfig.app.json && tsc --project tsconfig.test.json",
+    "test": "node --import=tsx --test tests/price-format.test.ts tests/watchlist.test.ts tests/price-feed.test.ts tests/ui.test.ts",
+    "check": "npm run typecheck && npm test && npm run frontend:build",
     "icon": "tauri icon assets/app-icon.svg"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.4"
+    "@tauri-apps/cli": "2.11.4",
+    "@types/node": "20.19.43",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=20"

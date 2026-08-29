@@ -19,8 +19,8 @@ Start here instead of reading every document. Repository documentation is the pe
 ## Selective reading routes
 
 - UI/layout change: `CURRENT_STATE.md` → `ARCHITECTURE.md` → compact-UI entries in `DECISIONS.md` → relevant UI tests.
-- Exchange or price semantics: `CURRENT_STATE.md` → `MARKET_DATA.md` → relevant entries in `DECISIONS.md` → `src/price-feed.js` tests.
-- Watchlist/search/persistence: `CURRENT_STATE.md` → `ARCHITECTURE.md` → `src/watchlist.js` and its tests.
+- Exchange or price semantics: `CURRENT_STATE.md` → `MARKET_DATA.md` → relevant entries in `DECISIONS.md` → `src/price-feed.ts` tests.
+- Watchlist/search/persistence: `CURRENT_STATE.md` → `ARCHITECTURE.md` → `src/watchlist.ts` and its tests.
 - Tray/window/native behavior: `CURRENT_STATE.md` → `ARCHITECTURE.md` → relevant decisions → `src-tauri/src/lib.rs`.
 - Build or publish: `CURRENT_STATE.md` → `RELEASE.md` → `KNOWN_ISSUES.md`.
 - New feature proposal: `CURRENT_STATE.md` → `TODO.md` and `DECISIONS.md`; do not infer authorization from an optional idea.

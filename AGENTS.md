@@ -12,7 +12,7 @@ This repository is the persistent source of development context. Do not assume t
 
 ## Non-negotiable product constraints
 
-- Keep the app a small Tauri 2 desktop monitor with a static HTML/CSS/JavaScript frontend; do not migrate frameworks without explicit approval and evidence.
+- Keep the app a small Tauri 2 desktop monitor with a static HTML/CSS/TypeScript frontend compiled to unbundled browser ES modules; do not migrate frameworks or add a bundler without explicit approval and evidence.
 - The monitor is fixed at `208px` wide. Normal height is `92/125/158px` for 2/3/4+ rows; management height is capped at `170px`.
 - BTC and ETH are fixed. Up to six additional Coinbase online `*-USD` products may be selected, for eight products total.
 - Market data must be free and keyless for the user. USD means real USD; never silently substitute USDT/USDC or guess another exchange's pair symbol.
@@ -42,7 +42,7 @@ git diff --check
 git status --short --branch
 ```
 
-There is no standalone JavaScript lint or typecheck script. `npm.cmd run check` performs JavaScript syntax checks and the Node test suite. See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the last verified results, not this file.
+There is no standalone lint script. `npm.cmd run check` performs strict application/test TypeScript checks, the Node test suite through `tsx`, and a clean frontend emit into ignored `dist/`. See [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md) for the last verified results, not this file.
 
 ## Change discipline
 

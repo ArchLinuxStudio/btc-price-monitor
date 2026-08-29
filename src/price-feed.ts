@@ -1,4 +1,141 @@
-import { DEFAULT_PRODUCTS } from "./watchlist.js";
+import { DEFAULT_PRODUCTS, type Product } from "./watchlist.js";
+
+export type MarketSource = "coinbase" | "kraken" | "bitstamp" | "bitfinex";
+export type QuoteSource = MarketSource | "coinbaseRest";
+export type QuoteTransport = "ws" | "rest";
+export type SourceConnectionStatus = "idle" | "connecting" | "reconnecting" | "open";
+export type FeedStatus = "live" | "partial" | "reconnecting" | "connecting" | "offline";
+
+export interface Quote {
+  kind?: never;
+  asset: string;
+  price: number;
+  source: QuoteSource;
+  marketSource: MarketSource;
+  transport?: QuoteTransport;
+  sourceLabel: string;
+  exchangeAt: number;
+  receivedAt: number;
+}
+
+export interface DisplayQuote extends Quote {
+  stale: boolean;
+  changeUtc: number | null;
+}
+
+export interface PriceFeedState {
+  status: FeedStatus;
+  prices: Record<string, DisplayQuote | null>;
+  sources: Record<QuoteSource, SourceConnectionStatus>;
+  lastUpdateAt: number | null;
+}
+
+export interface WebSocketLike {
+  readyState: number;
+  addEventListener(type: string, listener: (event: { data?: unknown }) => void): void;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+export type WebSocketConstructor = new (url: string) => WebSocketLike;
+
+export interface FetchResponseLike {
+  ok: boolean;
+  status?: number;
+  json(): Promise<unknown>;
+}
+
+export type FetchImpl = (url: string, init: RequestInit) => Promise<FetchResponseLike>;
+
+export interface PriceFeedOptions {
+  WebSocketImpl?: WebSocketConstructor;
+  fetchImpl?: FetchImpl | null;
+  now?: () => number;
+  utcOpenTimeoutMs?: number;
+  utcOpenRetryDelayImpl?: (attempt: number) => number;
+  products?: readonly Product[];
+}
+
+interface UtcOpenEvent {
+  kind: "utcOpen";
+  asset: string;
+  source: "bitfinex";
+  marketSource: "bitfinex";
+  candleAt: number;
+  openPrice: number;
+}
+
+interface SubscriptionAckEvent {
+  kind: "subscriptionAck";
+  key: string;
+}
+
+interface SubscriptionErrorEvent {
+  kind: "subscriptionError";
+  code: number | null;
+  message: string;
+}
+
+type ParsedSocketEvent = Quote | UtcOpenEvent | SubscriptionAckEvent | SubscriptionErrorEvent;
+type QuoteOrUtcOpenEvent = Quote | UtcOpenEvent;
+type HandledFeedEvent = IncomingQuote | UtcOpenEvent | SubscriptionAckEvent | SubscriptionErrorEvent;
+type SymbolMapping = Map<string, string> | Readonly<Record<string, unknown>> | null;
+type SourceQuotes = Partial<Record<QuoteSource, Quote | null>>;
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+interface SourceConfig {
+  id: MarketSource;
+  label: string;
+  url: string;
+  subscriptions: unknown[];
+  parser: (raw: unknown, receivedAt: number) => ParsedSocketEvent[];
+  idleTimeoutMs: number;
+  quoteTimeoutMs: number;
+  assets: string[];
+  sentinelAssets: string[];
+  pingMessage?: () => unknown;
+  subscriptionAckKeys?: string[];
+  subscriptionAckTimeoutMs?: number;
+}
+
+interface SocketHandlers {
+  onQuotes: (quotes: QuoteOrUtcOpenEvent[]) => void;
+  onStatus: (id: MarketSource, status: SourceConnectionStatus) => void;
+}
+
+interface UtcOpenRecord {
+  dayStart: number;
+  price: number;
+}
+
+interface IncomingQuote {
+  kind?: never;
+  asset: string;
+  price: number;
+  source: QuoteSource;
+  marketSource?: MarketSource;
+  transport?: QuoteTransport;
+  sourceLabel: string;
+  exchangeAt: number;
+  receivedAt: number;
+}
+
+interface CoinbaseMessage {
+  channel?: unknown;
+  timestamp?: unknown;
+  events?: Array<{ tickers?: Array<Record<string, unknown>> } | null>;
+}
+
+interface KrakenMessage {
+  channel?: unknown;
+  data?: Array<Record<string, unknown>>;
+}
+
+interface BitstampMessage {
+  event?: unknown;
+  channel?: unknown;
+  data?: Record<string, unknown>;
+}
 
 const STALE_AFTER_MS = 12_000;
 const PRIMARY_PREFERENCE_MS = 5_000;
@@ -8,8 +145,8 @@ const UTC_OPEN_GRANULARITY_SECONDS = 3_600;
 const COINBASE_API_ROOT = "https://api.exchange.coinbase.com/products";
 const KRAKEN_TICKER_ROOT = "https://api.kraken.com/0/public/Ticker";
 const BITSTAMP_API_ROOT = "https://www.bitstamp.net/api/v2";
-const SOURCE_IDS = ["coinbase", "kraken", "bitstamp", "bitfinex"];
-const QUOTE_SOURCE_IDS = SOURCE_IDS.concat(["coinbaseRest"]);
+const SOURCE_IDS: MarketSource[] = ["coinbase", "kraken", "bitstamp", "bitfinex"];
+const QUOTE_SOURCE_IDS: QuoteSource[] = (SOURCE_IDS as QuoteSource[]).concat(["coinbaseRest"]);
 const REST_CONCURRENCY = 3;
 const SOURCE_PRIORITY = new Map(QUOTE_SOURCE_IDS.map((source, index) => [source, index]));
 
@@ -22,14 +159,14 @@ const LEGACY_KRAKEN_ASSETS = new Map([
   ["ETH/USD", "ETH"],
 ]);
 
-function parseJson(raw) {
+function parseJson<T = unknown>(raw: unknown): T | null {
   try {
-    if (typeof raw === "string") return JSON.parse(raw);
+    if (typeof raw === "string") return JSON.parse(raw) as T;
     if (raw instanceof ArrayBuffer) {
-      return JSON.parse(new TextDecoder().decode(raw));
+      return JSON.parse(new TextDecoder().decode(raw)) as T;
     }
     if (ArrayBuffer.isView(raw)) {
-      return JSON.parse(new TextDecoder().decode(raw));
+      return JSON.parse(new TextDecoder().decode(raw)) as T;
     }
   } catch {
     return null;
@@ -37,27 +174,31 @@ function parseJson(raw) {
   return null;
 }
 
-function finiteNumber(value) {
+function finiteNumber(value: unknown): number | null {
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
 }
 
-function positivePrice(value) {
+function positivePrice(value: unknown): number | null {
   const result = finiteNumber(value);
   return result !== null && result > 0 ? result : null;
 }
 
-function timestamp(value, fallback) {
-  const parsed = value ? Date.parse(value) : Number.NaN;
+function timestamp(value: unknown, fallback: number): number {
+  const parsed = value ? Date.parse(value as string) : Number.NaN;
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function hasOwn(object, key) {
+function hasOwn(object: object, key: PropertyKey): boolean {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
   let nextIndex = 0;
   const workerCount = Math.min(items.length, Math.max(1, limit));
   const workers = Array.from({ length: workerCount }, async () => {
@@ -71,21 +212,28 @@ async function mapWithConcurrency(items, limit, mapper) {
   return results;
 }
 
-function newestQuoteFirst(left, right) {
+function newestQuoteFirst<T extends { receivedAt: number; source: string }>(left: T, right: T): number {
   const recency = right.receivedAt - left.receivedAt;
   if (recency !== 0) return recency;
-  return (SOURCE_PRIORITY.get(left.source) || 0) - (SOURCE_PRIORITY.get(right.source) || 0);
+  return (SOURCE_PRIORITY.get(left.source as QuoteSource) || 0)
+    - (SOURCE_PRIORITY.get(right.source as QuoteSource) || 0);
 }
 
-function mappedAsset(mapping, key, legacyMapping) {
-  if (mapping instanceof Map) return mapping.get(key) || null;
+function mappedAsset(
+  mapping: SymbolMapping,
+  key: unknown,
+  legacyMapping: ReadonlyMap<string, string>,
+): string | null {
+  if (mapping instanceof Map) return mapping.get(key as string) || null;
   if (mapping && typeof mapping === "object") {
-    return hasOwn(mapping, key) ? mapping[key] : null;
+    return hasOwn(mapping, key as PropertyKey)
+      ? mapping[key as keyof typeof mapping] as string | null
+      : null;
   }
-  return legacyMapping.get(key) || null;
+  return legacyMapping.get(key as string) || null;
 }
 
-function normalizeProduct(raw) {
+function normalizeProduct(raw: Record<string, unknown> | null | undefined): Product | null {
   if (!raw || typeof raw !== "object") return null;
   const rawId = raw.id || raw.coinbaseProductId || raw.productId;
   const id = typeof rawId === "string" ? rawId.trim().toUpperCase() : "";
@@ -119,11 +267,11 @@ function normalizeProduct(raw) {
   };
 }
 
-function normalizeProducts(products) {
-  const normalized = [];
-  const seen = new Set();
+function normalizeProducts(products: unknown): Product[] {
+  const normalized: Product[] = [];
+  const seen = new Set<string>();
   for (const raw of Array.isArray(products) ? products : []) {
-    const product = normalizeProduct(raw);
+    const product = normalizeProduct(raw as Record<string, unknown> | null | undefined);
     if (!product || seen.has(product.id)) continue;
     seen.add(product.id);
     normalized.push(product);
@@ -133,7 +281,7 @@ function normalizeProducts(products) {
   return normalizeProducts(DEFAULT_PRODUCTS);
 }
 
-function sourceSupportsProduct(source, product) {
+function sourceSupportsProduct(source: MarketSource, product: Product): boolean {
   if (source === "coinbase") return true;
   if (source === "kraken") return Boolean(product.krakenSymbol);
   if (source === "bitstamp") return Boolean(product.bitstampSymbol);
@@ -141,7 +289,7 @@ function sourceSupportsProduct(source, product) {
   return false;
 }
 
-function sourceSymbol(source, product) {
+function sourceSymbol(source: MarketSource, product: Product): string | null {
   if (source === "coinbase") return product.id;
   if (source === "kraken") return product.krakenSymbol;
   if (source === "bitstamp") return product.bitstampSymbol;
@@ -149,20 +297,24 @@ function sourceSymbol(source, product) {
   return null;
 }
 
-function sourceProductIds(source, products) {
+function sourceProductIds(source: MarketSource, products: readonly Product[]): string[] {
   return products
     .filter((product) => sourceSupportsProduct(source, product))
     .map((product) => product.id);
 }
 
-export function parseCoinbaseMessage(raw, receivedAt = Date.now(), productMapping = null) {
-  const message = parseJson(raw);
+export function parseCoinbaseMessage(
+  raw: unknown,
+  receivedAt = Date.now(),
+  productMapping: SymbolMapping = null,
+): Quote[] {
+  const message = parseJson<CoinbaseMessage>(raw);
   if (!message || message.channel !== "ticker" || !Array.isArray(message.events)) {
     return [];
   }
 
   const exchangeAt = timestamp(message.timestamp, receivedAt);
-  const quotes = [];
+  const quotes: Quote[] = [];
 
   for (const event of message.events) {
     if (!event || !Array.isArray(event.tickers)) continue;
@@ -192,13 +344,17 @@ export function parseCoinbaseMessage(raw, receivedAt = Date.now(), productMappin
   return quotes;
 }
 
-export function parseKrakenMessage(raw, receivedAt = Date.now(), symbolMapping = null) {
-  const message = parseJson(raw);
+export function parseKrakenMessage(
+  raw: unknown,
+  receivedAt = Date.now(),
+  symbolMapping: SymbolMapping = null,
+): Quote[] {
+  const message = parseJson<KrakenMessage>(raw);
   if (!message || message.channel !== "ticker" || !Array.isArray(message.data)) {
     return [];
   }
 
-  const quotes = [];
+  const quotes: Quote[] = [];
   for (const ticker of message.data) {
     const asset = mappedAsset(symbolMapping, ticker.symbol, LEGACY_KRAKEN_ASSETS);
     const price = positivePrice(ticker.last);
@@ -219,15 +375,19 @@ export function parseKrakenMessage(raw, receivedAt = Date.now(), symbolMapping =
   return quotes;
 }
 
-function bitstampExchangeAt(data, receivedAt) {
+function bitstampExchangeAt(data: Record<string, unknown>, receivedAt: number): number {
   const microseconds = finiteNumber(data && data.microtimestamp);
   if (microseconds !== null && microseconds > 0) return Math.floor(microseconds / 1_000);
   const seconds = finiteNumber(data && data.timestamp);
   return seconds !== null && seconds > 0 ? Math.floor(seconds * 1_000) : receivedAt;
 }
 
-export function parseBitstampMessage(raw, receivedAt = Date.now(), symbolMapping = null) {
-  const message = parseJson(raw);
+export function parseBitstampMessage(
+  raw: unknown,
+  receivedAt = Date.now(),
+  symbolMapping: SymbolMapping = null,
+): Quote[] {
+  const message = parseJson<BitstampMessage>(raw);
   if (
     !message
     || message.event !== "trade"
@@ -253,7 +413,12 @@ export function parseBitstampMessage(raw, receivedAt = Date.now(), symbolMapping
   }];
 }
 
-function bitfinexTradeQuote(asset, trade, receivedAt, snapshot) {
+function bitfinexTradeQuote(
+  asset: string,
+  trade: unknown,
+  receivedAt: number,
+  snapshot: boolean,
+): Quote | null {
   if (!Array.isArray(trade)) return null;
   const exchangeAt = finiteNumber(trade[1]);
   const price = positivePrice(trade[3]);
@@ -270,7 +435,7 @@ function bitfinexTradeQuote(asset, trade, receivedAt, snapshot) {
   };
 }
 
-function bitfinexUtcOpenEvent(asset, candle) {
+function bitfinexUtcOpenEvent(asset: string, candle: unknown): UtcOpenEvent | null {
   if (!Array.isArray(candle)) return null;
   const candleAt = finiteNumber(candle[0]);
   const openPrice = positivePrice(candle[1]);
@@ -286,16 +451,16 @@ function bitfinexUtcOpenEvent(asset, candle) {
   };
 }
 
-export function createBitfinexTradesParser(symbolMapping = null) {
-  const channels = new Map();
-  const candleMapping = new Map();
+export function createBitfinexTradesParser(symbolMapping: SymbolMapping = null) {
+  const channels = new Map<number, { asset: string; channel: "trades" | "candles" }>();
+  const candleMapping = new Map<string, string>();
   if (symbolMapping instanceof Map) {
     for (const [symbol, asset] of symbolMapping.entries()) {
       candleMapping.set(`trade:1D:${symbol}`, asset);
     }
   }
-  return (raw, receivedAt = Date.now()) => {
-    const message = parseJson(raw);
+  return (raw: unknown, receivedAt = Date.now()): ParsedSocketEvent[] => {
+    const message = parseJson(raw) as unknown[] | Record<string, unknown> | null;
     if (!message) return [];
 
     if (!Array.isArray(message)) {
@@ -307,7 +472,7 @@ export function createBitfinexTradesParser(symbolMapping = null) {
             return [{ kind: "subscriptionAck", key: `trades:${message.symbol}` }];
           }
         } else if (message.channel === "candles") {
-          const asset = candleMapping.get(message.key);
+          const asset = candleMapping.get(message.key as string);
           if (asset) {
             channels.set(Number(message.chanId), { asset, channel: "candles" });
             return [{ kind: "subscriptionAck", key: `candles:${message.key}` }];
@@ -353,13 +518,22 @@ export function createBitfinexTradesParser(symbolMapping = null) {
   };
 }
 
-export function parseRestTicker(asset, payload, receivedAt = Date.now()) {
+export function parseRestTicker(
+  asset: unknown,
+  payload: unknown,
+  receivedAt?: number,
+): Quote | null;
+export function parseRestTicker(
+  asset: unknown,
+  payload: unknown,
+  receivedAt = Date.now(),
+): Quote | null {
   if (typeof asset !== "string" || !asset || !payload || typeof payload !== "object") {
     return null;
   }
-  const price = positivePrice(payload.price);
+  const price = positivePrice((payload as Record<string, unknown>).price);
   if (price === null) return null;
-  const tickerAt = timestamp(payload.time, receivedAt);
+  const tickerAt = timestamp((payload as Record<string, unknown>).time, receivedAt);
   return {
     asset,
     price,
@@ -374,32 +548,46 @@ export function parseRestTicker(asset, payload, receivedAt = Date.now()) {
   };
 }
 
-export function utcDayStart(timestampMs) {
+export function utcDayStart(timestampMs: number): number;
+export function utcDayStart(timestampMs: unknown): number | null;
+export function utcDayStart(timestampMs: unknown): number | null {
   const value = finiteNumber(timestampMs);
   return value === null ? null : Math.floor(value / DAY_MS) * DAY_MS;
 }
 
-export function calculateUtcChange(price, openPrice) {
+export function calculateUtcChange(price: unknown, openPrice: unknown): number | null {
   const current = positivePrice(price);
   const open = positivePrice(openPrice);
   return current === null || open === null ? null : ((current / open) - 1) * 100;
 }
 
-function utcOpenSource(quoteOrSource) {
-  if (quoteOrSource && typeof quoteOrSource === "object" && quoteOrSource.marketSource) {
-    return quoteOrSource.marketSource;
+function utcOpenSource(
+  quoteOrSource: Quote | IncomingQuote | UtcOpenEvent | QuoteSource | MarketSource,
+): MarketSource;
+function utcOpenSource(quoteOrSource: unknown): MarketSource | null;
+function utcOpenSource(quoteOrSource: unknown): MarketSource | null {
+  if (
+    quoteOrSource
+    && typeof quoteOrSource === "object"
+    && (quoteOrSource as Record<string, unknown>).marketSource
+  ) {
+    return (quoteOrSource as Record<string, unknown>).marketSource as MarketSource;
   }
   const source = quoteOrSource && typeof quoteOrSource === "object"
-    ? quoteOrSource.source
+    ? (quoteOrSource as Record<string, unknown>).source
     : quoteOrSource;
-  return source === "coinbaseRest" ? "coinbase" : source;
+  return (source === "coinbaseRest" ? "coinbase" : source) as MarketSource | null;
 }
 
-function utcOpenRetryDelay(attempt) {
+function utcOpenRetryDelay(attempt: number): number {
   return Math.min(2_000 * (2 ** Math.min(Math.max(0, attempt), 5)), 60_000);
 }
 
-export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
+export function parseCoinbaseUtcOpen(
+  payload: unknown,
+  dayStartMs: number,
+  windowMs = DAY_MS,
+): number | null {
   if (!Array.isArray(payload)) return null;
   const startSeconds = Math.floor(dayStartMs / 1_000);
   const endSeconds = Math.floor((dayStartMs + windowMs) / 1_000);
@@ -415,8 +603,13 @@ export function parseCoinbaseUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
   return matching.length > 0 ? positivePrice(matching[0][3]) : null;
 }
 
-export function parseBitstampUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
-  const candles = payload && payload.data && payload.data.ohlc;
+export function parseBitstampUtcOpen(
+  payload: unknown,
+  dayStartMs: number,
+  windowMs = DAY_MS,
+): number | null {
+  const value = payload as { data?: { ohlc?: unknown } } | null;
+  const candles = value && value.data && value.data.ohlc;
   if (!Array.isArray(candles)) return null;
   const startSeconds = Math.floor(dayStartMs / 1_000);
   const endSeconds = Math.floor((dayStartMs + windowMs) / 1_000);
@@ -434,33 +627,38 @@ export function parseBitstampUtcOpen(payload, dayStartMs, windowMs = DAY_MS) {
   return matching.length > 0 ? positivePrice(matching[0].open) : null;
 }
 
-function legacyKrakenUtcOpens(payload) {
-  const parsed = { BTC: null, ETH: null };
+function legacyKrakenUtcOpens(payload: unknown): Record<string, number | null> {
+  const parsed: Record<string, number | null> = { BTC: null, ETH: null };
+  const value = payload as Record<string, unknown> | null;
   if (
-    !payload
-    || typeof payload !== "object"
-    || !Array.isArray(payload.error)
-    || payload.error.length > 0
-    || !payload.result
-    || typeof payload.result !== "object"
+    !value
+    || typeof value !== "object"
+    || !Array.isArray(value.error)
+    || value.error.length > 0
+    || !value.result
+    || typeof value.result !== "object"
   ) return parsed;
 
-  for (const [key, value] of Object.entries(payload.result)) {
-    if (!value || typeof value !== "object") continue;
+  for (const [key, entry] of Object.entries(value.result)) {
+    if (!entry || typeof entry !== "object") continue;
+    const result = entry as Record<string, unknown>;
     const normalized = key.toUpperCase().replace(/[^A-Z]/g, "");
     if (normalized.includes("ETH") && normalized.endsWith("USD")) {
-      parsed.ETH = positivePrice(value.o);
+      parsed.ETH = positivePrice(result.o);
     } else if (
       (normalized.includes("BTC") || normalized.includes("XBT"))
       && normalized.endsWith("USD")
     ) {
-      parsed.BTC = positivePrice(value.o);
+      parsed.BTC = positivePrice(result.o);
     }
   }
   return parsed;
 }
 
-export function parseKrakenUtcOpens(payload, products = null) {
+export function parseKrakenUtcOpens(
+  payload: unknown,
+  products: ReadonlyMap<string, string> | readonly Product[] | null = null,
+): Record<string, number | null> {
   if (!products) return legacyKrakenUtcOpens(payload);
 
   const targets = products instanceof Map
@@ -470,43 +668,52 @@ export function parseKrakenUtcOpens(payload, products = null) {
         .filter((product) => product && product.krakenSymbol)
         .map((product) => [product.krakenSymbol, product.id]),
     );
-  const parsed = {};
+  const parsed: Record<string, number | null> = {};
   for (const asset of targets.values()) parsed[asset] = null;
 
+  const value = payload as Record<string, unknown> | null;
   if (
-    !payload
-    || typeof payload !== "object"
-    || !Array.isArray(payload.error)
-    || payload.error.length > 0
-    || !payload.result
-    || typeof payload.result !== "object"
+    !value
+    || typeof value !== "object"
+    || !Array.isArray(value.error)
+    || value.error.length > 0
+    || !value.result
+    || typeof value.result !== "object"
   ) return parsed;
 
   const normalizedTargets = new Map();
   for (const [symbol, asset] of targets.entries()) {
     normalizedTargets.set(String(symbol).toUpperCase(), asset);
   }
-  for (const [key, value] of Object.entries(payload.result)) {
-    if (!value || typeof value !== "object") continue;
+  for (const [key, entry] of Object.entries(value.result)) {
+    if (!entry || typeof entry !== "object") continue;
     const asset = normalizedTargets.get(key.toUpperCase());
     if (!asset) continue;
-    parsed[asset] = positivePrice(value.o);
+    parsed[asset] = positivePrice((entry as Record<string, unknown>).o);
   }
   return parsed;
 }
 
-export function reconnectDelay(attempt, random = Math.random) {
+export function reconnectDelay(attempt: number, random: () => number = Math.random): number {
   const exponent = Math.min(Math.max(0, attempt), 6);
   const base = Math.min(500 * (2 ** exponent), 30_000);
   const jitter = 0.75 + random() * 0.5;
   return Math.round(base * jitter);
 }
 
-export function selectQuote(sourceQuotes, now = Date.now()) {
-  const quotes = Object.values(sourceQuotes || {}).filter(Boolean);
+interface SelectableQuote {
+  source: string;
+  receivedAt: number;
+}
+
+export function selectQuote<T extends SelectableQuote>(
+  sourceQuotes: Partial<Record<QuoteSource, T | null | undefined>> | null | undefined,
+  now = Date.now(),
+): (T & { stale: boolean }) | null {
+  const quotes = Object.values(sourceQuotes || {}).filter((quote): quote is T => Boolean(quote));
   if (quotes.length === 0) return null;
 
-  const coinbase = sourceQuotes.coinbase;
+  const coinbase = sourceQuotes?.coinbase;
   if (coinbase && now - coinbase.receivedAt <= PRIMARY_PREFERENCE_MS) {
     return { ...coinbase, stale: false };
   }
@@ -517,7 +724,7 @@ export function selectQuote(sourceQuotes, now = Date.now()) {
     .sort(newestQuoteFirst);
   if (freshWebSockets.length > 0) return { ...freshWebSockets[0], stale: false };
 
-  const restFallback = sourceQuotes.coinbaseRest;
+  const restFallback = sourceQuotes?.coinbaseRest;
   if (restFallback && now - restFallback.receivedAt <= STALE_AFTER_MS) {
     return { ...restFallback, stale: false };
   }
@@ -527,7 +734,29 @@ export function selectQuote(sourceQuotes, now = Date.now()) {
 }
 
 class ResilientSocket {
-  constructor(config, WebSocketImpl, handlers, now = () => Date.now()) {
+  declare config: SourceConfig;
+  declare WebSocketImpl: WebSocketConstructor;
+  declare handlers: SocketHandlers;
+  declare now: () => number;
+  declare socket: WebSocketLike | null;
+  declare status: SourceConnectionStatus;
+  declare stopped: boolean;
+  declare reconnectAttempt: number;
+  declare lastMessageAt: number;
+  declare openedAt: number;
+  declare lastQuoteAt: Record<string, number>;
+  declare openTimer: TimerHandle | null;
+  declare watchdogTimer: TimerHandle | null;
+  declare reconnectTimer: TimerHandle | null;
+  declare subscriptionAckTimer: TimerHandle | null;
+  declare pendingSubscriptionAcks: Set<string>;
+
+  constructor(
+    config: SourceConfig,
+    WebSocketImpl: WebSocketConstructor,
+    handlers: SocketHandlers,
+    now: () => number = () => Date.now(),
+  ) {
     this.config = config;
     this.WebSocketImpl = WebSocketImpl;
     this.handlers = handlers;
@@ -546,13 +775,13 @@ class ResilientSocket {
     this.pendingSubscriptionAcks = new Set();
   }
 
-  start() {
+  start(): void {
     if (!this.stopped) return;
     this.stopped = false;
     this.connect();
   }
 
-  stop() {
+  stop(): void {
     this.stopped = true;
     this.clearTimers();
     const socket = this.socket;
@@ -567,9 +796,9 @@ class ResilientSocket {
     this.setStatus("idle");
   }
 
-  reconnectNow() {
+  reconnectNow(): void {
     if (this.stopped) return;
-    clearTimeout(this.reconnectTimer);
+    clearTimeout(this.reconnectTimer as TimerHandle);
     this.reconnectTimer = null;
     const socket = this.socket;
     if (socket && socket.readyState < 2) {
@@ -584,20 +813,20 @@ class ResilientSocket {
     this.connect();
   }
 
-  hasExpiredSentinelQuotes(now = this.now()) {
+  hasExpiredSentinelQuotes(now = this.now()): boolean {
     return this.config.sentinelAssets.some((asset) => {
       const lastQuoteAt = this.lastQuoteAt[asset] || this.openedAt;
       return now - lastQuoteAt > this.config.quoteTimeoutMs;
     });
   }
 
-  connect() {
+  connect(): void {
     if (this.stopped || this.socket) return;
-    clearTimeout(this.reconnectTimer);
+    clearTimeout(this.reconnectTimer as TimerHandle);
     this.reconnectTimer = null;
     this.setStatus(this.reconnectAttempt === 0 ? "connecting" : "reconnecting");
 
-    let socket;
+    let socket: WebSocketLike;
     try {
       socket = new this.WebSocketImpl(this.config.url);
     } catch {
@@ -616,7 +845,7 @@ class ResilientSocket {
 
     socket.addEventListener("open", () => {
       if (socket !== this.socket || this.stopped) return;
-      clearTimeout(this.openTimer);
+      clearTimeout(this.openTimer as TimerHandle);
       this.openTimer = null;
       this.lastMessageAt = this.now();
       this.openedAt = this.lastMessageAt;
@@ -661,13 +890,13 @@ class ResilientSocket {
       if (socket !== this.socket || this.stopped) return;
       this.lastMessageAt = this.now();
       const events = this.config.parser(event.data, this.lastMessageAt);
-      const quotes = [];
+      const quotes: QuoteOrUtcOpenEvent[] = [];
       let subscriptionFailed = false;
       for (const item of events) {
         if (item.kind === "subscriptionAck") {
           this.pendingSubscriptionAcks.delete(item.key);
           if (this.pendingSubscriptionAcks.size === 0) {
-            clearTimeout(this.subscriptionAckTimer);
+            clearTimeout(this.subscriptionAckTimer as TimerHandle);
             this.subscriptionAckTimer = null;
           }
         } else if (item.kind === "subscriptionError") {
@@ -698,9 +927,9 @@ class ResilientSocket {
     socket.addEventListener("close", () => {
       if (socket !== this.socket) return;
       this.socket = null;
-      clearTimeout(this.openTimer);
-      clearInterval(this.watchdogTimer);
-      clearTimeout(this.subscriptionAckTimer);
+      clearTimeout(this.openTimer as TimerHandle);
+      clearInterval(this.watchdogTimer as TimerHandle);
+      clearTimeout(this.subscriptionAckTimer as TimerHandle);
       this.openTimer = null;
       this.watchdogTimer = null;
       this.subscriptionAckTimer = null;
@@ -709,7 +938,7 @@ class ResilientSocket {
     });
   }
 
-  scheduleReconnect() {
+  scheduleReconnect(): void {
     if (this.stopped || this.reconnectTimer) return;
     this.setStatus("reconnecting");
     const delay = reconnectDelay(this.reconnectAttempt);
@@ -720,17 +949,17 @@ class ResilientSocket {
     }, delay);
   }
 
-  setStatus(status) {
+  setStatus(status: SourceConnectionStatus): void {
     if (status === this.status) return;
     this.status = status;
     this.handlers.onStatus(this.config.id, status);
   }
 
-  clearTimers() {
-    clearTimeout(this.openTimer);
-    clearTimeout(this.reconnectTimer);
-    clearInterval(this.watchdogTimer);
-    clearTimeout(this.subscriptionAckTimer);
+  clearTimers(): void {
+    clearTimeout(this.openTimer as TimerHandle);
+    clearTimeout(this.reconnectTimer as TimerHandle);
+    clearInterval(this.watchdogTimer as TimerHandle);
+    clearTimeout(this.subscriptionAckTimer as TimerHandle);
     this.openTimer = null;
     this.reconnectTimer = null;
     this.watchdogTimer = null;
@@ -739,24 +968,38 @@ class ResilientSocket {
   }
 }
 
-function buildSourceConfigs(products) {
+function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
   const coinbaseMapping = new Map(products.map((product) => [product.id, product.id]));
-  const krakenProducts = products.filter((product) => product.krakenSymbol);
+  const krakenProducts = products.filter((product) => product.krakenSymbol) as Array<
+    Product & { krakenSymbol: string }
+  >;
   const krakenMapping = new Map(
     krakenProducts.map((product) => [product.krakenSymbol, product.id]),
   );
   const sentinelIds = products
     .filter((product) => product.symbol === "BTC" || product.symbol === "ETH")
     .map((product) => product.id);
-  const bitstampProducts = products.filter((product) => product.bitstampSymbol);
+  const bitstampProducts = products.filter((product) => product.bitstampSymbol) as Array<
+    Product & { bitstampSymbol: string }
+  >;
   const bitstampMapping = new Map(
     bitstampProducts.map((product) => [product.bitstampSymbol, product.id]),
   );
-  const bitfinexProducts = products.filter((product) => product.bitfinexSymbol);
+  const bitfinexProducts = products.filter((product) => product.bitfinexSymbol) as Array<
+    Product & { bitfinexSymbol: string }
+  >;
   const bitfinexMapping = new Map(
     bitfinexProducts.map((product) => [product.bitfinexSymbol, product.id]),
   );
-  const bitfinexSubscriptions = [];
+  const bitfinexSubscriptions: Array<{
+    event: "subscribe";
+    channel: "trades";
+    symbol: string;
+  } | {
+    event: "subscribe";
+    channel: "candles";
+    key: string;
+  }> = [];
   for (const product of bitfinexProducts) {
     bitfinexSubscriptions.push(
       {
@@ -772,7 +1015,7 @@ function buildSourceConfigs(products) {
     );
   }
 
-  const configs = [{
+  const configs: SourceConfig[] = [{
     id: "coinbase",
     label: "Coinbase",
     url: "wss://advanced-trade-ws.coinbase.com",
@@ -860,16 +1103,43 @@ function buildSourceConfigs(products) {
 }
 
 export class PriceFeed {
+  declare WebSocketImpl: WebSocketConstructor;
+  declare now: () => number;
+  declare utcOpenTimeoutMs: number;
+  declare utcOpenRetryDelay: (attempt: number) => number;
+  declare listeners: Set<(state: PriceFeedState) => void>;
+  declare started: boolean;
+  declare revision: number;
+  declare staleTimer: TimerHandle | null;
+  declare restTimer: TimerHandle | null;
+  declare restRequest: AbortController | null;
+  declare fetchImpl: FetchImpl | null;
+  declare sourceStatus: Record<QuoteSource, SourceConnectionStatus>;
+  declare utcOpenDay: Record<MarketSource, number | null>;
+  declare utcOpenRequests: Record<MarketSource, Promise<void> | null>;
+  declare utcOpenControllers: Record<MarketSource, AbortController | null>;
+  declare utcOpenPending: Record<MarketSource, Set<string>>;
+  declare utcOpenRetryTimers: Record<MarketSource, TimerHandle | null>;
+  declare utcOpenRetryTimerAt: Record<MarketSource, number>;
+  declare products: Product[];
+  declare productById: Map<string, Product>;
+  declare productIdBySymbol: Map<string, string>;
+  declare quotes: Record<string, SourceQuotes>;
+  declare utcOpens: Record<MarketSource, Record<string, UtcOpenRecord | null>>;
+  declare utcOpenRetryAt: Record<MarketSource, Record<string, number>>;
+  declare utcOpenRetryAttempt: Record<MarketSource, Record<string, number>>;
+  declare connections: ResilientSocket[];
+
   constructor({
-    WebSocketImpl = globalThis.WebSocket,
+    WebSocketImpl = globalThis.WebSocket as unknown as WebSocketConstructor,
     fetchImpl = typeof globalThis.fetch === "function"
-      ? globalThis.fetch.bind(globalThis)
+      ? globalThis.fetch.bind(globalThis) as FetchImpl
       : null,
     now = () => Date.now(),
     utcOpenTimeoutMs = 8_000,
     utcOpenRetryDelayImpl = utcOpenRetryDelay,
     products = DEFAULT_PRODUCTS,
-  } = {}) {
+  }: PriceFeedOptions = {}) {
     if (!WebSocketImpl) throw new Error("WebSocket is not available in this runtime");
     this.WebSocketImpl = WebSocketImpl;
     this.now = now;
@@ -885,28 +1155,44 @@ export class PriceFeed {
     this.restRequest = null;
     this.fetchImpl = fetchImpl;
     this.sourceStatus = Object.fromEntries(
-      SOURCE_IDS.concat(["coinbaseRest"]).map((source) => [source, "idle"]),
-    );
-    this.utcOpenDay = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
-    this.utcOpenRequests = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
-    this.utcOpenControllers = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
+      QUOTE_SOURCE_IDS.map((source) => [source, "idle"]),
+    ) as Record<QuoteSource, SourceConnectionStatus>;
+    this.utcOpenDay = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, null]),
+    ) as Record<MarketSource, number | null>;
+    this.utcOpenRequests = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, null]),
+    ) as Record<MarketSource, Promise<void> | null>;
+    this.utcOpenControllers = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, null]),
+    ) as Record<MarketSource, AbortController | null>;
     this.utcOpenPending = Object.fromEntries(
       SOURCE_IDS.map((source) => [source, new Set()]),
-    );
-    this.utcOpenRetryTimers = Object.fromEntries(SOURCE_IDS.map((source) => [source, null]));
-    this.utcOpenRetryTimerAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, 0]));
+    ) as Record<MarketSource, Set<string>>;
+    this.utcOpenRetryTimers = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, null]),
+    ) as Record<MarketSource, TimerHandle | null>;
+    this.utcOpenRetryTimerAt = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, 0]),
+    ) as Record<MarketSource, number>;
     this.products = [];
     this.productById = new Map();
     this.productIdBySymbol = new Map();
     this.quotes = {};
-    this.utcOpens = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
-    this.utcOpenRetryAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
-    this.utcOpenRetryAttempt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpens = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, UtcOpenRecord | null>>;
+    this.utcOpenRetryAt = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, number>>;
+    this.utcOpenRetryAttempt = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, number>>;
     this.applyProducts(normalizeProducts(products), false);
     this.connections = this.createConnections();
   }
 
-  createConnections() {
+  createConnections(): ResilientSocket[] {
     return buildSourceConfigs(this.products).map((source) => new ResilientSocket(
       source,
       this.WebSocketImpl,
@@ -918,7 +1204,7 @@ export class PriceFeed {
     ));
   }
 
-  applyProducts(products, preserve) {
+  applyProducts(products: Product[], preserve: boolean): void {
     const previousProducts = this.productById;
     const previousQuotes = this.quotes;
     const previousOpens = this.utcOpens;
@@ -935,9 +1221,15 @@ export class PriceFeed {
     }
 
     this.quotes = {};
-    this.utcOpens = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
-    this.utcOpenRetryAt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
-    this.utcOpenRetryAttempt = Object.fromEntries(SOURCE_IDS.map((source) => [source, {}]));
+    this.utcOpens = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, UtcOpenRecord | null>>;
+    this.utcOpenRetryAt = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, number>>;
+    this.utcOpenRetryAttempt = Object.fromEntries(
+      SOURCE_IDS.map((source) => [source, {}]),
+    ) as Record<MarketSource, Record<string, number>>;
 
     for (const product of products) {
       const oldProduct = previousProducts && previousProducts.get(product.id);
@@ -973,13 +1265,13 @@ export class PriceFeed {
     }
   }
 
-  subscribe(listener) {
+  subscribe(listener: (state: PriceFeedState) => void): () => boolean {
     this.listeners.add(listener);
     listener(this.getState());
     return () => this.listeners.delete(listener);
   }
 
-  start() {
+  start(): void {
     if (this.started) return;
     this.started = true;
     for (const connection of this.connections) connection.start();
@@ -988,24 +1280,24 @@ export class PriceFeed {
     void this.pollRestFallback();
   }
 
-  stop() {
+  stop(): void {
     if (!this.started) return;
     this.started = false;
     this.revision += 1;
-    clearInterval(this.staleTimer);
-    clearInterval(this.restTimer);
+    clearInterval(this.staleTimer as TimerHandle);
+    clearInterval(this.restTimer as TimerHandle);
     this.staleTimer = null;
     this.restTimer = null;
     this.abortRequests();
     for (const connection of this.connections) connection.stop();
   }
 
-  abortRequests() {
+  abortRequests(): void {
     if (this.restRequest) this.restRequest.abort();
     this.restRequest = null;
     for (const source of SOURCE_IDS) {
       if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
-      clearTimeout(this.utcOpenRetryTimers[source]);
+      clearTimeout(this.utcOpenRetryTimers[source] as TimerHandle);
       this.utcOpenControllers[source] = null;
       this.utcOpenRequests[source] = null;
       this.utcOpenRetryTimers[source] = null;
@@ -1014,7 +1306,7 @@ export class PriceFeed {
     }
   }
 
-  setProducts(products) {
+  setProducts(products: readonly Product[]): void {
     const nextProducts = normalizeProducts(products);
     const currentSignature = this.products
       .map((product) => SOURCE_IDS
@@ -1048,12 +1340,12 @@ export class PriceFeed {
     this.emit();
   }
 
-  reconnectAll() {
+  reconnectAll(): void {
     for (const connection of this.connections) connection.reconnectNow();
     void this.pollRestFallback();
   }
 
-  async pollRestFallback() {
+  async pollRestFallback(): Promise<void> {
     if (!this.started || !this.fetchImpl || this.restRequest) return;
 
     const now = this.now();
@@ -1079,7 +1371,7 @@ export class PriceFeed {
       const results = await mapWithConcurrency(neededProducts, REST_CONCURRENCY, async (product) => {
         try {
           const productId = encodeURIComponent(product.id);
-          const response = await this.fetchImpl(`${COINBASE_API_ROOT}/${productId}/ticker`, {
+          const response = await this.fetchImpl!(`${COINBASE_API_ROOT}/${productId}/ticker`, {
             signal: controller.signal,
             cache: "no-store",
             headers: { Accept: "application/json" },
@@ -1091,7 +1383,7 @@ export class PriceFeed {
         }
       });
       if (!this.started || revision !== this.revision) return;
-      const quotes = results.filter(Boolean);
+      const quotes = results.filter(Boolean) as Quote[];
       if (quotes.length === 0) throw new Error("all REST fallback requests failed");
       this.handleQuotes(quotes);
       this.handleStatus("coinbaseRest", "open");
@@ -1105,9 +1397,9 @@ export class PriceFeed {
     }
   }
 
-  resetUtcOpenDay(source, dayStart, exchangeAt) {
+  resetUtcOpenDay(source: MarketSource, dayStart: number, exchangeAt: number): void {
     if (this.utcOpenControllers[source]) this.utcOpenControllers[source].abort();
-    clearTimeout(this.utcOpenRetryTimers[source]);
+    clearTimeout(this.utcOpenRetryTimers[source] as TimerHandle);
     this.utcOpenControllers[source] = null;
     this.utcOpenRequests[source] = null;
     this.utcOpenRetryTimers[source] = null;
@@ -1123,11 +1415,11 @@ export class PriceFeed {
     }
   }
 
-  ensureUtcOpen(quote) {
+  ensureUtcOpen(quote: Quote): void {
     this.ensureUtcOpens([quote]);
   }
 
-  ensureSelectedUtcOpens() {
+  ensureSelectedUtcOpens(): void {
     const now = this.now();
     const selected = [];
     for (const product of this.products) {
@@ -1137,10 +1429,10 @@ export class PriceFeed {
     this.ensureUtcOpens(selected);
   }
 
-  ensureUtcOpens(quotes) {
+  ensureUtcOpens(quotes: readonly Quote[]): void {
     if (!this.started || !this.fetchImpl) return;
     const currentDayStart = utcDayStart(this.now());
-    const touchedSources = new Set();
+    const touchedSources = new Set<MarketSource>();
 
     for (const quote of quotes) {
       const productId = this.resolveProductId(quote.asset);
@@ -1165,19 +1457,23 @@ export class PriceFeed {
         continue;
       }
 
-      const record = this.utcOpens[source][productId];
+      const record = this.utcOpens[source][productId as string];
       if (!record || record.dayStart !== dayStart) {
-        this.utcOpenPending[source].add(productId);
+        this.utcOpenPending[source].add(productId as string);
         touchedSources.add(source);
       }
     }
 
     for (const source of touchedSources) {
-      this.drainUtcOpen(source, this.utcOpenDay[source]);
+      this.drainUtcOpen(source, this.utcOpenDay[source] as number);
     }
   }
 
-  scheduleUtcOpenRetry(source, dayStart, revision = this.revision) {
+  scheduleUtcOpenRetry(
+    source: MarketSource,
+    dayStart: number,
+    revision = this.revision,
+  ): void {
     if (
       !this.started
       || revision !== this.revision
@@ -1202,7 +1498,7 @@ export class PriceFeed {
       );
     }
 
-    clearTimeout(this.utcOpenRetryTimers[source]);
+    clearTimeout(this.utcOpenRetryTimers[source] as TimerHandle);
     this.utcOpenRetryTimers[source] = null;
     this.utcOpenRetryTimerAt[source] = 0;
     if (!Number.isFinite(nextRetryAt)) return;
@@ -1221,7 +1517,7 @@ export class PriceFeed {
     }, delay);
   }
 
-  drainUtcOpen(source, dayStart) {
+  drainUtcOpen(source: MarketSource, dayStart: number): void {
     if (
       !this.started
       || !this.fetchImpl
@@ -1230,7 +1526,7 @@ export class PriceFeed {
     ) return;
 
     const now = this.now();
-    const productIds = [];
+    const productIds: string[] = [];
     for (const productId of this.utcOpenPending[source]) {
       const product = this.productById.get(productId);
       const record = this.utcOpens[source][productId];
@@ -1247,7 +1543,9 @@ export class PriceFeed {
       return;
     }
 
-    const requestedProducts = productIds.map((id) => this.productById.get(id)).filter(Boolean);
+    const requestedProducts = productIds
+      .map((id) => this.productById.get(id))
+      .filter(Boolean) as Product[];
     const controller = new AbortController();
     const revision = this.revision;
     this.utcOpenControllers[source] = controller;
@@ -1274,18 +1572,23 @@ export class PriceFeed {
     this.utcOpenRequests[source] = request;
   }
 
-  async fetchUtcOpens(source, dayStart, products, controller) {
-    const options = {
+  async fetchUtcOpens(
+    source: MarketSource,
+    dayStart: number,
+    products: readonly Product[],
+    controller: AbortController,
+  ): Promise<Record<string, number | null>> {
+    const options: RequestInit = {
       signal: controller.signal,
       cache: "no-store",
       headers: { Accept: "application/json" },
     };
 
     if (source === "kraken") {
-      const pairs = products.map((product) => product.krakenSymbol).filter(Boolean);
+      const pairs = products.map((product) => product.krakenSymbol).filter(Boolean) as string[];
       if (pairs.length === 0) return {};
       const pair = encodeURIComponent(pairs.join(","));
-      const response = await this.fetchImpl(
+      const response = await this.fetchImpl!(
         `${KRAKEN_TICKER_ROOT}?pair=${pair}&assetVersion=1`,
         options,
       );
@@ -1298,49 +1601,63 @@ export class PriceFeed {
       const startSeconds = Math.floor(dayStart / 1_000);
       const endSeconds = Math.floor(endMs / 1_000);
       const windowMs = Math.max(1_000, endMs - dayStart + 1);
-      const results = await mapWithConcurrency(products, REST_CONCURRENCY, async (product) => {
+      const results = await mapWithConcurrency<Product, [string, number | null]>(
+        products,
+        REST_CONCURRENCY,
+        async (product) => {
         try {
-          const marketSymbol = encodeURIComponent(product.bitstampSymbol);
+          const marketSymbol = encodeURIComponent(product.bitstampSymbol as string);
           const url = `${BITSTAMP_API_ROOT}/ohlc/${marketSymbol}/`
             + `?step=${UTC_OPEN_GRANULARITY_SECONDS}&limit=24`
             + `&start=${startSeconds}&end=${endSeconds}`;
-          const response = await this.fetchImpl(url, options);
+          const response = await this.fetchImpl!(url, options);
           if (!response.ok) throw new Error(`Bitstamp UTC open ${response.status}`);
           return [product.id, parseBitstampUtcOpen(await response.json(), dayStart, windowMs)];
         } catch {
           return [product.id, null];
         }
-      });
+        },
+      );
       return Object.fromEntries(results);
     }
 
     const endMs = Math.max(dayStart + 1_000, this.now());
     const start = encodeURIComponent(new Date(dayStart).toISOString());
     const end = encodeURIComponent(new Date(endMs).toISOString());
-    const results = await mapWithConcurrency(products, REST_CONCURRENCY, async (product) => {
+    const results = await mapWithConcurrency<Product, [string, number | null]>(
+      products,
+      REST_CONCURRENCY,
+      async (product) => {
       try {
         const productId = encodeURIComponent(product.id);
         const url = `${COINBASE_API_ROOT}/${productId}/candles`
           + `?granularity=${UTC_OPEN_GRANULARITY_SECONDS}&start=${start}&end=${end}`;
-        const response = await this.fetchImpl(url, options);
+        const response = await this.fetchImpl!(url, options);
         if (!response.ok) throw new Error(`Coinbase UTC open ${response.status}`);
         const windowMs = Math.max(1_000, endMs - dayStart + 1);
         return [product.id, parseCoinbaseUtcOpen(await response.json(), dayStart, windowMs)];
       } catch {
         return [product.id, null];
       }
-    });
+      },
+    );
     return Object.fromEntries(results);
   }
 
-  commitUtcOpens(source, dayStart, opens, productIds, revision = this.revision) {
+  commitUtcOpens(
+    source: MarketSource,
+    dayStart: number,
+    opens: Readonly<Record<string, unknown>> | null,
+    productIds: readonly string[],
+    revision = this.revision,
+  ): void {
     if (
       !this.started
       || revision !== this.revision
       || this.utcOpenDay[source] !== dayStart
     ) return;
 
-    const missing = [];
+    const missing: string[] = [];
     for (const productId of productIds) {
       if (!this.productById.has(productId)) continue;
       const price = positivePrice(opens && opens[productId]);
@@ -1358,7 +1675,12 @@ export class PriceFeed {
     this.emit();
   }
 
-  deferUtcOpenRetry(source, dayStart, productIds = null, revision = this.revision) {
+  deferUtcOpenRetry(
+    source: MarketSource,
+    dayStart: number,
+    productIds: readonly string[] | null = null,
+    revision = this.revision,
+  ): void {
     if (
       !this.started
       || revision !== this.revision
@@ -1375,12 +1697,12 @@ export class PriceFeed {
     this.scheduleUtcOpenRetry(source, dayStart, revision);
   }
 
-  resolveProductId(asset) {
-    if (this.productById.has(asset)) return asset;
-    return this.productIdBySymbol.get(asset) || null;
+  resolveProductId(asset: unknown): string | null {
+    if (this.productById.has(asset as string)) return asset as string;
+    return this.productIdBySymbol.get(asset as string) || null;
   }
 
-  handleStreamUtcOpen(rawEvent) {
+  handleStreamUtcOpen(rawEvent: UtcOpenEvent): boolean {
     const productId = this.resolveProductId(rawEvent.asset);
     const product = productId ? this.productById.get(productId) : null;
     const source = utcOpenSource(rawEvent);
@@ -1402,40 +1724,41 @@ export class PriceFeed {
     } else if (dayStart < trackedDay) {
       return false;
     }
-    this.utcOpens[source][productId] = { dayStart, price: openPrice };
-    this.utcOpenRetryAttempt[source][productId] = 0;
-    this.utcOpenRetryAt[source][productId] = 0;
-    this.utcOpenPending[source].delete(productId);
+    this.utcOpens[source][productId as string] = { dayStart, price: openPrice };
+    this.utcOpenRetryAttempt[source][productId as string] = 0;
+    this.utcOpenRetryAt[source][productId as string] = 0;
+    this.utcOpenPending[source].delete(productId as string);
     return true;
   }
 
-  handleQuotes(quotes) {
-    const accepted = [];
+  handleQuotes(quotes: readonly HandledFeedEvent[]): void {
+    const accepted: Quote[] = [];
     for (const rawQuote of quotes) {
       if (rawQuote && rawQuote.kind === "utcOpen") {
         this.handleStreamUtcOpen(rawQuote);
         continue;
       }
-      const productId = this.resolveProductId(rawQuote.asset);
+      const incoming = rawQuote as IncomingQuote;
+      const productId = this.resolveProductId(incoming.asset);
       const product = productId ? this.productById.get(productId) : null;
       if (!product) continue;
-      const marketSource = utcOpenSource(rawQuote);
+      const marketSource = utcOpenSource(incoming);
       if (!SOURCE_IDS.includes(marketSource) || !sourceSupportsProduct(marketSource, product)) continue;
-      if (!hasOwn(this.quotes[productId], rawQuote.source)) continue;
-      const quote = { ...rawQuote, asset: productId, marketSource };
-      this.quotes[productId][quote.source] = quote;
+      if (!hasOwn(this.quotes[productId as string], incoming.source)) continue;
+      const quote: Quote = { ...incoming, asset: productId as string, marketSource };
+      this.quotes[productId as string][quote.source] = quote;
       accepted.push(quote);
     }
     if (accepted.length > 0) this.ensureSelectedUtcOpens();
     this.emit();
   }
 
-  handleStatus(source, status) {
+  handleStatus(source: QuoteSource, status: SourceConnectionStatus): void {
     this.sourceStatus[source] = status;
     this.emit();
   }
 
-  getState() {
+  getState(): PriceFeedState {
     const now = this.now();
     const currentDayStart = utcDayStart(now);
     const prices = Object.fromEntries(
@@ -1450,12 +1773,12 @@ export class PriceFeed {
           : null;
         return [product.id, { ...quote, changeUtc }];
       }),
-    );
-    const current = Object.values(prices).filter(Boolean);
+    ) as Record<string, DisplayQuote | null>;
+    const current = Object.values(prices).filter(Boolean) as DisplayQuote[];
     const fresh = current.filter((quote) => !quote.stale);
     const sourceStates = Object.values(this.sourceStatus);
 
-    let status;
+    let status: FeedStatus;
     if (this.products.length > 0 && fresh.length === this.products.length) status = "live";
     else if (fresh.length > 0) status = "partial";
     else if (current.length > 0) status = "reconnecting";
@@ -1474,7 +1797,7 @@ export class PriceFeed {
     };
   }
 
-  emit() {
+  emit(): void {
     this.ensureSelectedUtcOpens();
     const state = this.getState();
     for (const listener of this.listeners) listener(state);

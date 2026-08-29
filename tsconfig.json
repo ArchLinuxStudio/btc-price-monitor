@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2019",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2019", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "noEmit": true,
+    "noEmitOnError": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "skipLibCheck": true
+  },
+  "files": []
+}

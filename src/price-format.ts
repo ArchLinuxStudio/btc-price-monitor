@@ -1,4 +1,4 @@
-const formatters = {
+const formatters: Readonly<Record<"high" | "medium" | "small" | "tiny", Intl.NumberFormat>> = {
   high: new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -17,7 +17,7 @@ const formatters = {
   }),
 };
 
-export function formatUsdPrice(value) {
+export function formatUsdPrice(value: unknown): string {
   const price = Number(value);
   if (!Number.isFinite(price) || price <= 0) return "—";
 

@@ -21,9 +21,11 @@
 
 ```powershell
 npm.cmd install
-npm.cmd test
+npm.cmd run check
 npm.cmd run dev
 ```
+
+前端源码使用严格 TypeScript，开发命令会自动编译为浏览器原生 ES 模块；项目不使用前端框架或打包器，生成的 `dist/` 不提交到 Git。
 
 构建当前 Windows 用户可安装的 `.exe`：
 

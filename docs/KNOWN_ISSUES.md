@@ -26,9 +26,9 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 ## No normal main/PR CI and incomplete CI checks
 
-**Symptom:** The desktop workflow triggers only for manual dispatch or `v*` tags. It runs `npm test`, not `npm run check`, and does not run Rust fmt/check/clippy.
+**Symptom:** The desktop workflow triggers only for manual dispatch or `v*` tags. It now runs the complete TypeScript/frontend `npm run check`, but it still does not run Rust fmt/check/clippy.
 
-**Impact:** A pushed main commit can have no GitHub status even when local verification was performed; syntax/Rust quality regressions may be discovered only at release time.
+**Impact:** A pushed main commit can have no GitHub status even when local verification was performed; Rust quality regressions may be discovered only at release time.
 
 **Current evidence:** See the dated verification snapshot in [`CURRENT_STATE.md`](CURRENT_STATE.md); query GitHub again for a future commit.
 

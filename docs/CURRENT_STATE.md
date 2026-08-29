@@ -1,19 +1,20 @@
 # Current Development State
 
-Checkpoint date: 2026-08-22 (Asia/Shanghai)
+Checkpoint date: 2026-08-29 (Asia/Shanghai)
 
 ## Current Objective
 
-There is no active product-code objective. The most recent authorized feature work—compact self-selected coins plus four free real-USD sources—was completed, committed, and pushed. The user subsequently authorized committing and pushing this documentation checkpoint. Any next implementation or formal release still requires a new explicit user request.
+Publish `v1.3.0` containing the completed multi-product/four-source feature set and strict TypeScript migration. The migration keeps features, UI, runtime contracts, market semantics, and Rust source unchanged; the release changes only required package/Cargo/Tauri version metadata.
 
 ## Current Status
 
-- Branch/upstream after the documentation push: `main` tracking `origin/main`; use live Git for the documentation commit hash.
+- Branch/upstream: `main` tracking `origin/main`; the completed TypeScript migration is currently uncommitted, so live Git is authoritative.
 - Most recent product-code commit: `3f68c6d4d2a4f8f50df3f12a2740b760454565b3` (`feat: add compact multi-source crypto watchlist`). The documentation-only checkpoint commit follows it without changing product source/config/tests.
 - Product-code baseline described as `v1.2.1-3-g3f68c6d` before the documentation commit. No new tag was created.
-- Source version remains `1.2.1` in package/Cargo/Tauri metadata.
+- Source version is synchronized to `1.3.0` in package/Cargo/Tauri metadata for the explicitly authorized release.
 - Latest published GitHub Release is still `v1.2.1`; it has five platform assets but predates the current watchlist/four-source implementation.
-- No known blocking business bug and no product code is in progress.
+- The TypeScript migration is complete and currently uncommitted on top of `main`; the user explicitly authorized committing, pushing, and publishing release `v1.3.0` on 2026-08-29.
+- Live Git currently contains the intentional `.js` → `.ts` renames plus build/config/documentation work. Treat live Git as authoritative if this checkpoint is resumed.
 
 ### Documentation checkpoint
 
@@ -34,12 +35,14 @@ There is no active product-code objective. The most recent authorized feature wo
 - Tray-only resident behavior, dynamic native height, no taskbar/Dock entry, and no hover text tooltips.
 - Cross-platform release workflow configured to use four build runners and publish five Release assets on a new tag; its release job still needs its first production end-to-end run.
 - This checkpoint split the former monolithic `CODEX_CONTEXT.md` into `AGENTS.md` and routed `docs/` documents, then committed and pushed that migration with explicit user authorization.
+- All four frontend modules and all four Node test files now use strict TypeScript; source imports still emit as native `.js` browser-module specifiers.
+- The framework-free build/watch path emits ES2019 modules into ignored `dist/`, copies HTML/CSS byte-for-byte, and makes Tauri consume that output without changing CSP, permissions, window settings, or Rust/Cargo source.
+- TypeScript/frontend, Rust, Windows NSIS, and native Windows behavior verification are complete for this migration.
 
 ## In Progress
 
-No product implementation is in progress.
-
-No documentation work remains in progress after this checkpoint push. A new thread should still run `git status --short --branch` before acting and preserve any later user changes.
+- Formal `v1.3.0` release preparation is active: version sources are synchronized and release-level verification is complete; commit/push/tag operations remain.
+- After the tag workflow starts, wait for all platform builds and verify exactly five published assets before declaring the release complete.
 
 ## Relevant Files
 
@@ -53,16 +56,18 @@ No documentation work remains in progress after this checkpoint push. A new thre
 | `docs/RELEASE.md` | Versioning, packaging, tag workflow, asset verification |
 | `docs/TODO.md` | Remaining authorized-or-future work with completion criteria |
 | `docs/KNOWN_ISSUES.md` | Current limitations, technical debt, workarounds, investigation evidence |
-| `src/price-feed.js` | Four-source `PriceFeed`, resilient connections, fallback and UTC state |
-| `src/watchlist.js` | Product/catalog/persistence and exact provider mappings |
-| `src/main.js` | Watchlist UI and render/native-command orchestration |
+| `src/price-feed.ts` | Four-source `PriceFeed`, resilient connections, fallback and UTC state |
+| `src/watchlist.ts` | Product/catalog/persistence and exact provider mappings |
+| `src/main.ts` | Watchlist UI and render/native-command orchestration |
+| `scripts/frontend.ts` | Cross-platform TypeScript emit/watch and unchanged HTML/CSS copying into ignored `dist/` |
+| `tsconfig*.json` | Strict application, test/tooling, and browser-emission configurations |
 | `src-tauri/src/lib.rs` | Tray/window/always-on-top/dynamic-height behavior |
-| `tests/` | 58 current JavaScript regression tests across market data, watchlist, formatting, UI/CSP |
+| `tests/` | 58 TypeScript regression tests across market data, watchlist, formatting, UI/CSP |
 | `.github/workflows/build-desktop.yml` | Tag/manual build matrix and Release publishing |
 
 ## Current Implementation
 
-The static frontend loads the persisted watchlist, constructs a `PriceFeed`, opens provider sockets, and coalesces state rendering. Coinbase covers every selected product. Kraken and Bitfinex currently have verified BTC/ETH mappings; Bitstamp adds exact intersections from its official enabled USD spot catalog. Selection briefly prefers Coinbase, then the newest healthy WebSocket, then Coinbase REST. Each displayed change uses an open cached for the same provider/product/current UTC day.
+The static frontend is authored in TypeScript and emitted by `tsc` as unbundled browser ES modules. The existing HTML/CSS are copied unchanged to ignored `dist/`, which Tauri serves in development and packages in builds. It loads the persisted watchlist, constructs a `PriceFeed`, opens provider sockets, and coalesces state rendering. Coinbase covers every selected product. Kraken and Bitfinex currently have verified BTC/ETH mappings; Bitstamp adds exact intersections from its official enabled USD spot catalog. Selection briefly prefers Coinbase, then the newest healthy WebSocket, then Coinbase REST. Each displayed change uses an open cached for the same provider/product/current UTC day.
 
 Adding/removing products calls `PriceFeed.setProducts`, which rebuilds affected subscriptions, aborts obsolete REST work, and uses revision guards against late writes. Rust owns the window/tray lifecycle and clamps height; the frontend does not receive arbitrary resize permission.
 
@@ -77,23 +82,24 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`MARKET_DATA.md`](MARKET_DATA.md) 
 
 ## Verification State
 
-Verified against product-code commit `3f68c6d` during the feature/checkpoint work unless explicitly qualified below. The documentation push did not change product source, configuration, or tests:
+Verified on 2026-08-29 against the current uncommitted migration:
 
-- `npm.cmd run check`: passed, 58/58 Node tests plus syntax checks for all four source modules.
+- Pre-migration `npm.cmd run check`: passed, 58/58 tests plus syntax checks for the original four JavaScript modules.
+- Final `npm.cmd run check` at version `1.3.0`: passed; strict application and test TypeScript checks, 58/58 tests, and a clean ES2019 frontend emit all succeeded.
+- Emitted `dist/` contains only the four `.js` modules plus `index.html`/`styles.css`; static-file SHA-256 values match their `src/` originals and browser imports retain `.js` specifiers.
+- Development watch mode reached zero errors without deleting the valid prebuilt `dist/main.js`, avoiding a first-load race.
 - `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
 - `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 2/2 Rust tests.
 - `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
 - `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed; latest rebuilt local NSIS was 1,140,136 bytes with SHA-256 `C150833FEF38F40AFF6C333044840C0F9091E2363D4BE2B494E1A0F3841E9FF8`. It is unsigned, ignored, reports version 1.2.1, and must not be uploaded over the old release.
-- An earlier native Windows debug smoke after the four-source integration showed `208×92` default content and working live price/UTC display without disturbing the installed app process. It was not rerun after the final mapping/ACK hardening; no UI or native-window code changed afterward, but exact-HEAD native runtime smoke remains not verified.
-- Sensitive-signature scan before the feature commit: no embedded remote credentials, common token signatures, or private-key files found.
-- GitHub read-only check on 2026-08-22: `v1.2.1` exists with five assets and readable Chinese; HEAD `3f68c6d` has no GitHub check runs/statuses.
+- `npm.cmd run build:windows`: passed with Tauri's `beforeBuildCommand`; the local `v1.3.0` NSIS is 1,140,441 bytes with SHA-256 `06F0A1F39FC7A72659625F61505C52698163777530FC54A551E06A6FF55B33BB`. It is unsigned and ignored; release assets must come from the tag workflow.
+- Native Windows `v1.3.0` release smoke passed with the persisted three-row watchlist: client area `208×125`, live BTC/ETH/ZEC real-USD values and UTC changes rendered, and closing hid the window while the exact test process remained resident. The test process was then terminated explicitly.
+- Runtime-equivalence audits found `main.ts`/`price-format.ts` emits identical to their prior JavaScript and only type-guard/equivalent narrowing differences in watchlist/price-feed; test counts and assertions were preserved.
+- No Rust `.rs` source, capability, permission, HTML, CSS, CSP origin, or window-envelope value changed. Cargo/package/Tauri metadata changed only as required to synchronize `1.3.0`. `git diff --check` passes with only working-copy LF→CRLF notices.
 
-Not verified:
+Still not verified:
 
-- No standalone JavaScript lint is configured.
-- No TypeScript/typecheck is configured (the frontend is JavaScript).
-- Current HEAD has no main/PR CI result; existing workflow runs only on manual dispatch or tags and uses `npm test`, not the complete local check set.
+- Current `main` has no main/PR CI result. The manual/tag workflow now runs complete frontend checks on Node 20, but the workflow change has not run remotely and still omits Rust fmt/check/clippy.
 - The current feature set has not had full real-device runtime acceptance on macOS Intel/Apple Silicon or Linux/Wayland.
 - Code signing and Apple notarization are not configured. Auto-update is deliberately outside the current requested product scope, not a failed verification.
 
@@ -101,9 +107,9 @@ Documentation-only final checks:
 
 - all local relative Markdown links resolve;
 - `git diff --check` passes (PowerShell reports only LF→CRLF working-copy notices);
-- sensitive token/private-key patterns and personal absolute paths were not found in the new documentation;
-- the staged set for the checkpoint contains only the documented migration paths;
-- post-push `git status` is expected to be clean and synchronized with `origin/main`.
+- sensitive token/private-key signatures and personal absolute paths were not found in the scoped source/config/documentation set;
+- there are no staged changes; live Git contains only the documented uncommitted migration and generated outputs remain ignored;
+- no commit, push, tag, release edit, or artifact publication was performed for this migration.
 
 Consult live `git status` before acting; any later change is outside this completed checkpoint.
 
@@ -119,13 +125,13 @@ Detected on the current Windows machine during this checkpoint:
 
 ## Next Recommended Action
 
-1. Run `git status --short --branch` and understand any changes made after this checkpoint.
-2. Read `AGENTS.md` and `docs/INDEX.md`; do not edit product code until the user supplies a new objective.
-3. If the user explicitly asks to publish the current product work, follow `docs/RELEASE.md`: choose a version newer than 1.2.1, synchronize every version source, rerun checks/build, tag, and verify all five assets. Do not reuse `v1.2.1`.
+1. Stage and review the authorized migration/release preparation, then commit and push it to `main`.
+2. Create and push the new immutable `v1.3.0` tag at that verified commit.
+3. Monitor the full workflow and verify all five Release assets, names, sizes, digests, downloads, and UTF-8 release text before declaring completion.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`.
 2. Read `docs/INDEX.md` and `docs/CURRENT_STATE.md`.
-3. Run `git status --short --branch`; the checkpoint itself should be clean, so understand and preserve any newer changes.
-4. There is no active product task. Wait for the user's explicit next objective; if it is a release, start with `docs/RELEASE.md`.
+3. Run `git status --short --branch`; the working tree is expected to contain this completed uncommitted migration, so preserve it and understand any newer changes.
+4. Release `v1.3.0` is explicitly authorized and in progress. Resume from **Next Recommended Action** without changing the chosen version or reusing an older tag.

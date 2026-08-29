@@ -15,9 +15,13 @@ import {
   reconnectDelay,
   selectQuote,
   utcDayStart,
-} from "../src/price-feed.js";
+  type DisplayQuote,
+  type FetchResponseLike,
+  type WebSocketConstructor,
+} from "../src/price-feed.ts";
+import type { Product } from "../src/watchlist.ts";
 
-const BTC_PRODUCT = {
+const BTC_PRODUCT: Product = {
   id: "BTC-USD",
   symbol: "BTC",
   name: "Bitcoin",
@@ -26,7 +30,7 @@ const BTC_PRODUCT = {
   bitfinexSymbol: "tBTCUSD",
   fixed: true,
 };
-const ETH_PRODUCT = {
+const ETH_PRODUCT: Product = {
   id: "ETH-USD",
   symbol: "ETH",
   name: "Ethereum",
@@ -35,7 +39,7 @@ const ETH_PRODUCT = {
   bitfinexSymbol: "tETHUSD",
   fixed: true,
 };
-const SOL_PRODUCT = {
+const SOL_PRODUCT: Product = {
   id: "SOL-USD",
   symbol: "SOL",
   name: "Solana",
@@ -44,7 +48,7 @@ const SOL_PRODUCT = {
   bitfinexSymbol: "tSOLUSD",
   fixed: false,
 };
-const DOGE_PRODUCT = {
+const DOGE_PRODUCT: Product = {
   id: "DOGE-USD",
   symbol: "DOGE",
   name: "Dogecoin",
@@ -54,10 +58,26 @@ const DOGE_PRODUCT = {
   fixed: false,
 };
 
-class FakeWebSocket {
-  static instances = [];
+type FakeSocketEvent = { data?: unknown; code?: number };
+interface SentMessage {
+  product_ids: string[];
+  params: { symbol: string[] };
+  data: { channel: string };
+  channel: string;
+  symbol: string;
+  key: string;
+}
 
-  constructor(url) {
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+
+  url: string;
+  readyState: number;
+  listeners: Record<string, Array<(event: FakeSocketEvent) => void>>;
+  sent: SentMessage[];
+  closeCode: number | null;
+
+  constructor(url: string) {
     this.url = url;
     this.readyState = 0;
     this.listeners = {};
@@ -66,30 +86,38 @@ class FakeWebSocket {
     FakeWebSocket.instances.push(this);
   }
 
-  addEventListener(type, listener) {
+  addEventListener(type: string, listener: (event: FakeSocketEvent) => void): void {
     if (!this.listeners[type]) this.listeners[type] = [];
     this.listeners[type].push(listener);
   }
 
-  emit(type, event = {}) {
+  emit(type: string, event: FakeSocketEvent = {}): void {
     for (const listener of this.listeners[type] || []) listener(event);
   }
 
-  open() {
+  open(): void {
     this.readyState = 1;
     this.emit("open");
   }
 
-  send(payload) {
-    this.sent.push(JSON.parse(payload));
+  send(payload: string): void {
+    this.sent.push(JSON.parse(payload) as SentMessage);
   }
 
-  close(code = 1000) {
+  close(code = 1000): void {
     if (this.readyState === 3) return;
     this.closeCode = code;
     this.readyState = 3;
     this.emit("close", { code });
   }
+}
+
+const UnusedWebSocket = class {} as unknown as WebSocketConstructor;
+
+function getPrice(feed: PriceFeed, productId: string): DisplayQuote {
+  const quote = feed.getState().prices[productId];
+  assert.ok(quote);
+  return quote;
 }
 
 test("parses Coinbase Advanced Trade ticker payloads", () => {
@@ -286,6 +314,7 @@ test("parses the HTTPS fallback ticker without inventing a daily change", () => 
     price: "118700.55",
     time: "2026-08-11T09:31:00.000Z",
   }, 789);
+  assert.ok(quote);
   assert.equal(quote.price, 118700.55);
   assert.equal(quote.source, "coinbaseRest");
   assert.equal(quote.receivedAt, Date.parse("2026-08-11T09:31:00.000Z"));
@@ -337,14 +366,14 @@ test("queries the Coinbase UTC open with one-hour candles through the current ti
   const now = Date.parse("2026-08-11T12:00:00.000Z");
   const dayStart = utcDayStart(now);
   const dayStartSeconds = dayStart / 1_000;
-  const requestedMinutes = [];
+  const requestedMinutes: number[] = [];
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     fetchImpl: async (url) => {
       const parsedUrl = new URL(url);
-      const start = Date.parse(parsedUrl.searchParams.get("start"));
-      const end = Date.parse(parsedUrl.searchParams.get("end"));
+      const start = Date.parse(parsedUrl.searchParams.get("start")!);
+      const end = Date.parse(parsedUrl.searchParams.get("end")!);
       const minutes = (end - start) / 60_000;
       requestedMinutes.push(minutes);
       return {
@@ -362,7 +391,7 @@ test("queries the Coinbase UTC open with one-hour candles through the current ti
   await feed.utcOpenRequests.coinbase;
 
   assert.deepEqual(requestedMinutes, [720]);
-  assert.ok(Math.abs(feed.getState().prices["BTC-USD"].changeUtc - 10) < 1e-10);
+  assert.ok(Math.abs(getPrice(feed, "BTC-USD").changeUtc! - 10) < 1e-10);
   feed.stop();
 });
 
@@ -386,17 +415,17 @@ test("prefers fresh Coinbase, then the freshest healthy exchange fallback", () =
   const kraken = { price: 11, source: "kraken", receivedAt: now - 100 };
   const bitstamp = { price: 12, source: "bitstamp", receivedAt: now - 50 };
   const bitfinex = { price: 13, source: "bitfinex", receivedAt: now - 25 };
-  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now).source, "coinbase");
+  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now)!.source, "coinbase");
 
   coinbase.receivedAt = now - 7_000;
-  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now).source, "bitfinex");
+  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now)!.source, "bitfinex");
 
   bitfinex.receivedAt = now - 13_000;
-  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now).source, "bitstamp");
+  assert.equal(selectQuote({ coinbase, kraken, bitstamp, bitfinex }, now)!.source, "bitstamp");
 
   const coinbaseRest = { price: 14, source: "coinbaseRest", receivedAt: now };
   assert.equal(
-    selectQuote({ coinbase, kraken, bitstamp, bitfinex, coinbaseRest }, now).source,
+    selectQuote({ coinbase, kraken, bitstamp, bitfinex, coinbaseRest }, now)!.source,
     "bitstamp",
   );
 });
@@ -407,8 +436,8 @@ test("retains the newest quote but marks it stale after an outage", () => {
     coinbase: { price: 10, source: "coinbase", receivedAt: now - 20_000 },
     kraken: { price: 11, source: "kraken", receivedAt: now - 15_000 },
   }, now);
-  assert.equal(selected.source, "kraken");
-  assert.equal(selected.stale, true);
+  assert.equal(selected!.source, "kraken");
+  assert.equal(selected!.stale, true);
 });
 
 test("reconnect backoff is bounded and jittered", () => {
@@ -421,7 +450,7 @@ test("reconnect backoff is bounded and jittered", () => {
 test("HTTPS fallback keeps polling while WebSocket quotes are unavailable", async () => {
   let tickerRequestCount = 0;
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => 100_000,
     fetchImpl: async (url) => {
       if (url.endsWith("/ticker")) tickerRequestCount += 1;
@@ -440,21 +469,21 @@ test("HTTPS fallback keeps polling while WebSocket quotes are unavailable", asyn
   await feed.pollRestFallback();
 
   assert.equal(tickerRequestCount, 4);
-  assert.equal(feed.getState().prices["BTC-USD"].source, "coinbaseRest");
+  assert.equal(getPrice(feed, "BTC-USD").source, "coinbaseRest");
   feed.started = false;
 });
 
 test("binds the runtime fetch method before using it in a WebView", async () => {
   const originalFetch = globalThis.fetch;
-  let observedThis = null;
-  globalThis.fetch = function fakeWindowFetch() {
+  let observedThis: typeof globalThis | null = null;
+  globalThis.fetch = function fakeWindowFetch(this: typeof globalThis) {
     observedThis = this;
-    return Promise.resolve({ ok: false, status: 503 });
+    return Promise.resolve({ ok: false, status: 503 } as Response);
   };
 
   try {
     const feed = new PriceFeed({
-      WebSocketImpl: class {},
+      WebSocketImpl: UnusedWebSocket,
       now: () => Date.parse("2026-08-11T12:00:00.000Z"),
     });
     feed.started = true;
@@ -471,7 +500,7 @@ test("computes UTC change with the selected quote's own exchange open", async ()
   const dayStart = utcDayStart(now);
   const dayStartSeconds = dayStart / 1_000;
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     fetchImpl: async (url) => {
       if (url.includes("api.kraken.com")) {
@@ -500,24 +529,24 @@ test("computes UTC change with the selected quote's own exchange open", async ()
     { asset: "ETH", price: 55, source: "coinbase", sourceLabel: "Coinbase", exchangeAt: now, receivedAt: now - 6_000 },
   ]);
   await feed.utcOpenRequests.coinbase;
-  assert.ok(Math.abs(feed.getState().prices["BTC-USD"].changeUtc - 10) < 1e-10);
+  assert.ok(Math.abs(getPrice(feed, "BTC-USD").changeUtc! - 10) < 1e-10);
 
   feed.handleQuotes([
     { asset: "BTC", price: 100, source: "kraken", sourceLabel: "Kraken", exchangeAt: now, receivedAt: now },
     { asset: "ETH", price: 50, source: "kraken", sourceLabel: "Kraken", exchangeAt: now, receivedAt: now },
   ]);
   await feed.utcOpenRequests.kraken;
-  assert.ok(Math.abs(feed.getState().prices["BTC-USD"].changeUtc - 25) < 1e-10);
-  assert.ok(Math.abs(feed.getState().prices["ETH-USD"].changeUtc - 25) < 1e-10);
+  assert.ok(Math.abs(getPrice(feed, "BTC-USD").changeUtc! - 25) < 1e-10);
+  assert.ok(Math.abs(getPrice(feed, "ETH-USD").changeUtc! - 25) < 1e-10);
   feed.stop();
 });
 
 test("queries Bitstamp's mapped OHLC URL and computes change from its own UTC open", async () => {
   const now = Date.parse("2026-08-22T12:34:56.000Z");
   const dayStart = utcDayStart(now);
-  const urls = [];
+  const urls: URL[] = [];
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products: [SOL_PRODUCT],
     fetchImpl: async (url) => {
@@ -562,8 +591,8 @@ test("queries Bitstamp's mapped OHLC URL and computes change from its own UTC op
   assert.equal(urls[0].searchParams.get("limit"), "24");
   assert.equal(Number(urls[0].searchParams.get("start")), dayStart / 1_000);
   assert.equal(Number(urls[0].searchParams.get("end")), now / 1_000);
-  assert.equal(feed.getState().prices["SOL-USD"].source, "bitstamp");
-  assert.ok(Math.abs(feed.getState().prices["SOL-USD"].changeUtc - 10) < 1e-10);
+  assert.equal(getPrice(feed, "SOL-USD").source, "bitstamp");
+  assert.ok(Math.abs(getPrice(feed, "SOL-USD").changeUtc! - 10) < 1e-10);
   feed.stop();
 });
 
@@ -572,7 +601,7 @@ test("uses Bitfinex's same-socket daily candle for its own UTC change without RE
   const dayStart = utcDayStart(now);
   let fetchCalls = 0;
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products: [BTC_PRODUCT],
     fetchImpl: async () => {
@@ -582,7 +611,7 @@ test("uses Bitfinex's same-socket daily candle for its own UTC change without RE
   });
   const parser = feed.connections.find((connection) => (
     connection.config.id === "bitfinex"
-  )).config.parser;
+  ))!.config.parser;
   feed.started = true;
 
   parser(JSON.stringify({
@@ -607,7 +636,7 @@ test("uses Bitfinex's same-socket daily candle for its own UTC change without RE
     [1001, now, 0.1, "126"],
   ]), now));
 
-  const quote = feed.getState().prices["BTC-USD"];
+  const quote = getPrice(feed, "BTC-USD");
   assert.equal(fetchCalls, 0);
   assert.equal(quote.source, "bitfinex");
   assert.equal(quote.changeUtc, 5.000000000000004);
@@ -618,10 +647,11 @@ test("uses Bitfinex's same-socket daily candle for its own UTC change without RE
 test("invalidates yesterday's open immediately at the UTC day rollover", async () => {
   let now = Date.parse("2026-08-11T23:59:59.000Z");
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     fetchImpl: async (url) => {
       const start = new URL(url).searchParams.get("start");
+      assert.ok(start);
       const dayStartSeconds = Date.parse(start) / 1_000;
       const open = start.startsWith("2026-08-12") ? 120 : 100;
       return { ok: true, json: async () => [[dayStartSeconds, open, open, open, open, 1]] };
@@ -632,16 +662,16 @@ test("invalidates yesterday's open immediately at the UTC day rollover", async (
     { asset: "BTC", price: 110, source: "coinbase", sourceLabel: "Coinbase", exchangeAt: now, receivedAt: now },
   ]);
   await feed.utcOpenRequests.coinbase;
-  assert.ok(feed.getState().prices["BTC-USD"].changeUtc > 9.9);
+  assert.ok(getPrice(feed, "BTC-USD").changeUtc! > 9.9);
 
   now = Date.parse("2026-08-12T00:00:03.000Z");
   feed.handleQuotes([
     { asset: "BTC", price: 120, source: "coinbase", sourceLabel: "Coinbase", exchangeAt: now, receivedAt: now },
   ]);
   const rolloverRequest = feed.utcOpenRequests.coinbase;
-  assert.equal(feed.getState().prices["BTC-USD"].changeUtc, null);
+  assert.equal(getPrice(feed, "BTC-USD").changeUtc, null);
   await rolloverRequest;
-  assert.equal(feed.getState().prices["BTC-USD"].changeUtc, 0);
+  assert.equal(getPrice(feed, "BTC-USD").changeUtc, 0);
   feed.stop();
 });
 
@@ -649,7 +679,7 @@ test("hides yesterday's change at UTC midnight even before a new quote arrives",
   let now = Date.parse("2026-08-11T23:59:59.000Z");
   const dayStartSeconds = utcDayStart(now) / 1_000;
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     fetchImpl: async () => ({
       ok: true,
@@ -661,20 +691,21 @@ test("hides yesterday's change at UTC midnight even before a new quote arrives",
     { asset: "BTC", price: 110, source: "coinbase", sourceLabel: "Coinbase", exchangeAt: now, receivedAt: now },
   ]);
   await feed.utcOpenRequests.coinbase;
-  assert.ok(feed.getState().prices["BTC-USD"].changeUtc > 9.9);
+  assert.ok(getPrice(feed, "BTC-USD").changeUtc! > 9.9);
 
   now = Date.parse("2026-08-12T00:00:00.001Z");
-  assert.equal(feed.getState().prices["BTC-USD"].changeUtc, null);
+  assert.equal(getPrice(feed, "BTC-USD").changeUtc, null);
   feed.stop();
 });
 
 test("times out a stuck UTC-open request so later quotes can retry", async () => {
   const now = Date.parse("2026-08-11T12:00:00.000Z");
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     utcOpenTimeoutMs: 5,
     fetchImpl: async (_url, options) => new Promise((_resolve, reject) => {
+      assert.ok(options.signal);
       options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
     }),
   });
@@ -692,7 +723,7 @@ test("times out a stuck UTC-open request so later quotes can retry", async () =>
 
 test("HTTPS fallback preserves one asset when the sibling request fails", async () => {
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => 200_000,
     fetchImpl: async (url) => {
       if (url.includes("ETH")) throw new Error("simulated ETH endpoint failure");
@@ -706,7 +737,7 @@ test("HTTPS fallback preserves one asset when the sibling request fails", async 
 
   await feed.pollRestFallback();
 
-  assert.equal(feed.getState().prices["BTC-USD"].price, 101.25);
+  assert.equal(getPrice(feed, "BTC-USD").price, 101.25);
   assert.equal(feed.getState().prices["ETH-USD"], null);
   assert.equal(feed.restRequest, null);
   feed.started = false;
@@ -729,7 +760,7 @@ test("caps each free REST batch at three concurrent requests", async () => {
   let peakRequests = 0;
   let requestCount = 0;
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products,
     fetchImpl: async (url) => {
@@ -793,10 +824,10 @@ test("builds dynamic subscriptions and safely rebuilds them in setProducts", () 
   const originalSockets = [...FakeWebSocket.instances];
   const coinbaseSocket = FakeWebSocket.instances.find((socket) => (
     socket.url.includes("coinbase")
-  ));
-  const krakenSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("kraken"));
-  const bitstampSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("bitstamp"));
-  const bitfinexSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("bitfinex"));
+  ))!;
+  const krakenSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("kraken"))!;
+  const bitstampSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("bitstamp"))!;
+  const bitfinexSocket = FakeWebSocket.instances.find((socket) => socket.url.includes("bitfinex"))!;
   assert.deepEqual(coinbaseSocket.sent[0].product_ids, [
     "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD",
   ]);
@@ -843,24 +874,28 @@ test("builds dynamic subscriptions and safely rebuilds them in setProducts", () 
 
   assert.equal(FakeWebSocket.instances.length, 8);
   assert.equal(originalSockets.every((socket) => socket.readyState === 3), true);
-  assert.equal(feed.getState().prices["BTC-USD"].price, 100);
+  assert.equal(getPrice(feed, "BTC-USD").price, 100);
   const configById = Object.fromEntries(feed.connections.map((connection) => [
     connection.config.id,
     connection.config,
   ]));
-  assert.deepEqual(configById.coinbase.subscriptions[0].product_ids, [
+  const coinbaseSubscriptions = configById.coinbase.subscriptions as SentMessage[];
+  const krakenSubscriptions = configById.kraken.subscriptions as SentMessage[];
+  const bitstampSubscriptions = configById.bitstamp.subscriptions as SentMessage[];
+  const bitfinexSubscriptions = configById.bitfinex.subscriptions as SentMessage[];
+  assert.deepEqual(coinbaseSubscriptions[0].product_ids, [
     "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD",
   ]);
-  assert.deepEqual(configById.kraken.subscriptions[0].params.symbol, [
+  assert.deepEqual(krakenSubscriptions[0].params.symbol, [
     "BTC/USD",
     "ETH/USD",
   ]);
-  assert.deepEqual(configById.bitstamp.subscriptions.map((message) => message.data.channel), [
+  assert.deepEqual(bitstampSubscriptions.map((message) => message.data.channel), [
     "live_trades_btcusd",
     "live_trades_ethusd",
   ]);
   assert.deepEqual(
-    configById.bitfinex.subscriptions
+    bitfinexSubscriptions
       .filter((message) => message.channel === "trades")
       .map((message) => message.symbol),
     ["tBTCUSD", "tETHUSD"],
@@ -875,10 +910,10 @@ test("Bitfinex requires every unique trade and candle acknowledgement", async ()
     fetchImpl: null,
     products: [BTC_PRODUCT],
   });
-  const connection = feed.connections.find((entry) => entry.config.id === "bitfinex");
+  const connection = feed.connections.find((entry) => entry.config.id === "bitfinex")!;
   connection.config.subscriptionAckTimeoutMs = 20;
   feed.start();
-  const socket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"));
+  const socket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"))!;
   socket.open();
 
   const tradeAck = JSON.stringify({
@@ -912,7 +947,7 @@ test("Bitfinex reconnects when a subscription is rejected or never acknowledged"
     products: [BTC_PRODUCT],
   });
   rejectedFeed.start();
-  const rejectedSocket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"));
+  const rejectedSocket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"))!;
   rejectedSocket.open();
   rejectedSocket.emit("message", { data: JSON.stringify({
     event: "error",
@@ -930,10 +965,10 @@ test("Bitfinex reconnects when a subscription is rejected or never acknowledged"
   });
   const timeoutConnection = timeoutFeed.connections.find((entry) => (
     entry.config.id === "bitfinex"
-  ));
+  ))!;
   timeoutConnection.config.subscriptionAckTimeoutMs = 5;
   timeoutFeed.start();
-  const timeoutSocket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"));
+  const timeoutSocket = FakeWebSocket.instances.find((entry) => entry.url.includes("bitfinex"))!;
   timeoutSocket.open();
   await new Promise((resolve) => setTimeout(resolve, 15));
   assert.equal(timeoutSocket.closeCode, 4003);
@@ -942,7 +977,7 @@ test("Bitfinex reconnects when a subscription is rejected or never acknowledged"
 
 test("does not let a quiet custom product fail the shared socket watchdog", () => {
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     fetchImpl: null,
     products: [BTC_PRODUCT, ETH_PRODUCT, SOL_PRODUCT],
   });
@@ -960,9 +995,9 @@ test("does not let a quiet custom product fail the shared socket watchdog", () =
 test("REST fallback requests only products whose WebSocket quote is missing or stale", async () => {
   const now = Date.parse("2026-08-22T12:00:00.000Z");
   const dayStart = utcDayStart(now);
-  const tickerUrls = [];
+  const tickerUrls: string[] = [];
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products: [BTC_PRODUCT, ETH_PRODUCT, SOL_PRODUCT],
     fetchImpl: async (url) => {
@@ -982,6 +1017,7 @@ test("REST fallback requests only products whose WebSocket quote is missing or s
       asset: id,
       price: id === "BTC-USD" ? 115_000 : 4_500,
       source: "coinbase",
+      marketSource: "coinbase",
       sourceLabel: "Coinbase",
       exchangeAt: now,
       receivedAt: now,
@@ -993,16 +1029,16 @@ test("REST fallback requests only products whose WebSocket quote is missing or s
 
   assert.equal(tickerUrls.length, 1);
   assert.match(tickerUrls[0], /SOL-USD\/ticker$/);
-  assert.equal(feed.getState().prices["SOL-USD"].price, 180.5);
+  assert.equal(getPrice(feed, "SOL-USD").price, 180.5);
   feed.stop();
 });
 
 test("finds a Coinbase UTC open whose first trade is later than five hours", async () => {
   const now = Date.parse("2026-08-22T20:00:00.000Z");
   const dayStart = utcDayStart(now);
-  const requests = [];
+  const requests: URL[] = [];
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products: [SOL_PRODUCT],
     fetchImpl: async (url) => {
@@ -1030,9 +1066,9 @@ test("finds a Coinbase UTC open whose first trade is later than five hours", asy
 
   assert.equal(requests.length, 1);
   assert.equal(requests[0].searchParams.get("granularity"), "3600");
-  assert.equal(Date.parse(requests[0].searchParams.get("start")), dayStart);
-  assert.equal(Date.parse(requests[0].searchParams.get("end")), now);
-  assert.equal(feed.getState().prices["SOL-USD"].changeUtc, 100);
+  assert.equal(Date.parse(requests[0].searchParams.get("start")!), dayStart);
+  assert.equal(Date.parse(requests[0].searchParams.get("end")!), now);
+  assert.equal(getPrice(feed, "SOL-USD").changeUtc, 100);
   feed.stop();
 });
 
@@ -1041,7 +1077,7 @@ test("retries only the product whose UTC open is still missing", async () => {
   const dayStart = utcDayStart(now);
   const requestCounts = { "BTC-USD": 0, "ETH-USD": 0 };
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => now,
     products: [BTC_PRODUCT, ETH_PRODUCT],
     fetchImpl: async (url) => {
@@ -1080,12 +1116,12 @@ test("retries a missing UTC open after backoff without waiting for another quote
   const now = Date.now();
   const dayStart = utcDayStart(now);
   let candleRequests = 0;
-  let signalRetry;
-  const retryStarted = new Promise((resolve) => {
+  let signalRetry!: () => void;
+  const retryStarted = new Promise<void>((resolve) => {
     signalRetry = resolve;
   });
   const feed = new PriceFeed({
-    WebSocketImpl: class {},
+    WebSocketImpl: UnusedWebSocket,
     now: () => Date.now(),
     products: [SOL_PRODUCT],
     utcOpenRetryDelayImpl: () => 5,
@@ -1113,7 +1149,7 @@ test("retries a missing UTC open after backoff without waiting for another quote
   const initialRequest = feed.utcOpenRequests.coinbase;
   await initialRequest;
 
-  await new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const guard = setTimeout(() => reject(new Error("UTC open retry did not start")), 500);
     retryStarted.then(() => {
       clearTimeout(guard);
@@ -1123,7 +1159,7 @@ test("retries a missing UTC open after backoff without waiting for another quote
   if (feed.utcOpenRequests.coinbase) await feed.utcOpenRequests.coinbase;
 
   assert.equal(candleRequests, 2);
-  assert.equal(feed.utcOpens.coinbase["SOL-USD"].price, 1);
+  assert.equal(feed.utcOpens.coinbase["SOL-USD"]!.price, 1);
   feed.stop();
 });
 
@@ -1131,7 +1167,7 @@ test("setProducts revision prevents a removed product's old UTC request from wri
   FakeWebSocket.instances = [];
   const now = Date.parse("2026-08-22T12:00:00.000Z");
   const dayStart = utcDayStart(now);
-  let resolveCandle;
+  let resolveCandle!: (response: FetchResponseLike) => void;
   const feed = new PriceFeed({
     WebSocketImpl: FakeWebSocket,
     now: () => now,
@@ -1140,7 +1176,7 @@ test("setProducts revision prevents a removed product's old UTC request from wri
       if (!url.includes("SOL-USD/candles")) {
         return { ok: false, status: 503, json: async () => ({}) };
       }
-      return new Promise((resolve) => {
+      return new Promise<FetchResponseLike>((resolve) => {
         resolveCandle = resolve;
       });
     },

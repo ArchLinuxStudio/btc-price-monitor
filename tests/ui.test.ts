@@ -3,25 +3,43 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-function readProjectFile(relativePath) {
+interface TauriConfig {
+  app: {
+    windows: Array<{
+      width: number;
+      minWidth: number;
+      maxWidth: number;
+      height: number;
+      maxHeight: number;
+      resizable: boolean;
+    }>;
+    security: {
+      csp: {
+        "connect-src": string[];
+      };
+    };
+  };
+}
+
+function readProjectFile(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
 
 test("does not expose mouse-hover text tooltips", () => {
   const html = readProjectFile("src/index.html");
-  const javascript = readProjectFile("src/main.js");
+  const typescript = readProjectFile("src/main.ts");
   const rust = readProjectFile("src-tauri/src/lib.rs");
 
   assert.doesNotMatch(html, /\btitle\s*=/i);
-  assert.doesNotMatch(javascript, /(?:\.title\s*=|(?:set|remove)Attribute\(\s*["']title["'])/);
+  assert.doesNotMatch(typescript, /(?:\.title\s*=|(?:set|remove)Attribute\(\s*["']title["'])/);
   assert.doesNotMatch(rust, /\.tooltip\s*\(/);
 });
 
 test("uses a compact watchlist manager instead of permanent row controls", () => {
   const html = readProjectFile("src/index.html");
   const css = readProjectFile("src/styles.css");
-  const javascript = readProjectFile("src/main.js");
-  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json"));
+  const typescript = readProjectFile("src/main.ts");
+  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json")) as TauriConfig;
   const windowConfig = tauriConfig.app.windows[0];
 
   assert.match(html, /id="watchlist-button"/);
@@ -29,8 +47,8 @@ test("uses a compact watchlist manager instead of permanent row controls", () =>
   assert.match(html, /id="coin-search"[\s\S]*?type="search"/);
   assert.match(html, /id="quote-row-template"/);
   assert.doesNotMatch(html, /id="minimize-button"/);
-  assert.doesNotMatch(javascript, /\.innerHTML\s*=/);
-  assert.match(javascript, /feed\.setProducts\(selectedProducts\)/);
+  assert.doesNotMatch(typescript, /\.innerHTML\s*=/);
+  assert.match(typescript, /feed\.setProducts\(selectedProducts\)/);
   assert.match(css, /grid-template-columns:\s*40px minmax\(0, 1fr\) 40px/);
   assert.equal(windowConfig.width, 208);
   assert.equal(windowConfig.minWidth, 208);
@@ -41,7 +59,7 @@ test("uses a compact watchlist manager instead of permanent row controls", () =>
 });
 
 test("keeps market-data CSP origins explicit and aligned with browser-safe transports", () => {
-  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json"));
+  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json")) as TauriConfig;
   const connectSources = tauriConfig.app.security.csp["connect-src"];
 
   for (const origin of [

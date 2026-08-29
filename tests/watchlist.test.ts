@@ -14,22 +14,41 @@ import {
   parseProductCatalog,
   saveWatchlist,
   searchProducts,
-} from "../src/watchlist.js";
+} from "../src/watchlist.ts";
 
-function memoryStorage(initial = {}) {
-  const values = new Map(Object.entries(initial));
+interface MemoryStorage {
+  values: Map<string, string>;
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+interface CoinbaseProductPayload extends Record<string, unknown> {
+  id: string;
+  base_currency: string;
+  quote_currency: string;
+  status: string;
+  trading_disabled: boolean;
+  cancel_only: boolean;
+  post_only: boolean;
+}
+
+function memoryStorage(initial: Record<string, string> = {}): MemoryStorage {
+  const values = new Map<string, string>(Object.entries(initial));
   return {
     values,
-    getItem(key) {
-      return values.has(key) ? values.get(key) : null;
+    getItem(key: string) {
+      return values.has(key) ? values.get(key)! : null;
     },
-    setItem(key, value) {
+    setItem(key: string, value: string) {
       values.set(key, value);
     },
   };
 }
 
-function product(id, overrides = {}) {
+function product(
+  id: string,
+  overrides: Record<string, unknown> = {},
+): CoinbaseProductPayload {
   const symbol = id.replace(/-USD$/, "");
   return {
     id,
@@ -107,9 +126,9 @@ test("save and load keep fixed defaults first, deduplicate, and cap custom produ
   assert.deepEqual(saved.slice(0, 2), DEFAULT_PRODUCTS);
   assert.equal(saved.every((entry, index) => entry.fixed === (index < 2)), true);
 
-  const key = [...storage.values.keys()][0];
+  const key = [...storage.values.keys()][0]!;
   assert.match(key, /watchlist\.v1$/);
-  const persisted = JSON.parse(storage.values.get(key));
+  const persisted = JSON.parse(storage.values.get(key)!) as { version: unknown };
   assert.equal(persisted.version, 1);
   assert.deepEqual(loadWatchlist(storage), saved);
 });
@@ -238,8 +257,8 @@ test("catalog parsing tolerates malformed payloads and missing currency names", 
 });
 
 test("fetchProductCatalog calls only the two public Coinbase Exchange endpoints", async () => {
-  const calls = [];
-  const fetchImpl = async (url, options) => {
+  const calls: Array<{ url: string; options: RequestInit }> = [];
+  const fetchImpl = async (url: string, options: RequestInit) => {
     calls.push({ url, options });
     return {
       ok: true,
@@ -271,7 +290,7 @@ test("fetchProductCatalog calls only the two public Coinbase Exchange endpoints"
 
 test("fetchProductCatalog reports invalid fetch implementations and HTTP failures", async () => {
   await assert.rejects(() => fetchProductCatalog(null), /fetchImpl/);
-  await assert.rejects(() => fetchProductCatalog(async (url) => ({
+  await assert.rejects(() => fetchProductCatalog(async (url: string) => ({
     ok: !url.endsWith("/products"),
     status: 503,
     json: async () => [],
@@ -344,7 +363,7 @@ test("Bitstamp directory accepts only enabled spot markets quoted in real USD", 
     null,
   ]);
 
-  assert.deepEqual([...mappings], [
+  assert.deepEqual([...mappings!], [
     ["SOL", "solusd"],
     ["BTC", "btcusd"],
   ]);
@@ -366,7 +385,7 @@ test("Bitfinex pair parsing keeps exact USD pairs and rejects USDT, test, and ma
     "SOL:USD",
   ]]);
 
-  assert.deepEqual([...mappings], [
+  assert.deepEqual([...mappings!], [
     ["BTC", "tBTCUSD"],
     ["SOL", "tSOL:USD"],
   ]);
@@ -429,8 +448,8 @@ test("backup mappings enrich only precise exchange pairs and survive persistence
 });
 
 test("the optional backup directory is keyless and fails without breaking the watchlist", async () => {
-  const calls = [];
-  const success = await fetchBackupSourceMappings(async (url, options) => {
+  const calls: Array<{ url: string; options: RequestInit }> = [];
+  const success = await fetchBackupSourceMappings(async (url: string, options: RequestInit) => {
     calls.push({ url, options });
     return {
       ok: true,
@@ -445,7 +464,7 @@ test("the optional backup directory is keyless and fails without breaking the wa
     };
   });
 
-  assert.deepEqual([...success.bitstamp], [["SOL", "solusd"]]);
+  assert.deepEqual([...success.bitstamp!], [["SOL", "solusd"]]);
   assert.equal(success.bitfinex, null);
   assert.deepEqual(calls.map((call) => call.url), [
     "https://www.bitstamp.net/api/v2/markets/",

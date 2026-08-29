@@ -13,7 +13,7 @@ This is the authoritative developer reference for product discovery, price-sourc
 
 ## Product discovery and mappings
 
-Coinbase online `*-USD` spot products are the selectable catalog. `src/watchlist.js` loads `/products` plus `/currencies`, accepts only online and tradeable real-USD products, and sanitizes remote names.
+Coinbase online `*-USD` spot products are the selectable catalog. `src/watchlist.ts` loads `/products` plus `/currencies`, accepts only online and tradeable real-USD products, and sanitizes remote names.
 
 Provider coverage is intentionally asymmetric:
 

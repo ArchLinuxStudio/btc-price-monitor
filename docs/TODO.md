@@ -11,7 +11,7 @@ None. There is no known blocking business bug or active product task.
 - [ ] Publish the current main features only when the user explicitly asks for a release.
   - Done when:
     - a SemVer version newer than `1.2.1` is synchronized across all sources listed in `RELEASE.md`;
-    - JavaScript/Rust checks and a relevant native smoke pass;
+    - TypeScript/frontend and Rust checks plus a relevant native smoke pass;
     - a new tag triggers the full workflow;
     - the GitHub Release contains the expected Windows, two macOS, and two Linux assets with correct names/digests and UTF-8 text;
     - the old `v1.2.1` tag/assets remain untouched.
@@ -28,7 +28,7 @@ None. There is no known blocking business bug or active product task.
   - Done when the tag is checked against `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, with a regression test or demonstrated failing mismatch.
 
 - [ ] Add an ordinary main/PR quality workflow or extend CI coverage.
-  - Done when non-tag changes run the full JavaScript syntax/tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases.
+  - Done when non-tag changes run the full TypeScript/frontend tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases.
 
 ## P3 — Known technical debt
 

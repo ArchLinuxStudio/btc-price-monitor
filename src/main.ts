@@ -1,4 +1,5 @@
 import { PriceFeed } from "./price-feed.js";
+import type { DisplayQuote, FeedStatus, PriceFeedState } from "./price-feed.js";
 import { formatUsdPrice } from "./price-format.js";
 import {
   MAX_PRODUCTS,
@@ -9,23 +10,49 @@ import {
   saveWatchlist,
   searchProducts,
 } from "./watchlist.js";
+import type { BackupSourceMappings, Product } from "./watchlist.js";
 
-const elements = {
-  liveDot: document.querySelector("#live-dot"),
-  statusText: document.querySelector("#status-text"),
-  sourceLabel: document.querySelector("#source-label"),
-  updateTime: document.querySelector("#update-time"),
-  watchlistButton: document.querySelector("#watchlist-button"),
-  close: document.querySelector("#close-button"),
-  quotes: document.querySelector("#quotes"),
-  quoteTemplate: document.querySelector("#quote-row-template"),
-  manager: document.querySelector("#watchlist-manager"),
-  search: document.querySelector("#coin-search"),
-  managerList: document.querySelector("#manager-list"),
-  managerStatus: document.querySelector("#manager-status"),
+interface QuoteView {
+  row: HTMLElement;
+  price: HTMLSpanElement;
+  change: HTMLSpanElement;
+}
+
+interface MonitorLayout {
+  rowCount: number;
+  managementOpen: boolean;
+  itemCount: number;
+}
+
+interface TauriApi {
+  core?: {
+    invoke?: (command: string, args?: unknown) => Promise<unknown>;
+  };
+}
+
+type TauriGlobal = typeof globalThis & {
+  __TAURI__?: TauriApi;
 };
 
-const statusLabels = {
+type TauriCommand = "close_window" | "ensure_always_on_top" | "set_monitor_layout";
+type CatalogState = "idle" | "loading" | "ready" | "error";
+
+const elements = {
+  liveDot: document.querySelector<HTMLSpanElement>("#live-dot")!,
+  statusText: document.querySelector<HTMLSpanElement>("#status-text")!,
+  sourceLabel: document.querySelector<HTMLSpanElement>("#source-label")!,
+  updateTime: document.querySelector<HTMLSpanElement>("#update-time")!,
+  watchlistButton: document.querySelector<HTMLButtonElement>("#watchlist-button")!,
+  close: document.querySelector<HTMLButtonElement>("#close-button")!,
+  quotes: document.querySelector<HTMLElement>("#quotes")!,
+  quoteTemplate: document.querySelector<HTMLTemplateElement>("#quote-row-template")!,
+  manager: document.querySelector<HTMLElement>("#watchlist-manager")!,
+  search: document.querySelector<HTMLInputElement>("#coin-search")!,
+  managerList: document.querySelector<HTMLDivElement>("#manager-list")!,
+  managerStatus: document.querySelector<HTMLSpanElement>("#manager-status")!,
+};
+
+const statusLabels: Record<FeedStatus, { compact: string; full: string }> = {
   live: { compact: "LIVE", full: "实时行情" },
   partial: { compact: "PART", full: "部分行情可用" },
   connecting: { compact: "LINK", full: "正在连接行情" },
@@ -33,7 +60,7 @@ const statusLabels = {
   offline: { compact: "OFF", full: "行情离线" },
 };
 
-const sourceLabels = {
+const sourceLabels: Record<string, string> = {
   Coinbase: "Coinbase",
   Kraken: "Kraken",
   Bitstamp: "Bitstamp",
@@ -41,7 +68,7 @@ const sourceLabels = {
   "Coinbase REST": "REST",
 };
 
-const sourceAbbreviations = {
+const sourceAbbreviations: Record<string, string> = {
   Coinbase: "CB",
   Kraken: "KR",
   Bitstamp: "BS",
@@ -51,40 +78,42 @@ const sourceAbbreviations = {
 
 const markerColorCount = 8;
 
-let selectedProducts = loadWatchlist();
-let quoteViews = new Map();
-const previousPrices = new Map();
-const priceAnimations = new Map();
-let latestState = null;
-let pendingState = null;
+let selectedProducts: Product[] = loadWatchlist();
+let quoteViews = new Map<string, QuoteView>();
+const previousPrices = new Map<string, number>();
+const priceAnimations = new Map<string, Animation>();
+let latestState: PriceFeedState | null = null;
+let pendingState: PriceFeedState | null = null;
 let renderScheduled = false;
 let lastRenderAt = 0;
-let lastDataSecond = null;
+let lastDataSecond: number | null = null;
 let managementOpen = false;
-let catalogState = "idle";
-let catalog = [];
-let catalogRequest = null;
-let backupSourceMappings = { bitstamp: null, bitfinex: null };
-let backupSourceMappingState = "idle";
-let backupSourceMappingRequest = null;
-let visibleSearchResults = [];
-let pendingLayout = null;
-let layoutFrame = null;
-let layoutQueue = Promise.resolve();
+let catalogState: CatalogState = "idle";
+let catalog: Product[] = [];
+let catalogRequest: Promise<Product[]> | null = null;
+let backupSourceMappings: BackupSourceMappings = { bitstamp: null, bitfinex: null };
+let backupSourceMappingState: CatalogState = "idle";
+let backupSourceMappingRequest: Promise<BackupSourceMappings> | null = null;
+let visibleSearchResults: Product[] = [];
+let pendingLayout: MonitorLayout | null = null;
+let layoutFrame: number | null = null;
+let layoutQueue: Promise<unknown> = Promise.resolve();
 
-function prefersReducedMotion() {
+function prefersReducedMotion(): boolean {
   return typeof globalThis.matchMedia === "function"
     && globalThis.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function tauriInvoke(command, args) {
-  const tauri = globalThis.__TAURI__;
+function tauriInvoke(command: "set_monitor_layout", args: MonitorLayout): Promise<unknown>;
+function tauriInvoke(command: "close_window" | "ensure_always_on_top"): Promise<unknown>;
+function tauriInvoke(command: TauriCommand, args?: MonitorLayout): Promise<unknown> {
+  const tauri = (globalThis as TauriGlobal).__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
   if (!invoke) return Promise.resolve();
   return invoke(command, args).catch(() => undefined);
 }
 
-function setMonitorLayout(itemCount) {
+function setMonitorLayout(itemCount: number): void {
   pendingLayout = {
     rowCount: selectedProducts.length,
     managementOpen,
@@ -93,7 +122,7 @@ function setMonitorLayout(itemCount) {
   if (layoutFrame !== null) return;
   layoutFrame = requestAnimationFrame(() => {
     layoutFrame = null;
-    const requestedLayout = pendingLayout;
+    const requestedLayout = pendingLayout!;
     pendingLayout = null;
     layoutQueue = layoutQueue
       .then(() => tauriInvoke("set_monitor_layout", requestedLayout))
@@ -101,11 +130,11 @@ function setMonitorLayout(itemCount) {
   });
 }
 
-function clearElement(element) {
+function clearElement(element: Element): void {
   while (element.firstChild) element.removeChild(element.firstChild);
 }
 
-function productColorIndex(product) {
+function productColorIndex(product: Product): number {
   if (product.id === "BTC-USD") return 0;
   if (product.id === "ETH-USD") return 1;
   let hash = 0;
@@ -115,8 +144,8 @@ function productColorIndex(product) {
   return 2 + (hash % (markerColorCount - 2));
 }
 
-function rebuildQuoteRows() {
-  const activeIds = new Set(selectedProducts.map((product) => product.id));
+function rebuildQuoteRows(): void {
+  const activeIds = new Set<string>(selectedProducts.map((product) => product.id));
   for (const animation of priceAnimations.values()) {
     if (animation) animation.cancel();
   }
@@ -126,15 +155,15 @@ function rebuildQuoteRows() {
   }
 
   clearElement(elements.quotes);
-  quoteViews = new Map();
+  quoteViews = new Map<string, QuoteView>();
   const fragment = document.createDocumentFragment();
 
   selectedProducts.forEach((product, index) => {
-    const row = elements.quoteTemplate.content.firstElementChild.cloneNode(true);
-    const marker = row.querySelector(".asset-marker");
-    const symbol = row.querySelector(".asset strong");
-    const price = row.querySelector(".price");
-    const change = row.querySelector(".change");
+    const row = elements.quoteTemplate.content.firstElementChild!.cloneNode(true) as HTMLElement;
+    const marker = row.querySelector<HTMLSpanElement>(".asset-marker")!;
+    const symbol = row.querySelector<HTMLElement>(".asset strong")!;
+    const price = row.querySelector<HTMLSpanElement>(".price")!;
+    const change = row.querySelector<HTMLSpanElement>(".change")!;
     row.dataset.productId = product.id;
     row.setAttribute("aria-label", `${product.name}，${product.symbol} 美元行情`);
     marker.classList.add(`marker-${productColorIndex(product)}`);
@@ -159,38 +188,38 @@ function rebuildQuoteRows() {
   if (!managementOpen) void setMonitorLayout(selectedProducts.length);
 }
 
-function queueRender(state) {
+function queueRender(state: PriceFeedState): void {
   pendingState = state;
   if (renderScheduled) return;
   renderScheduled = true;
-  requestAnimationFrame(function drainFrame(frameTime) {
+  requestAnimationFrame(function drainFrame(frameTime: number) {
     if (frameTime - lastRenderAt < 33) {
       requestAnimationFrame(drainFrame);
       return;
     }
     renderScheduled = false;
     lastRenderAt = frameTime;
-    latestState = pendingState;
+    latestState = pendingState!;
     pendingState = null;
     render(latestState);
   });
 }
 
-function compactSourceLabel(sources) {
+function compactSourceLabel(sources: string[]): string {
   if (sources.length === 0) return "Coinbase";
   if (sources.length === 1) return sourceLabels[sources[0]] || sources[0];
   const compact = sources.map((source) => sourceAbbreviations[source] || source);
   return compact.length === 2 ? compact.join("/") : `${compact[0]}+${compact.length - 1}`;
 }
 
-function render(state) {
+function render(state: PriceFeedState): void {
   const status = statusLabels[state.status] ? state.status : "offline";
   const statusLabel = statusLabels[status];
   elements.liveDot.className = `live-dot is-${status}`;
   elements.statusText.textContent = statusLabel.compact;
   elements.statusText.setAttribute("aria-label", statusLabel.full);
 
-  const sources = new Set();
+  const sources = new Set<string>();
   for (const product of selectedProducts) {
     const quote = state.prices[product.id] || state.prices[product.symbol];
     renderQuote(product, quote);
@@ -210,7 +239,7 @@ function render(state) {
   }
 }
 
-function renderQuote(product, quote) {
+function renderQuote(product: Product, quote: DisplayQuote | null | undefined): void {
   const view = quoteViews.get(product.id);
   if (!view) return;
 
@@ -225,7 +254,7 @@ function renderQuote(product, quote) {
     return;
   }
 
-  const previous = previousPrices.has(product.id) ? previousPrices.get(product.id) : null;
+  const previous = previousPrices.has(product.id) ? previousPrices.get(product.id)! : null;
   const formattedPrice = formatUsdPrice(quote.price);
   view.price.textContent = formattedPrice;
   view.price.setAttribute("aria-label", `${product.symbol} ${formattedPrice} 美元`);
@@ -261,7 +290,7 @@ function renderQuote(product, quote) {
   previousPrices.set(product.id, quote.price);
 }
 
-function renderUpdateTime(lastUpdateAt) {
+function renderUpdateTime(lastUpdateAt: number | null): void {
   if (!lastUpdateAt) {
     elements.updateTime.textContent = "等待首笔行情";
     return;
@@ -272,18 +301,18 @@ function renderUpdateTime(lastUpdateAt) {
   elements.updateTime.textContent = `行情最后更新于${age}`;
 }
 
-function announceManager(message) {
+function announceManager(message: string): void {
   elements.managerStatus.textContent = message;
 }
 
-function managerCell(className, text) {
+function managerCell(className: string, text: string): HTMLSpanElement {
   const cell = document.createElement("span");
   cell.className = className;
   cell.textContent = text;
   return cell;
 }
 
-function renderSelectedProduct(product, index) {
+function renderSelectedProduct(product: Product, index: number): void {
   const row = document.createElement("div");
   row.className = "manager-row";
   row.appendChild(managerCell("manager-symbol", product.symbol));
@@ -306,7 +335,7 @@ function renderSelectedProduct(product, index) {
   elements.managerList.appendChild(row);
 }
 
-function renderSearchProduct(product) {
+function renderSearchProduct(product: Product): void {
   const selected = selectedProducts.some((entry) => entry.id === product.id);
   const full = selectedProducts.length >= MAX_PRODUCTS;
   const row = document.createElement("button");
@@ -331,7 +360,7 @@ function renderSearchProduct(product) {
   elements.managerList.appendChild(row);
 }
 
-function renderManagerMessage(message, retry) {
+function renderManagerMessage(message: string, retry: boolean): void {
   const row = document.createElement("p");
   row.className = "manager-message";
   row.appendChild(document.createTextNode(message));
@@ -348,7 +377,7 @@ function renderManagerMessage(message, retry) {
   void setMonitorLayout(1);
 }
 
-function renderManager() {
+function renderManager(): void {
   if (!managementOpen) return;
   clearElement(elements.managerList);
   visibleSearchResults = [];
@@ -378,7 +407,7 @@ function renderManager() {
   void setMonitorLayout(visibleSearchResults.length);
 }
 
-async function ensureCatalog(force) {
+async function ensureCatalog(force: boolean): Promise<Product[]> {
   if (catalogRequest) return catalogRequest;
   if (catalogState === "ready" && !force) return catalog;
   void ensureBackupSourceMappings(force);
@@ -389,11 +418,11 @@ async function ensureCatalog(force) {
     ? globalThis.fetch.bind(globalThis)
     : null;
   const controller = new AbortController();
-  let timeout = null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   const catalogFetch = fetchProductCatalog(fetchImpl
     ? (url, options) => fetchImpl(url, { ...options, signal: controller.signal })
     : null);
-  const deadline = new Promise((resolve, reject) => {
+  const deadline = new Promise<never>((resolve, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
       reject(new Error("catalog request timed out"));
@@ -427,19 +456,19 @@ async function ensureCatalog(force) {
       return [];
     })
     .finally(() => {
-      clearTimeout(timeout);
+      clearTimeout(timeout!);
       catalogRequest = null;
     });
   return catalogRequest;
 }
 
-function backupCoverageSignature(products) {
+function backupCoverageSignature(products: Product[]): string {
   return products.map((product) => (
     `${product.id}\u0000${product.bitstampSymbol || ""}\u0000${product.bitfinexSymbol || ""}`
   )).join("\u0001");
 }
 
-async function ensureBackupSourceMappings(force) {
+async function ensureBackupSourceMappings(force: boolean): Promise<BackupSourceMappings> {
   if (backupSourceMappingRequest) return backupSourceMappingRequest;
   if (backupSourceMappingState === "ready" && !force) return backupSourceMappings;
 
@@ -450,11 +479,11 @@ async function ensureBackupSourceMappings(force) {
 
   backupSourceMappingState = "loading";
   const controller = new AbortController();
-  let timeout = null;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   const mappingFetch = fetchBackupSourceMappings((url, options) => (
     fetchImpl(url, { ...options, signal: controller.signal })
   ));
-  const deadline = new Promise((resolve, reject) => {
+  const deadline = new Promise<never>((resolve, reject) => {
     timeout = setTimeout(() => {
       controller.abort();
       reject(new Error("backup source directory request timed out"));
@@ -494,13 +523,13 @@ async function ensureBackupSourceMappings(force) {
       return backupSourceMappings;
     })
     .finally(() => {
-      clearTimeout(timeout);
+      clearTimeout(timeout!);
       backupSourceMappingRequest = null;
     });
   return backupSourceMappingRequest;
 }
 
-function openManager() {
+function openManager(): void {
   managementOpen = true;
   elements.quotes.hidden = true;
   elements.manager.hidden = false;
@@ -515,7 +544,7 @@ function openManager() {
   });
 }
 
-function closeManager(restoreFocus) {
+function closeManager(restoreFocus: boolean): void {
   if (!managementOpen) return;
   managementOpen = false;
   elements.manager.hidden = true;
@@ -529,7 +558,7 @@ function closeManager(restoreFocus) {
   if (restoreFocus) elements.watchlistButton.focus();
 }
 
-function addProduct(product) {
+function addProduct(product: Product): void {
   if (selectedProducts.some((entry) => entry.id === product.id)) return;
   if (selectedProducts.length >= MAX_PRODUCTS) {
     announceManager(`最多可显示 ${MAX_PRODUCTS} 个币种`);
@@ -543,7 +572,7 @@ function addProduct(product) {
   closeManager(true);
 }
 
-function removeProduct(productId, previousIndex) {
+function removeProduct(productId: string, previousIndex: number): void {
   const product = selectedProducts.find((entry) => entry.id === productId);
   if (!product || product.fixed) return;
   selectedProducts = saveWatchlist(selectedProducts.filter((entry) => entry.id !== productId));
@@ -553,7 +582,7 @@ function removeProduct(productId, previousIndex) {
   renderManager();
   requestAnimationFrame(() => {
     if (!managementOpen || elements.manager.hidden) return;
-    const buttons = elements.managerList.querySelectorAll(".manager-remove");
+    const buttons = elements.managerList.querySelectorAll<HTMLButtonElement>(".manager-remove");
     if (buttons.length > 0) {
       const targetIndex = Math.min(Math.max(0, previousIndex - 2), buttons.length - 1);
       if (buttons[targetIndex].isConnected) buttons[targetIndex].focus();
@@ -591,9 +620,9 @@ elements.manager.addEventListener("keydown", (event) => {
 
   const targets = [
     elements.search,
-    ...Array.from(elements.manager.querySelectorAll("button:not(:disabled)")),
-  ];
-  const currentIndex = targets.indexOf(document.activeElement);
+    ...Array.from(elements.manager.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")),
+  ] as HTMLElement[];
+  const currentIndex = targets.indexOf(document.activeElement as HTMLElement);
   if (currentIndex < 0) return;
   const step = event.key === "ArrowDown" ? 1 : -1;
   const nextIndex = Math.min(Math.max(0, currentIndex + step), targets.length - 1);

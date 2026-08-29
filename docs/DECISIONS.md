@@ -8,13 +8,27 @@ This document records accepted decisions that a future developer might otherwise
 
 **Context:** The product is a tiny cross-platform desktop overlay with native tray/window behavior.
 
-**Decision:** Use Tauri 2/Rust plus static HTML/CSS/ES modules. Do not add a frontend bundler or server without a concrete need.
+**Decision:** Use Tauri 2/Rust plus static HTML/CSS and browser-native ES modules emitted from TypeScript. Do not add a frontend framework, bundler, or server without a concrete need.
 
 **Reason:** System WebViews and a small Rust shell provide the required tray, always-on-top, taskbar/Dock, and packaging behavior with lower runtime/packaging overhead than Electron.
 
-**Rejected alternatives:** Electron/TypeScript was considered before the Rust toolchain was available. Qt/PySide was also considered. Neither offered enough benefit to justify a larger runtime and a three-platform rewrite.
+**Rejected alternatives:** An Electron rewrite (whose proposal used TypeScript) was considered before the Rust toolchain was available. Qt/PySide was also considered. Neither offered enough benefit to justify a larger runtime and a three-platform rewrite.
 
 **Implications:** Framework migration requires explicit user approval plus evidence on size, memory, signing, release maintenance, and platform behavior.
+
+## Decision: Use strict TypeScript as a source-language-only migration
+
+**Status:** Accepted; explicit user request
+
+**Context:** The user requested converting the existing JavaScript frontend to TypeScript while leaving features, UI, and Rust unchanged.
+
+**Decision:** Author the four frontend modules and Node tests in strict TypeScript. Use `tsc` only to erase types and emit native ES modules into ignored `dist/`; copy `index.html` and `styles.css` unchanged. Use `tsx` only to execute TypeScript tests and build tooling.
+
+**Reason:** This adds compile-time contracts at storage/network/DOM/IPC boundaries without introducing a framework, bundling, a development origin, or a different browser module graph.
+
+**Rejected alternatives:** Vite or another bundler for this migration, framework adoption, direct WebView execution of TypeScript, and changes to the Rust shell.
+
+**Implications:** Source imports used by the browser retain `.js` specifiers so emitted modules resolve natively. Tauri serves/packages `dist/`, `npm run check` must typecheck and emit before delivery, and generated output must not be committed.
 
 ## Decision: Preserve the compact 208px design
 
@@ -132,15 +146,15 @@ This document records accepted decisions that a future developer might otherwise
 
 **Rejected alternatives:** Restoring tooltips only for truncated text or source/status details.
 
-**Implications:** `tests/ui.test.js` guards this behavior.
+**Implications:** `tests/ui.test.ts` guards this behavior.
 
 ## Decision: Maintain macOS 10.15 compatibility
 
 **Status:** Accepted
 
-**Context:** The macOS bundle declares 10.15 minimum and ships untranspiled JavaScript to WKWebView.
+**Context:** The macOS bundle declares 10.15 minimum and ships browser-native JavaScript to WKWebView.
 
-**Decision:** Avoid syntax/APIs unsupported by that WebView or add a deliberate transpilation/minimum-version change.
+**Decision:** Emit an ES2019 syntax target and avoid runtime APIs unsupported by that WebView, or make a deliberate target/minimum-version change.
 
 **Reason:** A new browser API can pass on Windows WebView2 while failing on the supported macOS floor.
 

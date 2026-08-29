@@ -7,9 +7,9 @@ This document contains stable architecture knowledge. Current progress and verif
 Crypto Top is a tiny, always-on-top, real-USD cryptocurrency watchlist for Windows, macOS, and Linux. It uses:
 
 - Tauri 2 and Rust for the native window, tray, platform behavior, permissions, and bundles.
-- Static HTML, CSS, and ES modules directly from `src/`; there is no frontend framework, server, or bundler.
+- Static HTML/CSS plus strict TypeScript modules from `src/`; `tsc` emits browser-native ES modules and copies static assets to ignored `dist/`. There is no frontend framework, server, or bundler.
 - Public WebSocket and REST endpoints for market data; no user API key or backend service.
-- Node's built-in test runner for JavaScript tests and Rust unit tests for native layout behavior.
+- Node's built-in test runner with `tsx` for TypeScript tests, plus Rust unit tests for native layout behavior.
 
 ## Runtime data flow
 
@@ -21,7 +21,7 @@ Coinbase/Kraken/Bitstamp/Bitfinex WebSockets ──┤
 Coinbase REST current-price fallback ──────────┼─ PriceFeed ── selected quote + same-source UTC open
 Exchange-specific UTC-open REST/WS ────────────┘                          │
                                                                            ▼
-                                                            main.js batched DOM rendering
+                                                        dist/main.js batched DOM rendering
 
 Tauri/Rust ── window/tray/always-on-top/dynamic height/minimal IPC commands
 ```
@@ -34,10 +34,12 @@ Detailed provider semantics and failover rules live in [`MARKET_DATA.md`](MARKET
 | --- | --- |
 | `src/index.html` | Static title bar, quote-row template, temporary watchlist-management panel, accessible labels |
 | `src/styles.css` | Fixed 208px visual budget, row/manager layouts, scrolling, colors, reduced-motion behavior |
-| `src/main.js` | UI state, DOM construction, approximately 30 FPS render coalescing, watchlist interactions, native command calls |
-| `src/watchlist.js` | Product model, BTC/ETH defaults, eight-product cap, validated localStorage, Coinbase catalog/search, exact backup mappings |
-| `src/price-feed.js` | Provider parsers, resilient sockets, source selection, REST fallback, UTC-open lifecycle, stale/status state |
-| `src/price-format.js` | Compact USD formatting across large and very small prices |
+| `src/main.ts` | UI state, DOM construction, approximately 30 FPS render coalescing, watchlist interactions, native command calls |
+| `src/watchlist.ts` | Product model and types, BTC/ETH defaults, eight-product cap, validated localStorage, Coinbase catalog/search, exact backup mappings |
+| `src/price-feed.ts` | Provider/parser/socket/state types, resilient sockets, source selection, REST fallback, UTC-open lifecycle, stale/status state |
+| `src/price-format.ts` | Compact USD formatting across large and very small prices |
+| `scripts/frontend.ts` | Clean ES-module emit/watch and verbatim static-asset copying from `src/` to ignored `dist/` |
+| `tsconfig*.json` | Shared strict rules plus application, test/tooling, and ES2019 emission boundaries |
 | `src-tauri/src/lib.rs` | Native window behavior, top-right placement, tray/menu, hide-vs-quit semantics, dynamic height commands |
 | `src-tauri/tauri.conf.json` | Window envelope, CSP, application metadata, bundle metadata |
 | `src-tauri/tauri.*.conf.json` | Platform bundle targets and macOS minimum version |
@@ -53,7 +55,7 @@ The unified key is the Coinbase-style product ID, for example `BTC-USD`.
 
 Relevant fields are `id`, `symbol`, `name`, `fixed`, and optional exact source symbols (`krakenSymbol`, `bitstampSymbol`, `bitfinexSymbol`). A missing source symbol means that provider must not be subscribed for that product. BTC/ETH are fixed; other products are removable.
 
-`src/watchlist.js` owns normalization and persistence. Storage key `crypto-top.watchlist.v1` is versioned, validated, deduplicated, capped, and fails safely to defaults.
+`src/watchlist.ts` owns normalization and persistence. Storage key `crypto-top.watchlist.v1` is versioned, validated, deduplicated, capped, and fails safely to defaults.
 
 ### PriceFeed
 
@@ -87,7 +89,7 @@ Product changes increment a revision, abort obsolete REST work, and prevent remo
 - CSP lists only the exact HTTPS/WSS origins currently used; there are no wildcard data origins.
 - Tauri capabilities expose only default/start-dragging window permissions plus the four custom commands.
 - Remote names/text are inserted through `textContent`, text nodes, or attributes rather than HTML injection.
-- macOS minimum is 10.15. The untranspiled frontend must avoid APIs unsupported by its older WKWebView (for example, use `Object.prototype.hasOwnProperty.call`, not `Object.hasOwn`).
+- macOS minimum is 10.15. TypeScript emits ES2019 syntax, and frontend runtime APIs must remain supported by its older WKWebView (for example, use `Object.prototype.hasOwnProperty.call`, not `Object.hasOwn`).
 - Credentials, private keys, signing material, and GitHub tokens never belong in the repository.
 
 ## Platform boundaries

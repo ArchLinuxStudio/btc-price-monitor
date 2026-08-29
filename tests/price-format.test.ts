@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { formatUsdPrice } from "../src/price-format.js";
+import { formatUsdPrice } from "../src/price-format.ts";
 
 test("formats large prices compactly with grouping and cents", () => {
   assert.equal(formatUsdPrice(999999.999), "1,000,000.00");
