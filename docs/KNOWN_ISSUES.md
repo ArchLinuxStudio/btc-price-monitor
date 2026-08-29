@@ -28,9 +28,29 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
-**Not fully verified:** Bitstamp REST CORS under macOS WKWebView/Linux WebKit, current watchlist flow on both platforms, and all Wayland tray/always-on-top combinations.
+**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow on both platforms, and all Wayland tray/always-on-top combinations.
 
 **Next direction:** Use real target systems for the next release candidate; do not “fix” a platform by widening CSP without diagnosis.
+
+## Stock-related products are exchange derivatives, not shares
+
+**Symptom:** Entries such as `MU.P` display a USDT-settled perpetual contract from Bybit or Gate, not Micron shares listed on Nasdaq.
+
+**Impact:** Contract price, trading hours, funding, leverage, liquidity, regional eligibility, and counterparty risk can differ from the underlying stock. Availability can also change by exchange or jurisdiction.
+
+**Current behavior:** Search and selected rows identify this class with `.P` and `USDT永续`; mixed watchlists show `USD/USDT`. Daily change uses the selected contract exchange's own UTC+0 open. The app never claims share ownership and never borrows a stock-market open.
+
+**Constraint:** Bybit/Gate symbols merge only when their canonical ticker is exactly equal. Similar aliases such as `AAPL` and `AAPLX` remain separate products rather than guessed equivalents.
+
+## Entirely delisted persisted products are not auto-removed
+
+**Symptom:** If a previously selected stock-related contract disappears from every successful live directory, the saved row remains instead of being silently deleted.
+
+**Impact:** Its exact old source code can reconnect/fail until the quote becomes stale; the user may need to remove it manually.
+
+**Reason:** A missing catalog entry is ambiguous across transient regional filtering, provider outages, and true delisting. The refresh path preserves user selection and distinguishes a failed source directory from an authoritative mapping removal on products still supplied by another source.
+
+**Next direction:** Add explicit unavailable-product UI only with a product request and provider-specific delisting evidence; do not guess a replacement symbol.
 
 ## Linux and hidden-window OS limitations
 

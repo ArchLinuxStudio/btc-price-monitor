@@ -4,40 +4,51 @@ This is the authoritative developer reference for product discovery, price-sourc
 
 ## Invariants
 
-- All displayed pairs are real fiat USD pairs. USDT, USDC, stablecoin bundles, or unlabeled converted reference prices are not interchangeable with USD.
+- Crypto spot products are real fiat-USD pairs. USDT, USDC, stablecoin bundles, and converted reference prices must never be presented as USD spot.
+- Stock-related products are a separately approved class of USDT-settled perpetual derivatives. They must remain visibly identified as `.P` / `USDT永续`; they are not direct shares or evidence of stock ownership.
 - Public data must remain free and usable without asking the user for an API key.
 - Price updates should use WebSocket pushes. REST is limited to product discovery, UTC-open lookup, and current-price fallback.
-- The displayed price and UTC-day open must have the same `marketSource` and product. Never calculate a cross-exchange change.
-- UTC change is `(current / open - 1) * 100`, where `open` is the first valid same-exchange trading open at or after `00:00 UTC`; it is not rolling 24-hour change.
-- Exchange symbols are exact mappings. Never derive a Kraken, Bitstamp, or Bitfinex pair by concatenating a Coinbase base symbol.
+- The displayed price and UTC-day open must have the same `marketSource` and exact product. Never borrow an underlying stock price, another exchange's open, or another contract's symbol.
+- UTC change is `(current / open - 1) * 100`, where `open` is the displayed exchange product's current `00:00 UTC` calendar-day open. It is not rolling 24-hour change.
+- Exchange symbols are exact official mappings. Never construct another provider's pair from a base ticker or assume aliases are equivalent.
 
 ## Product discovery and mappings
 
-Coinbase online `*-USD` spot products are the selectable catalog. `src/watchlist.ts` loads `/products` plus `/currencies`, accepts only online and tradeable real-USD products, and sanitizes remote names.
+`src/watchlist.ts` loads three keyless catalogs independently and merges any valid results:
+
+- Coinbase `/products` plus `/currencies`: accept only online, tradeable `*-USD` crypto spot products and sanitize remote names.
+- Bybit V5 linear instruments: accept only `symbolType=stock`, `marketRegion=US`, `contractType=LinearPerpetual`, `status=Trading`, and USDT quote/settlement. Use the official `underlyingTicker`, `symbol`, and `fullName`.
+- Gate USDT futures contracts: accept only `contract_type=stocks`, `status=trading`, and non-delisting contracts. Use the official contract base and full contract name exactly.
+
+The canonical derivative ID is `{TICKER}-USDT-PERP`, displayed as `{TICKER}.P`. Bybit and Gate entries merge only when their canonical ticker is exactly equal; `AAPL` is never guessed to be `AAPLX`. Gate-only and Bybit-only stock-related contracts remain independently searchable. A merged entry keeps Bybit's official full name when available and retains both exact provider symbols.
+
+Catalog requests have a bounded optional-source timeout. Coinbase, Bybit, or Gate can independently supply a usable catalog; the manager fails only if every product directory is unavailable or empty. If one stock directory fails transiently, refreshing metadata preserves the selected product's last validated symbol for that source. A successful directory response is authoritative for mappings on products also present through another provider.
+
+Live research snapshot from 2026-08-29, recorded only as validation evidence rather than a constant: Bybit returned 168 stock-class instruments and 150 passed the strict U.S./USDT filters; Gate returned 370 active non-delisting stock-class contracts; 118 canonical tickers matched exactly across both. Provider listings change, so runtime code always consumes the current catalogs.
 
 Provider coverage is intentionally asymmetric:
 
 | Provider | Products | Mapping source |
 | --- | --- | --- |
-| Coinbase | Every selected product | The unified product ID itself |
-| Kraken | BTC/ETH currently | Built-in, verified `BTC/USD` and `ETH/USD` mappings |
-| Bitstamp | BTC/ETH plus exact catalog intersections | Built-in defaults, then `/api/v2/markets/` filtered to `counter_currency=USD`, `market_type=SPOT`, `trading=Enabled` |
-| Bitfinex | BTC/ETH currently | Built-in, verified `tBTCUSD` and `tETHUSD`; no runtime REST catalog because its REST origin lacks WebView CORS |
+| Coinbase | Every selected USD crypto spot product | The exact Coinbase product ID |
+| Kraken | BTC/ETH USD spot currently | Built-in, verified `BTC/USD` and `ETH/USD` mappings |
+| Bitstamp | BTC/ETH plus exact USD-spot catalog intersections | Built-in defaults, then `/api/v2/markets/` filtered to enabled USD spot |
+| Bitfinex | BTC/ETH USD spot currently | Built-in, verified `tBTCUSD` and `tETHUSD`; no runtime REST directory because its REST origin lacks WebView CORS |
+| Bybit | Strictly filtered U.S. stock-related USDT perpetuals in its live directory | Official `underlyingTicker` and `symbol` |
+| Gate | Active stock-class USDT perpetuals in its live directory | Official contract base/name; exact ticker equality only when merged with Bybit |
 
-An optional directory failure must not block Coinbase catalog/search. A successful Bitstamp refresh is authoritative and may remove a delisted mapping; a failed refresh preserves the last validated mapping for that run/persisted custom product. Stored mapping fields are validated against the product base and exact USD quote before reuse.
-
-`parseBitfinexPairs` is a tested pure parser for exact official pair data, but the runtime does not currently fetch a Bitfinex REST directory. Its presence is not permission to guess custom symbols.
+Stored fields are syntax-validated and product-class validated before reuse. Gate mappings must also equal the canonical ticker. Bybit mappings may differ from the underlying ticker and therefore remain the exact official symbol captured from its directory rather than a reconstructed string.
 
 ## Provider transports
 
 ### Coinbase
 
-- Price: `wss://advanced-trade-ws.coinbase.com`, dynamic `ticker` subscription for all selected product IDs plus `heartbeats`.
+- Price: `wss://advanced-trade-ws.coinbase.com`, dynamic `ticker` subscription for selected USD-spot IDs plus `heartbeats`.
 - Current-price fallback: `https://api.exchange.coinbase.com/products/{productId}/ticker`.
 - Catalog: `https://api.exchange.coinbase.com/products` and `/currencies`.
-- UTC open: one-hour Exchange candles from current UTC midnight through now; sort/filter and use the earliest returned candle's `open`.
+- UTC open: one-hour Exchange candles from current UTC midnight through now; sort/filter and use the earliest returned candle's open.
 - Coinbase REST quotes retain `marketSource: "coinbase"` while using `source: "coinbaseRest"`.
-- Coinbase REST freshness uses the ticker payload's last-trade `time`, not HTTP receipt time; otherwise a quiet market's old trade would look newly received.
+- REST freshness uses the ticker payload's last-trade `time`, not HTTP receipt time, so an old quiet-market trade cannot look newly received.
 
 ### Kraken
 
@@ -61,16 +72,32 @@ An optional directory failure must not block Coinbase catalog/search. A successf
 - Candle control/data events must not update trade freshness. Accept a UTC open only when its MTS equals current UTC midnight and volume is positive.
 - Bitfinex REST was rejected for the WebView path because its public REST responses did not provide the required Tauri-origin CORS header. CSP intentionally allows its WSS origin but not its HTTPS REST origin.
 
+### Bybit stock-related perpetuals
+
+- Catalog: `https://api.bybit.com/v5/market/instruments-info?category=linear&symbolType=stock&status=Trading&limit=1000` with the strict metadata filters above.
+- Price: `wss://stream.bybit.com/v5/public/linear`, one exact `tickers.{symbol}` argument per selected Bybit product.
+- The socket must acknowledge the subscription; a rejection or 10-second ACK timeout reconnects. Application ping messages keep the public connection active.
+- Current-price fallback: `/v5/market/tickers?category=linear&symbol={symbol}`. REST quotes retain `marketSource: "bybit"` with `source: "bybitRest"`.
+- UTC open: `/v5/market/kline?category=linear&symbol={symbol}&interval=D&start=...&end=...&limit=2`; accept only a candle whose start equals current UTC midnight exactly.
+
+### Gate stock-related perpetuals
+
+- Catalog: `https://api.gateio.ws/api/v4/futures/usdt/contracts`, filtered to active non-delisting stock-class contracts.
+- Price: `wss://fx-ws.gateio.ws/v4/ws/usdt`, channel `futures.tickers` with exact contract names. The subscription payload timestamp is generated when each socket opens rather than cached at construction.
+- The socket must acknowledge the subscription; a rejection or 10-second ACK timeout reconnects.
+- Current-price fallback: `/api/v4/futures/usdt/tickers?contract={contract}`. REST quotes retain `marketSource: "gate"` with `source: "gateRest"`.
+- UTC open: `/api/v4/futures/usdt/candlesticks?contract={contract}&interval=1d&from=...&to=...`; accept only a candle whose `t` equals current UTC midnight exactly.
+
 ## Selection and stale behavior
 
 For each product, `selectQuote` applies this order:
 
-1. Coinbase WebSocket if received within 5 seconds.
-2. The newest WebSocket quote from Coinbase/Kraken/Bitstamp/Bitfinex if received within 12 seconds.
-3. A Coinbase REST quote if it is within the same 12-second freshness window.
+1. Its preferred primary WebSocket within 5 seconds: Coinbase for USD spot, or Bybit when that stock-related product has an exact Bybit mapping.
+2. The newest supported WebSocket quote within 12 seconds.
+3. The newest supported Coinbase/Bybit/Gate REST quote within 12 seconds.
 4. Otherwise preserve the newest last quote and mark it stale.
 
-REST must never temporarily outrank a healthy real-time socket. The UI status is `live` only when every selected product is fresh; otherwise it becomes `partial`, `reconnecting`, `connecting`, or `offline` according to product/source state.
+A Gate-only product naturally begins at step 2. REST must never temporarily outrank a healthy real-time socket. The UI status is `live` only when every selected product is fresh; otherwise it becomes `partial`, `reconnecting`, `connecting`, or `offline` according to product/source state.
 
 Source freshness is measured with `receivedAt`. UTC-day membership is measured with exchange event time `exchangeAt`; local time zones and network delay must not choose the day. A Bitfinex trade snapshot deliberately uses its trade MTS as freshness rather than the new connection's receipt time, so an old snapshot cannot masquerade as a current tick.
 
@@ -79,10 +106,12 @@ Source freshness is measured with `receivedAt`. UTC-day membership is measured w
 - Socket handshake timeout: 12 seconds.
 - Coinbase/Kraken transport idle timeout: 10 seconds; BTC/ETH ticker sentinel timeout: 20 seconds.
 - Bitstamp/Bitfinex idle and fixed-product ticker sentinel timeout: 30 seconds.
+- Bybit/Gate idle timeout: 35 seconds; stock-related products become stale and use REST rather than acting as shared-socket sentinels.
+- Subscription ACK timeout for Bybit, Gate, and Bitfinex: 10 seconds.
 - Reconnect: jittered exponential delay starting near 500ms and capped at 30 seconds.
 - Only fixed BTC/ETH act as shared-socket ticker sentinels. A quiet custom product becomes stale or uses REST; it must not force every product's shared socket into a reconnect loop.
-- Coinbase current-price fallback checks every 5 seconds and requests only products with no fresh WebSocket quote.
-- REST batches are capped at three concurrent requests per source; one product failure must not discard successful siblings.
+- Current-price fallback checks every 5 seconds and requests exact supported products only when no fresh WebSocket quote exists. A product with exact Bybit and Gate mappings can query both fallbacks independently.
+- REST batches are capped at three concurrent requests across the requested source/product work; one product failure must not discard successful siblings.
 - UTC-open requests have an 8-second abort deadline and per-product retry delay of roughly 2/4/8/16/32/60 seconds. Missing products re-enter a source-specific pending queue and retry even without another quote.
 - REST UTC-open data is requested only for the source currently selected for each product. Do not prefetch every available source at startup; that creates unnecessary free-API bursts and unused cross-source state.
 - UTC midnight invalidates the previous day's open immediately, including when no new ticker has arrived. Display `—` until a current-day same-source open exists.
@@ -93,11 +122,11 @@ Source freshness is measured with `receivedAt`. UTC-day membership is measured w
 
 Before production use:
 
-1. Confirm with current official documentation that data is public, keyless, and a true USD market.
-2. Verify the exact product/instrument catalog; do not infer pair strings.
+1. Confirm with current official documentation that data is public, keyless, and belongs to an explicitly approved product/quote semantic. Crypto spot remains true USD only.
+2. Verify the exact product/instrument catalog and product class; do not infer pair strings or aliases.
 3. Test from the target Tauri WebView origin, not only curl/Node, for CORS and TLS behavior.
 4. Add only the exact HTTPS/WSS origins to CSP.
 5. Define exchange timestamps, heartbeat/ACK behavior, stale thresholds, and reconnect semantics.
-6. Define a same-source UTC-day open or explicitly show `—`; never borrow another exchange's open.
-7. Add parser, malformed-message, source-selection, timeout/reconnect, UTC rollover, and mapping tests.
-8. Recheck provider licensing before commercial redistribution.
+6. Define a same-source UTC-day open or explicitly show `—`; never borrow another exchange or underlying's open.
+7. Add parser, malformed-message, source-selection, timeout/reconnect, UTC rollover, mapping, and persistence-refresh tests.
+8. Recheck provider licensing and regional eligibility before commercial redistribution.

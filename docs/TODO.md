@@ -4,12 +4,12 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 ## P0 — Blocking
 
-None. There is no known blocking business bug or active product task.
+None. The active stock-related perpetual implementation has no known blocker; its exact checkpoint and remaining verification are recorded in `CURRENT_STATE.md`.
 
 ## P2 — Release quality and cross-platform confidence
 
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
-  - Done when tray visibility/actions, close-to-hide, always-on-top, dynamic height, WebSocket/REST connectivity, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
+  - Done when tray visibility/actions, close-to-hide, always-on-top, dynamic height, Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 
 - [ ] Add signing/notarization before broad end-user distribution.
   - Done when Windows artifacts are signed and macOS artifacts use Developer ID plus notarization, with secrets stored only in protected CI configuration.
@@ -37,6 +37,7 @@ None. There is no known blocking business bug or active product task.
   - Done when the fixture demonstrates empty/zero-volume versus first-trade buckets and locks the intended UTC-open result without permitting cross-source substitution.
 
 - [ ] Expand custom-product backup coverage for Kraken or Bitfinex using an official, exact, browser-safe instrument directory (or a narrowly allowlisted Rust command).
+  - This item applies only to real-USD crypto spot coverage; it is not permission to mix stock-related perpetual semantics into those providers.
   - Done when no pair is guessed, true-USD semantics and licenses are verified, CSP stays narrow, and mapping/failover/UTC tests cover aliases and missing products.
 
 Do not add alerts, autostart, auto-update, or unrelated features merely because they are absent; none is currently requested.

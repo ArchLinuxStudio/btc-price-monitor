@@ -4,7 +4,7 @@ This document contains stable architecture knowledge. Current progress and verif
 
 ## Goal and stack
 
-Crypto Top is a tiny, always-on-top, real-USD cryptocurrency watchlist for Windows, macOS, and Linux. It uses:
+Crypto Top is a tiny, always-on-top watchlist for real-USD cryptocurrency spot markets and explicitly labeled stock-related USDT perpetuals on Windows, macOS, and Linux. It uses:
 
 - Tauri 2 and Rust for the native window, tray, platform behavior, permissions, and bundles.
 - Static HTML/CSS plus strict TypeScript modules from `src/`; `tsc` emits browser-native ES modules and copies static assets to ignored `dist/`. There is no frontend framework, server, or bundler.
@@ -14,14 +14,15 @@ Crypto Top is a tiny, always-on-top, real-USD cryptocurrency watchlist for Windo
 ## Runtime data flow
 
 ```text
-Coinbase products/currencies ── search catalog ─┐
-Bitstamp markets ── exact backup mappings ─────┼─ watchlist model/localStorage
-                                                │
-Coinbase/Kraken/Bitstamp/Bitfinex WebSockets ──┤
-Coinbase REST current-price fallback ──────────┼─ PriceFeed ── selected quote + same-source UTC open
-Exchange-specific UTC-open REST/WS ────────────┘                          │
-                                                                           ▼
-                                                        dist/main.js batched DOM rendering
+Coinbase USD products + Bybit/Gate stock contracts ── search catalog ─┐
+Bitstamp markets ── exact USD-spot backup mappings ───────────────────┼─ watchlist model/localStorage
+                                                                       │
+Coinbase/Kraken/Bitstamp/Bitfinex WebSockets ─────────────────────────┤
+Bybit/Gate perpetual WebSockets ──────────────────────────────────────┤
+Coinbase/Bybit/Gate current-price REST fallback ──────────────────────┼─ PriceFeed
+Exchange-specific same-source UTC-open REST/WS ───────────────────────┘      │
+                                                                              ▼
+                                                           dist/main.js batched DOM rendering
 
 Tauri/Rust ── window/tray/always-on-top/dynamic height/minimal IPC commands
 ```
@@ -35,9 +36,9 @@ Detailed provider semantics and failover rules live in [`MARKET_DATA.md`](MARKET
 | `src/index.html` | Static title bar, quote-row template, temporary watchlist-management panel, accessible labels |
 | `src/styles.css` | Fixed 208px visual budget, row/manager layouts, scrolling, colors, reduced-motion behavior |
 | `src/main.ts` | UI state, DOM construction, approximately 30 FPS render coalescing, watchlist interactions, native command calls |
-| `src/watchlist.ts` | Product model and types, BTC/ETH defaults, eight-product cap, validated localStorage, Coinbase catalog/search, exact backup mappings |
+| `src/watchlist.ts` | Product model and types, BTC/ETH defaults, eight-product cap, validated localStorage, independent Coinbase/Bybit/Gate catalog discovery/search, exact backup mappings |
 | `src/price-feed.ts` | Provider/parser/socket/state types, resilient sockets, source selection, REST fallback, UTC-open lifecycle, stale/status state |
-| `src/price-format.ts` | Compact USD formatting across large and very small prices |
+| `src/price-format.ts` | Compact dollar-denominated numeric formatting across large and very small USD/USDT quotes |
 | `scripts/frontend.ts` | Clean ES-module emit/watch and verbatim static-asset copying from `src/` to ignored `dist/` |
 | `tsconfig*.json` | Shared strict rules plus application, test/tooling, and ES2019 emission boundaries |
 | `src-tauri/src/lib.rs` | Native window behavior, top-right placement, tray/menu, hide-vs-quit semantics, dynamic height commands |
@@ -51,9 +52,12 @@ Detailed provider semantics and failover rules live in [`MARKET_DATA.md`](MARKET
 
 ### Product
 
-The unified key is the Coinbase-style product ID, for example `BTC-USD`.
+The unified key is semantic rather than a guessed exchange symbol:
 
-Relevant fields are `id`, `symbol`, `name`, `fixed`, and optional exact source symbols (`krakenSymbol`, `bitstampSymbol`, `bitfinexSymbol`). A missing source symbol means that provider must not be subscribed for that product. BTC/ETH are fixed; other products are removable.
+- USD spot: Coinbase-style ID such as `BTC-USD`.
+- Stock-related USDT perpetual: canonical ID such as `MU-USDT-PERP`, displayed as `MU.P`.
+
+Relevant fields are `id`, `symbol`, `name`, `fixed`, exact optional provider symbols (`krakenSymbol`, `bitstampSymbol`, `bitfinexSymbol`, `bybitSymbol`, `gateSymbol`), and semantic fields (`quoteCurrency`, `marketType`, `assetClass`). A missing provider symbol means that source must not be subscribed or queried for that product. Bybit's official `underlyingTicker` and Gate's official contract base form canonical stock-related IDs; provider symbols themselves are never reconstructed. BTC/ETH are fixed; other products are removable.
 
 `src/watchlist.ts` owns normalization and persistence. Storage key `crypto-top.watchlist.v1` is versioned, validated, deduplicated, capped, and fails safely to defaults.
 
@@ -67,7 +71,7 @@ Relevant fields are `id`, `symbol`, `name`, `fixed`, and optional exact source s
 - `reconnectAll()` for online/visibility recovery.
 - `getState()` for `{ status, prices, sources, lastUpdateAt }`.
 
-Quotes carry an `asset` product ID, `price`, `source`, `marketSource`, `transport`, `exchangeAt`, and `receivedAt`. `marketSource` keeps Coinbase REST associated with Coinbase for same-source UTC calculations.
+Quotes carry an `asset` product ID, `price`, `source`, `marketSource`, `transport`, `exchangeAt`, and `receivedAt`. `marketSource` associates each REST fallback with its exchange (`coinbase`, `bybit`, or `gate`) for same-source UTC calculations.
 
 Product changes increment a revision, abort obsolete REST work, and prevent removed-product requests from writing back.
 

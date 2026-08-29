@@ -1,9 +1,9 @@
 {
   "name": "crypto-top-monitor",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
-  "description": "A tiny always-on-top USD crypto watchlist for Windows, macOS, and Linux.",
+  "description": "A tiny always-on-top USD crypto and stock-perpetual watchlist for Windows, macOS, and Linux.",
   "scripts": {
     "dev": "npm run frontend:build && tauri dev",
     "build": "tauri build",

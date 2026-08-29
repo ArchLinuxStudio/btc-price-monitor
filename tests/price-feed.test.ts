@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import {
   calculateUtcChange,
   createBitfinexTradesParser,
+  parseBybitMessage,
+  parseBybitRestTicker,
+  parseBybitUtcOpen,
   parseBitstampMessage,
   parseBitstampUtcOpen,
   parseCoinbaseUtcOpen,
@@ -11,6 +14,9 @@ import {
   parseCoinbaseMessage,
   parseKrakenUtcOpens,
   parseKrakenMessage,
+  parseGateMessage,
+  parseGateRestTicker,
+  parseGateUtcOpen,
   parseRestTicker,
   reconnectDelay,
   selectQuote,
@@ -57,6 +63,34 @@ const DOGE_PRODUCT: Product = {
   bitfinexSymbol: null,
   fixed: false,
 };
+const MU_PRODUCT: Product = {
+  id: "MU-USDT-PERP",
+  symbol: "MU.P",
+  name: "Micron Technology · USDT永续",
+  krakenSymbol: null,
+  bitstampSymbol: null,
+  bitfinexSymbol: null,
+  bybitSymbol: "MUUSDT",
+  gateSymbol: "MU_USDT",
+  quoteCurrency: "USDT",
+  marketType: "perpetual",
+  assetClass: "equity",
+  fixed: false,
+};
+const BA_PRODUCT: Product = {
+  id: "BA-USDT-PERP",
+  symbol: "BA.P",
+  name: "BA · Gate USDT永续",
+  krakenSymbol: null,
+  bitstampSymbol: null,
+  bitfinexSymbol: null,
+  bybitSymbol: null,
+  gateSymbol: "BA_USDT",
+  quoteCurrency: "USDT",
+  marketType: "perpetual",
+  assetClass: "equity",
+  fixed: false,
+};
 
 type FakeSocketEvent = { data?: unknown; code?: number };
 interface SentMessage {
@@ -66,6 +100,11 @@ interface SentMessage {
   channel: string;
   symbol: string;
   key: string;
+  op: string;
+  args: string[];
+  event: string;
+  payload: string[];
+  time: number;
 }
 
 class FakeWebSocket {
@@ -185,6 +224,58 @@ test("parses mapped Bitstamp trades with the exchange microsecond timestamp", ()
     channel: "live_trades_dogeusd",
     data: { price: "0.25", timestamp: "1787391000" },
   }), receivedAt, new Map([["solusd", "SOL-USD"]])), []);
+});
+
+test("parses exact Bybit and Gate USDT stock perpetual tickers", () => {
+  const mapping = new Map([["MUUSDT", "MU-USDT-PERP"]]);
+  assert.deepEqual(parseBybitMessage(JSON.stringify({
+    success: true,
+    op: "subscribe",
+  }), 100, mapping), [{ kind: "subscriptionAck", key: "bybit:tickers" }]);
+  assert.deepEqual(parseBybitMessage(JSON.stringify({
+    topic: "tickers.MUUSDT",
+    type: "snapshot",
+    ts: 1_787_961_600_123,
+    data: { symbol: "MUUSDT", lastPrice: "932.10" },
+  }), 1_787_961_600_500, mapping), [{
+    asset: "MU-USDT-PERP",
+    price: 932.1,
+    source: "bybit",
+    marketSource: "bybit",
+    transport: "ws",
+    sourceLabel: "Bybit Perp",
+    exchangeAt: 1_787_961_600_123,
+    receivedAt: 1_787_961_600_500,
+  }]);
+  assert.deepEqual(parseBybitMessage(JSON.stringify({
+    topic: "tickers.AAPLUSDT",
+    ts: 1_787_961_600_123,
+    data: { symbol: "AAPLUSDT", lastPrice: "250" },
+  }), 1_787_961_600_500, mapping), []);
+
+  const gateMapping = new Map([["MU_USDT", "MU-USDT-PERP"]]);
+  assert.deepEqual(parseGateMessage(JSON.stringify({
+    channel: "futures.tickers",
+    event: "subscribe",
+    error: null,
+    result: { status: "success" },
+  }), 100, gateMapping), [{ kind: "subscriptionAck", key: "gate:tickers" }]);
+  assert.deepEqual(parseGateMessage(JSON.stringify({
+    time: 1_787_961_600,
+    time_ms: 1_787_961_600_456,
+    channel: "futures.tickers",
+    event: "update",
+    result: [{ contract: "MU_USDT", last: "931.77" }],
+  }), 1_787_961_600_500, gateMapping), [{
+    asset: "MU-USDT-PERP",
+    price: 931.77,
+    source: "gate",
+    marketSource: "gate",
+    transport: "ws",
+    sourceLabel: "Gate Perp",
+    exchangeAt: 1_787_961_600_456,
+    receivedAt: 1_787_961_600_500,
+  }]);
 });
 
 test("Bitfinex parser binds channel ids and handles trade snapshots, updates, and heartbeats", () => {
@@ -321,6 +412,46 @@ test("parses the HTTPS fallback ticker without inventing a daily change", () => 
   assert.equal(Object.prototype.hasOwnProperty.call(quote, "change24h"), false);
 });
 
+test("parses Bybit and Gate REST fallbacks as their own perpetual market sources", () => {
+  assert.deepEqual(parseBybitRestTicker("MU-USDT-PERP", {
+    retCode: 0,
+    result: { list: [{ symbol: "MUUSDT", lastPrice: "932.00" }] },
+    time: 1_787_961_600_123,
+  }, 1_787_961_600_500), {
+    asset: "MU-USDT-PERP",
+    price: 932,
+    source: "bybitRest",
+    marketSource: "bybit",
+    transport: "rest",
+    sourceLabel: "Bybit REST",
+    exchangeAt: 1_787_961_600_123,
+    receivedAt: 1_787_961_600_500,
+  });
+  assert.deepEqual(parseGateRestTicker("MU-USDT-PERP", [{
+    contract: "MU_USDT",
+    last: "931.77",
+  }], 1_787_961_600_500), {
+    asset: "MU-USDT-PERP",
+    price: 931.77,
+    source: "gateRest",
+    marketSource: "gate",
+    transport: "rest",
+    sourceLabel: "Gate REST",
+    exchangeAt: 1_787_961_600_500,
+    receivedAt: 1_787_961_600_500,
+  });
+  assert.equal(parseBybitRestTicker("MU-USDT-PERP", { retCode: 10001 }, 1), null);
+  assert.equal(parseGateRestTicker("MU-USDT-PERP", [], 1), null);
+  assert.equal(parseBybitRestTicker("MU-USDT-PERP", {
+    retCode: 0,
+    result: { list: [{ symbol: "BTCUSDT", lastPrice: "932" }] },
+  }, 1, "MUUSDT"), null);
+  assert.equal(parseGateRestTicker("MU-USDT-PERP", [{
+    contract: "BTC_USDT",
+    last: "932",
+  }], 1, "MU_USDT"), null);
+});
+
 test("calculates day boundaries and changes against UTC midnight", () => {
   const timestamp = Date.parse("2026-08-11T23:59:59.999Z");
   assert.equal(utcDayStart(timestamp), Date.parse("2026-08-11T00:00:00.000Z"));
@@ -340,6 +471,23 @@ test("finds the first Coinbase trade candle after 00:00 UTC", () => {
   ];
   assert.equal(parseCoinbaseUtcOpen(payload, dayStart), 100.25);
   assert.equal(parseCoinbaseUtcOpen({ candles: payload }, dayStart), null);
+});
+
+test("uses the exact UTC daily candle from each stock perpetual exchange", () => {
+  const dayStart = Date.parse("2026-08-29T00:00:00.000Z");
+  assert.equal(parseBybitUtcOpen({
+    retCode: 0,
+    result: { list: [
+      [String(dayStart - 86_400_000), "920.00", "930", "910", "925"],
+      [String(dayStart), "931.10", "940", "930", "932"],
+    ] },
+  }, dayStart), 931.1);
+  assert.equal(parseGateUtcOpen([
+    { t: dayStart / 1_000 - 86_400, o: "920.20" },
+    { t: dayStart / 1_000, o: "931.23" },
+  ], dayStart), 931.23);
+  assert.equal(parseBybitUtcOpen({ retCode: 0, result: { list: [] } }, dayStart), null);
+  assert.equal(parseGateUtcOpen([], dayStart), null);
 });
 
 test("finds the first valid Bitstamp hourly candle in the UTC day", () => {
@@ -471,6 +619,58 @@ test("HTTPS fallback keeps polling while WebSocket quotes are unavailable", asyn
   assert.equal(tickerRequestCount, 4);
   assert.equal(getPrice(feed, "BTC-USD").source, "coinbaseRest");
   feed.started = false;
+});
+
+test("stock perpetual REST fallback keeps price and UTC open on the selected exchange", async () => {
+  const now = Date.parse("2026-08-29T12:00:00.000Z");
+  const dayStart = utcDayStart(now);
+  const urls: string[] = [];
+  const feed = new PriceFeed({
+    WebSocketImpl: UnusedWebSocket,
+    now: () => now,
+    products: [MU_PRODUCT],
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.includes("api.bybit.com") && url.includes("/tickers")) {
+        return {
+          ok: true,
+          json: async () => ({
+            retCode: 0,
+            result: { list: [{ symbol: "MUUSDT", lastPrice: "930" }] },
+            time: now,
+          }),
+        };
+      }
+      if (url.includes("api.gateio.ws") && url.includes("/tickers")) {
+        return {
+          ok: true,
+          json: async () => [{ contract: "MU_USDT", last: "929.50" }],
+        };
+      }
+      if (url.includes("api.bybit.com") && url.includes("/kline")) {
+        return {
+          ok: true,
+          json: async () => ({
+            retCode: 0,
+            result: { list: [[String(dayStart), "900", "940", "890", "930"]] },
+          }),
+        };
+      }
+      throw new Error(`unexpected URL ${url}`);
+    },
+  });
+  feed.started = true;
+
+  await feed.pollRestFallback();
+  await feed.utcOpenRequests.bybit;
+
+  const quote = getPrice(feed, MU_PRODUCT.id);
+  assert.equal(quote.source, "bybitRest");
+  assert.equal(quote.price, 930);
+  assert.equal(quote.changeUtc, calculateUtcChange(930, 900));
+  assert.equal(urls.some((url) => url.includes("gateio.ws") && url.includes("candlesticks")), false);
+  assert.equal(urls.some((url) => url.includes("bybit.com") && url.includes("interval=D")), true);
+  feed.stop();
 });
 
 test("binds the runtime fetch method before using it in a WebView", async () => {
@@ -900,6 +1100,106 @@ test("builds dynamic subscriptions and safely rebuilds them in setProducts", () 
       .map((message) => message.symbol),
     ["tBTCUSD", "tETHUSD"],
   );
+  feed.stop();
+});
+
+test("stock perpetual products subscribe only to exact Bybit and Gate symbols", () => {
+  FakeWebSocket.instances = [];
+  const now = Date.parse("2026-08-29T02:00:00.000Z");
+  const feed = new PriceFeed({
+    WebSocketImpl: FakeWebSocket,
+    fetchImpl: null,
+    now: () => now,
+    products: [MU_PRODUCT],
+  });
+  feed.start();
+
+  assert.equal(FakeWebSocket.instances.length, 2);
+  assert.equal(FakeWebSocket.instances.some((socket) => socket.url.includes("coinbase")), false);
+  const bybit = FakeWebSocket.instances.find((socket) => socket.url.includes("bybit"))!;
+  const gate = FakeWebSocket.instances.find((socket) => socket.url.includes("gateio"))!;
+  bybit.open();
+  gate.open();
+  assert.deepEqual(bybit.sent[0].args, ["tickers.MUUSDT"]);
+  assert.equal(gate.sent[0].channel, "futures.tickers");
+  assert.deepEqual(gate.sent[0].payload, ["MU_USDT"]);
+
+  bybit.emit("message", { data: JSON.stringify({ success: true, op: "subscribe" }) });
+  gate.emit("message", { data: JSON.stringify({
+    channel: "futures.tickers",
+    event: "subscribe",
+    error: null,
+    result: { status: "success" },
+  }) });
+  gate.emit("message", { data: JSON.stringify({
+    time_ms: now,
+    channel: "futures.tickers",
+    event: "update",
+    result: [{ contract: "MU_USDT", last: "931.70" }],
+  }) });
+  bybit.emit("message", { data: JSON.stringify({
+    topic: "tickers.MUUSDT",
+    ts: now - 1_000,
+    data: { symbol: "MUUSDT", lastPrice: "932.10" },
+  }) });
+  assert.equal(getPrice(feed, MU_PRODUCT.id).price, 932.1);
+  assert.equal(getPrice(feed, MU_PRODUCT.id).source, "bybit");
+  feed.stop();
+});
+
+test("canonical product ids prevent cross-market source routing", () => {
+  const feed = new PriceFeed({
+    WebSocketImpl: UnusedWebSocket,
+    fetchImpl: null,
+    products: [{
+      ...MU_PRODUCT,
+      symbol: "BTC",
+      marketType: "spot",
+      quoteCurrency: "USD",
+      assetClass: "crypto",
+      krakenSymbol: "MU/USD",
+      gateSymbol: "BTC_USDT",
+    }],
+  });
+  assert.equal(feed.products[0].symbol, "MU.P");
+  assert.equal(feed.products[0].marketType, "perpetual");
+  assert.equal(feed.products[0].quoteCurrency, "USDT");
+  assert.equal(feed.products[0].assetClass, "equity");
+  assert.equal(feed.products[0].krakenSymbol, null);
+  assert.equal(feed.products[0].gateSymbol, null);
+  assert.equal(feed.products[0].bybitSymbol, "MUUSDT");
+});
+
+test("a Gate-only catalog product streams without a guessed Bybit symbol", () => {
+  FakeWebSocket.instances = [];
+  const now = Date.parse("2026-08-30T02:00:00.000Z");
+  const feed = new PriceFeed({
+    WebSocketImpl: FakeWebSocket,
+    fetchImpl: null,
+    now: () => now,
+    products: [BA_PRODUCT],
+  });
+  feed.start();
+
+  assert.equal(FakeWebSocket.instances.length, 1);
+  const gate = FakeWebSocket.instances[0];
+  assert.match(gate.url, /gateio/);
+  gate.open();
+  assert.deepEqual(gate.sent[0].payload, ["BA_USDT"]);
+  gate.emit("message", { data: JSON.stringify({
+    channel: "futures.tickers",
+    event: "subscribe",
+    error: null,
+    result: { status: "success" },
+  }) });
+  gate.emit("message", { data: JSON.stringify({
+    time_ms: now,
+    channel: "futures.tickers",
+    event: "update",
+    result: [{ contract: "BA_USDT", last: "223.45" }],
+  }) });
+  assert.equal(getPrice(feed, BA_PRODUCT.id).price, 223.45);
+  assert.equal(getPrice(feed, BA_PRODUCT.id).source, "gate");
   feed.stop();
 });
 

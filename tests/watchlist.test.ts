@@ -5,13 +5,20 @@ import {
   DEFAULT_PRODUCTS,
   MAX_PRODUCTS,
   applyBackupSourceMappings,
+  applyGateStockMappings,
   fetchBackupSourceMappings,
   fetchProductCatalog,
+  fetchProductCatalogSnapshot,
   inferProduct,
   loadWatchlist,
+  mergeStockCatalogs,
   parseBitfinexPairs,
   parseBitstampMarkets,
+  parseBybitStockCatalog,
+  parseGateStockCatalog,
+  parseGateStockMappings,
   parseProductCatalog,
+  refreshProductsFromCatalog,
   saveWatchlist,
   searchProducts,
 } from "../src/watchlist.ts";
@@ -256,31 +263,205 @@ test("catalog parsing tolerates malformed payloads and missing currency names", 
   }]);
 });
 
-test("fetchProductCatalog calls only the two public Coinbase Exchange endpoints", async () => {
+test("US-stock perpetual directories require exact official metadata and mappings", () => {
+  const bybit = parseBybitStockCatalog({
+    retCode: 0,
+    result: { list: [
+      {
+        symbol: "MUUSDT",
+        symbolType: "stock",
+        marketRegion: "US",
+        contractType: "LinearPerpetual",
+        status: "Trading",
+        quoteCoin: "USDT",
+        settleCoin: "USDT",
+        underlyingTicker: "MU",
+        fullName: "Micron Technology",
+      },
+      {
+        symbol: "AMDSTOCKUSDT",
+        symbolType: "stock",
+        marketRegion: "US",
+        contractType: "LinearPerpetual",
+        status: "Trading",
+        quoteCoin: "USDT",
+        settleCoin: "USDT",
+        underlyingTicker: "AMD",
+        fullName: "Advanced Micro Devices",
+      },
+      {
+        symbol: "AAPLUSDT",
+        symbolType: "stock",
+        marketRegion: "EU",
+        contractType: "LinearPerpetual",
+        status: "Trading",
+        quoteCoin: "USDT",
+        settleCoin: "USDT",
+        underlyingTicker: "AAPL",
+        fullName: "Wrong region",
+      },
+      {
+        symbol: "NVDAUSDT",
+        symbolType: "stock",
+        marketRegion: "US",
+        contractType: "LinearPerpetual",
+        status: "Settled",
+        quoteCoin: "USDT",
+        settleCoin: "USDT",
+        underlyingTicker: "NVDA",
+        fullName: "Inactive",
+      },
+    ] },
+  });
+  assert.deepEqual(bybit.map((entry) => [entry.id, entry.bybitSymbol]), [
+    ["AMD-USDT-PERP", "AMDSTOCKUSDT"],
+    ["MU-USDT-PERP", "MUUSDT"],
+  ]);
+
+  const gate = parseGateStockMappings([
+    { name: "MU_USDT", contract_type: "stocks", status: "trading", in_delisting: false },
+    { name: "AMD_USDT", contract_type: "stocks", status: "trading", in_delisting: false },
+    { name: "AAPLX_USDT", contract_type: "stocks", status: "trading", in_delisting: false },
+    { name: "BTC_USDT", contract_type: "crypto", status: "trading", in_delisting: false },
+    { name: "OLD_USDT", contract_type: "stocks", status: "trading", in_delisting: true },
+  ]);
+  assert.deepEqual([...gate!], [
+    ["AAPLX", "AAPLX_USDT"],
+    ["AMD", "AMD_USDT"],
+    ["MU", "MU_USDT"],
+  ]);
+  const merged = applyGateStockMappings(bybit, gate);
+  assert.deepEqual(merged.map((entry) => [entry.id, entry.gateSymbol]), [
+    ["AMD-USDT-PERP", "AMD_USDT"],
+    ["MU-USDT-PERP", "MU_USDT"],
+  ]);
+
+  const gateCatalog = parseGateStockCatalog([
+    { name: "MU_USDT", contract_type: "stocks", status: "trading", in_delisting: false },
+    { name: "BA_USDT", contract_type: "stocks", status: "trading", in_delisting: false },
+  ]);
+  assert.deepEqual(gateCatalog.map((entry) => [entry.id, entry.gateSymbol]), [
+    ["BA-USDT-PERP", "BA_USDT"],
+    ["MU-USDT-PERP", "MU_USDT"],
+  ]);
+  assert.deepEqual(mergeStockCatalogs(bybit, gateCatalog).map((entry) => [
+    entry.id,
+    entry.bybitSymbol,
+    entry.gateSymbol,
+  ]), [
+    ["AMD-USDT-PERP", "AMDSTOCKUSDT", null],
+    ["BA-USDT-PERP", null, "BA_USDT"],
+    ["MU-USDT-PERP", "MUUSDT", "MU_USDT"],
+  ]);
+});
+
+test("stock perpetual watchlist entries persist exact exchange symbols", () => {
+  const storage = memoryStorage();
+  const saved = saveWatchlist(DEFAULT_PRODUCTS.concat([{
+    id: "MU-USDT-PERP",
+    symbol: "MU.P",
+    name: "Micron Technology · USDT永续",
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    bybitSymbol: "MUUSDT",
+    gateSymbol: "MU_USDT",
+    quoteCurrency: "USDT",
+    marketType: "perpetual",
+    assetClass: "equity",
+    fixed: false,
+  }]), storage);
+  assert.deepEqual(loadWatchlist(storage), saved);
+  assert.equal(saved[2].bybitSymbol, "MUUSDT");
+  assert.equal(saved[2].gateSymbol, "MU_USDT");
+  assert.equal(saved[2].name, "Micron Technology · USDT永续");
+
+  const rejected = saveWatchlist(DEFAULT_PRODUCTS.concat([{
+    id: "MU-USDT-PERP",
+    symbol: "MU.P",
+    name: "Missing exact source",
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    fixed: false,
+  }]), memoryStorage());
+  assert.equal(rejected.length, 2);
+});
+
+test("fetchProductCatalog merges keyless Coinbase and US-stock perpetual directories", async () => {
   const calls: Array<{ url: string; options: RequestInit }> = [];
   const fetchImpl = async (url: string, options: RequestInit) => {
     calls.push({ url, options });
     return {
       ok: true,
       status: 200,
-      json: async () => url.endsWith("/products")
-        ? [product("SOL-USD")]
-        : [{ id: "SOL", name: "Solana" }],
+      json: async () => {
+        if (url.endsWith("/products")) return [product("SOL-USD")];
+        if (url.endsWith("/currencies")) return [{ id: "SOL", name: "Solana" }];
+        if (url.includes("api.bybit.com")) return {
+          retCode: 0,
+          result: { list: [{
+            symbol: "MUUSDT",
+            symbolType: "stock",
+            marketRegion: "US",
+            contractType: "LinearPerpetual",
+            status: "Trading",
+            quoteCoin: "USDT",
+            settleCoin: "USDT",
+            underlyingTicker: "MU",
+            fullName: "Micron Technology",
+          }] },
+        };
+        return [{
+          name: "MU_USDT",
+          contract_type: "stocks",
+          status: "trading",
+          in_delisting: false,
+        }, {
+          name: "BA_USDT",
+          contract_type: "stocks",
+          status: "trading",
+          in_delisting: false,
+        }];
+      },
     };
   };
 
-  assert.deepEqual(await fetchProductCatalog(fetchImpl), [{
-    id: "SOL-USD",
-    symbol: "SOL",
-    name: "Solana",
+  const catalog = await fetchProductCatalog(fetchImpl);
+  assert.deepEqual(catalog.map((entry) => entry.id), ["BA-USDT-PERP", "MU-USDT-PERP", "SOL-USD"]);
+  assert.deepEqual(catalog.find((entry) => entry.id === "MU-USDT-PERP"), {
+    id: "MU-USDT-PERP",
+    symbol: "MU.P",
+    name: "Micron Technology · USDT永续",
     krakenSymbol: null,
     bitstampSymbol: null,
     bitfinexSymbol: null,
+    bybitSymbol: "MUUSDT",
+    gateSymbol: "MU_USDT",
+    quoteCurrency: "USDT",
+    marketType: "perpetual",
+    assetClass: "equity",
     fixed: false,
-  }]);
+  });
+  assert.deepEqual(catalog.find((entry) => entry.id === "BA-USDT-PERP"), {
+    id: "BA-USDT-PERP",
+    symbol: "BA.P",
+    name: "BA · Gate USDT永续",
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    bybitSymbol: null,
+    gateSymbol: "BA_USDT",
+    quoteCurrency: "USDT",
+    marketType: "perpetual",
+    assetClass: "equity",
+    fixed: false,
+  });
   assert.deepEqual(calls.map((call) => call.url), [
     "https://api.exchange.coinbase.com/products",
     "https://api.exchange.coinbase.com/currencies",
+    "https://api.bybit.com/v5/market/instruments-info?category=linear&symbolType=stock&status=Trading&limit=1000",
+    "https://api.gateio.ws/api/v4/futures/usdt/contracts",
   ]);
   for (const call of calls) {
     assert.deepEqual(call.options, { cache: "no-store", headers: { Accept: "application/json" } });
@@ -288,25 +469,56 @@ test("fetchProductCatalog calls only the two public Coinbase Exchange endpoints"
   }
 });
 
-test("fetchProductCatalog reports invalid fetch implementations and HTTP failures", async () => {
+test("product catalogs fail independently and only reject when every directory is empty", async () => {
   await assert.rejects(() => fetchProductCatalog(null), /fetchImpl/);
-  await assert.rejects(() => fetchProductCatalog(async (url: string) => ({
-    ok: !url.endsWith("/products"),
+  await assert.rejects(() => fetchProductCatalog(async () => ({
+    ok: false,
     status: 503,
     json: async () => [],
-  })), /Coinbase products request failed 503/);
+  })), /catalogs are unavailable or empty/);
 
-  await assert.rejects(() => fetchProductCatalog(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => ({}),
-  })), /catalog response is invalid/);
+  const snapshot = await fetchProductCatalogSnapshot(async (url: string) => ({
+    ok: !url.includes("coinbase.com") && !url.includes("api.bybit.com"),
+    status: 503,
+    json: async () => url.includes("api.gateio.ws") ? [{
+      name: "BA_USDT",
+      contract_type: "stocks",
+      status: "trading",
+      in_delisting: false,
+    }] : [],
+  }));
+  assert.deepEqual(snapshot.availability, { coinbase: false, bybit: false, gate: true });
+  assert.deepEqual(snapshot.products.map((entry) => entry.id), ["BA-USDT-PERP"]);
+});
 
-  await assert.rejects(() => fetchProductCatalog(async () => ({
-    ok: true,
-    status: 200,
-    json: async () => [],
-  })), /catalog is empty/);
+test("a transient stock-directory failure preserves the last exact persisted mapping", () => {
+  const selected = DEFAULT_PRODUCTS.concat([{
+    id: "MU-USDT-PERP",
+    symbol: "MU.P",
+    name: "Micron Technology · USDT永续",
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    bybitSymbol: "MUUSDT",
+    gateSymbol: "MU_USDT",
+    quoteCurrency: "USDT" as const,
+    marketType: "perpetual" as const,
+    assetClass: "equity" as const,
+    fixed: false,
+  }]);
+  const bybitOnly = [{ ...selected[2], gateSymbol: null }];
+  const refreshed = refreshProductsFromCatalog(selected, {
+    products: bybitOnly,
+    availability: { coinbase: true, bybit: true, gate: false },
+  });
+  assert.equal(refreshed[2].bybitSymbol, "MUUSDT");
+  assert.equal(refreshed[2].gateSymbol, "MU_USDT");
+
+  const authoritative = refreshProductsFromCatalog(selected, {
+    products: bybitOnly,
+    availability: { coinbase: true, bybit: true, gate: true },
+  });
+  assert.equal(authoritative[2].gateSymbol, null);
 });
 
 test("Bitstamp directory accepts only enabled spot markets quoted in real USD", () => {
@@ -497,13 +709,28 @@ test("search ranks exact symbols, prefixes, and currency names case-insensitivel
     { id: "BCH", name: "Bitcoin Cash" },
     { id: "SOL", name: "Solana" },
     { id: "WELL", name: "Moonwell" },
-  ]);
+  ]).concat([{
+    id: "MU-USDT-PERP",
+    symbol: "MU.P",
+    name: "Micron Technology · USDT永续",
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    bybitSymbol: "MUUSDT",
+    gateSymbol: "MU_USDT",
+    quoteCurrency: "USDT",
+    marketType: "perpetual",
+    assetClass: "equity",
+    fixed: false,
+  }]);
 
   assert.deepEqual(searchProducts(catalog, "btc", 5).map((entry) => entry.id), ["BTC-USD"]);
   assert.deepEqual(searchProducts(catalog, "bit", 5).map((entry) => entry.id), ["BCH-USD", "BTC-USD"]);
   assert.deepEqual(searchProducts(catalog, "well", 5).map((entry) => entry.id), ["WELL-USD"]);
   assert.deepEqual(searchProducts(catalog, "  SOL-usd ", 5).map((entry) => entry.id), ["SOL-USD"]);
   assert.deepEqual(searchProducts(catalog, "usd", 2).map((entry) => entry.id), ["BCH-USD", "BTC-USD"]);
+  assert.deepEqual(searchProducts(catalog, "mu", 5).map((entry) => entry.id), ["MU-USDT-PERP"]);
+  assert.deepEqual(searchProducts(catalog, "micron", 5).map((entry) => entry.id), ["MU-USDT-PERP"]);
   assert.deepEqual(searchProducts(catalog, "missing", 5), []);
 });
 

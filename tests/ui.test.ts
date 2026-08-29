@@ -45,10 +45,12 @@ test("uses a compact watchlist manager instead of permanent row controls", () =>
   assert.match(html, /id="watchlist-button"/);
   assert.match(html, /id="watchlist-manager"/);
   assert.match(html, /id="coin-search"[\s\S]*?type="search"/);
+  assert.match(html, /placeholder="搜索币种 \/ 美股"/);
   assert.match(html, /id="quote-row-template"/);
   assert.doesNotMatch(html, /id="minimize-button"/);
   assert.doesNotMatch(typescript, /\.innerHTML\s*=/);
   assert.match(typescript, /feed\.setProducts\(selectedProducts\)/);
+  assert.match(typescript, /USD\/USDT/);
   assert.match(css, /grid-template-columns:\s*40px minmax\(0, 1fr\) 40px/);
   assert.equal(windowConfig.width, 208);
   assert.equal(windowConfig.minWidth, 208);
@@ -66,10 +68,14 @@ test("keeps market-data CSP origins explicit and aligned with browser-safe trans
     "https://api.exchange.coinbase.com",
     "https://api.kraken.com",
     "https://www.bitstamp.net",
+    "https://api.bybit.com",
+    "https://api.gateio.ws",
     "wss://advanced-trade-ws.coinbase.com",
     "wss://ws.kraken.com",
     "wss://ws.bitstamp.net",
     "wss://api-pub.bitfinex.com",
+    "wss://stream.bybit.com",
+    "wss://fx-ws.gateio.ws",
   ]) {
     assert.equal(connectSources.includes(origin), true, `missing CSP origin ${origin}`);
   }

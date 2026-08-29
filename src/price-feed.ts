@@ -1,7 +1,8 @@
 import { DEFAULT_PRODUCTS, type Product } from "./watchlist.js";
 
-export type MarketSource = "coinbase" | "kraken" | "bitstamp" | "bitfinex";
-export type QuoteSource = MarketSource | "coinbaseRest";
+export type MarketSource = "coinbase" | "kraken" | "bitstamp" | "bitfinex" | "bybit" | "gate";
+export type RestQuoteSource = "coinbaseRest" | "bybitRest" | "gateRest";
+export type QuoteSource = MarketSource | RestQuoteSource;
 export type QuoteTransport = "ws" | "rest";
 export type SourceConnectionStatus = "idle" | "connecting" | "reconnecting" | "open";
 export type FeedStatus = "live" | "partial" | "reconnecting" | "connecting" | "offline";
@@ -87,7 +88,7 @@ interface SourceConfig {
   id: MarketSource;
   label: string;
   url: string;
-  subscriptions: unknown[];
+  subscriptions: Array<unknown | (() => unknown)>;
   parser: (raw: unknown, receivedAt: number) => ParsedSocketEvent[];
   idleTimeoutMs: number;
   quoteTimeoutMs: number;
@@ -137,6 +138,25 @@ interface BitstampMessage {
   data?: Record<string, unknown>;
 }
 
+interface BybitMessage {
+  topic?: unknown;
+  type?: unknown;
+  ts?: unknown;
+  data?: unknown;
+  op?: unknown;
+  success?: unknown;
+  ret_msg?: unknown;
+}
+
+interface GateMessage {
+  time?: unknown;
+  time_ms?: unknown;
+  channel?: unknown;
+  event?: unknown;
+  error?: unknown;
+  result?: unknown;
+}
+
 const STALE_AFTER_MS = 12_000;
 const PRIMARY_PREFERENCE_MS = 5_000;
 const REST_FALLBACK_INTERVAL_MS = 5_000;
@@ -145,8 +165,18 @@ const UTC_OPEN_GRANULARITY_SECONDS = 3_600;
 const COINBASE_API_ROOT = "https://api.exchange.coinbase.com/products";
 const KRAKEN_TICKER_ROOT = "https://api.kraken.com/0/public/Ticker";
 const BITSTAMP_API_ROOT = "https://www.bitstamp.net/api/v2";
-const SOURCE_IDS: MarketSource[] = ["coinbase", "kraken", "bitstamp", "bitfinex"];
-const QUOTE_SOURCE_IDS: QuoteSource[] = (SOURCE_IDS as QuoteSource[]).concat(["coinbaseRest"]);
+const BYBIT_API_ROOT = "https://api.bybit.com/v5/market";
+const GATE_API_ROOT = "https://api.gateio.ws/api/v4/futures/usdt";
+const SOURCE_IDS: MarketSource[] = [
+  "coinbase",
+  "kraken",
+  "bitstamp",
+  "bitfinex",
+  "bybit",
+  "gate",
+];
+const REST_QUOTE_SOURCE_IDS: RestQuoteSource[] = ["coinbaseRest", "bybitRest", "gateRest"];
+const QUOTE_SOURCE_IDS: QuoteSource[] = (SOURCE_IDS as QuoteSource[]).concat(REST_QUOTE_SOURCE_IDS);
 const REST_CONCURRENCY = 3;
 const SOURCE_PRIORITY = new Map(QUOTE_SOURCE_IDS.map((source, index) => [source, index]));
 
@@ -237,21 +267,43 @@ function normalizeProduct(raw: Record<string, unknown> | null | undefined): Prod
   if (!raw || typeof raw !== "object") return null;
   const rawId = raw.id || raw.coinbaseProductId || raw.productId;
   const id = typeof rawId === "string" ? rawId.trim().toUpperCase() : "";
-  if (!id || !id.endsWith("-USD")) return null;
+  if (!id) return null;
 
-  const rawSymbol = typeof raw.symbol === "string"
+  const perpetualMatch = /^([A-Z0-9][A-Z0-9.]{0,39})-USDT-PERP$/.exec(id);
+  const isSpotId = /^[A-Z0-9][A-Z0-9._-]{0,63}-USD$/.test(id);
+  if (!isSpotId && !perpetualMatch) return null;
+
+  const parsedBybitSymbol = typeof raw.bybitSymbol === "string" && /^[A-Z0-9]+USDT$/.test(raw.bybitSymbol.trim().toUpperCase())
+    ? raw.bybitSymbol.trim().toUpperCase()
+    : null;
+  const parsedGateSymbol = typeof raw.gateSymbol === "string" && /^[A-Z0-9]+_USDT$/.test(raw.gateSymbol.trim().toUpperCase())
+    ? raw.gateSymbol.trim().toUpperCase()
+    : null;
+  const isPerpetual = Boolean(perpetualMatch);
+  const bybitSymbol = isPerpetual ? parsedBybitSymbol : null;
+  const gateSymbol = isPerpetual
+    && parsedGateSymbol === `${perpetualMatch![1]}_USDT`
+    ? parsedGateSymbol
+    : null;
+  if (isPerpetual && !bybitSymbol && !gateSymbol) {
+    return null;
+  }
+
+  const rawSymbol = isPerpetual
+    ? `${perpetualMatch![1]}.P`
+    : typeof raw.symbol === "string"
     ? raw.symbol.trim().toUpperCase()
-    : id.slice(0, -4);
+    : id.split("-")[0];
   if (!rawSymbol) return null;
 
   const rawKrakenSymbol = raw.krakenSymbol || raw.krakenWsSymbol || raw.krakenPair;
-  const krakenSymbol = typeof rawKrakenSymbol === "string" && rawKrakenSymbol.trim()
+  const krakenSymbol = !isPerpetual && typeof rawKrakenSymbol === "string" && rawKrakenSymbol.trim()
     ? rawKrakenSymbol.trim().toUpperCase()
     : null;
-  const bitstampSymbol = typeof raw.bitstampSymbol === "string" && raw.bitstampSymbol.trim()
+  const bitstampSymbol = !isPerpetual && typeof raw.bitstampSymbol === "string" && raw.bitstampSymbol.trim()
     ? raw.bitstampSymbol.trim().toLowerCase()
     : null;
-  const bitfinexSymbol = typeof raw.bitfinexSymbol === "string" && raw.bitfinexSymbol.trim()
+  const bitfinexSymbol = !isPerpetual && typeof raw.bitfinexSymbol === "string" && raw.bitfinexSymbol.trim()
     ? raw.bitfinexSymbol.trim()
     : null;
 
@@ -263,6 +315,11 @@ function normalizeProduct(raw: Record<string, unknown> | null | undefined): Prod
     krakenSymbol,
     bitstampSymbol,
     bitfinexSymbol,
+    bybitSymbol,
+    gateSymbol,
+    quoteCurrency: isPerpetual ? "USDT" : "USD",
+    marketType: isPerpetual ? "perpetual" : "spot",
+    assetClass: isPerpetual ? "equity" : "crypto",
     fixed: raw.fixed === true,
   };
 }
@@ -282,18 +339,22 @@ function normalizeProducts(products: unknown): Product[] {
 }
 
 function sourceSupportsProduct(source: MarketSource, product: Product): boolean {
-  if (source === "coinbase") return true;
+  if (source === "coinbase") return product.marketType !== "perpetual" && product.id.endsWith("-USD");
   if (source === "kraken") return Boolean(product.krakenSymbol);
   if (source === "bitstamp") return Boolean(product.bitstampSymbol);
   if (source === "bitfinex") return Boolean(product.bitfinexSymbol);
+  if (source === "bybit") return Boolean(product.bybitSymbol);
+  if (source === "gate") return Boolean(product.gateSymbol);
   return false;
 }
 
 function sourceSymbol(source: MarketSource, product: Product): string | null {
-  if (source === "coinbase") return product.id;
+  if (source === "coinbase") return sourceSupportsProduct(source, product) ? product.id : null;
   if (source === "kraken") return product.krakenSymbol;
   if (source === "bitstamp") return product.bitstampSymbol;
   if (source === "bitfinex") return product.bitfinexSymbol;
+  if (source === "bybit") return product.bybitSymbol || null;
+  if (source === "gate") return product.gateSymbol || null;
   return null;
 }
 
@@ -411,6 +472,92 @@ export function parseBitstampMessage(
     exchangeAt: bitstampExchangeAt(message.data, receivedAt),
     receivedAt,
   }];
+}
+
+export function parseBybitMessage(
+  raw: unknown,
+  receivedAt = Date.now(),
+  symbolMapping: SymbolMapping = null,
+): ParsedSocketEvent[] {
+  const message = parseJson<BybitMessage>(raw);
+  if (!message) return [];
+
+  if (message.op === "subscribe") {
+    return message.success === true
+      ? [{ kind: "subscriptionAck", key: "bybit:tickers" }]
+      : [{
+        kind: "subscriptionError",
+        code: null,
+        message: typeof message.ret_msg === "string" ? message.ret_msg : "Bybit subscription error",
+      }];
+  }
+  if (typeof message.topic !== "string" || !message.topic.startsWith("tickers.")) return [];
+
+  const entries = Array.isArray(message.data) ? message.data : [message.data];
+  const exchangeAt = finiteNumber(message.ts);
+  const quotes: Quote[] = [];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== "object") continue;
+    const ticker = entry as Record<string, unknown>;
+    const asset = mappedAsset(symbolMapping, ticker.symbol, new Map());
+    const price = positivePrice(ticker.lastPrice);
+    if (!asset || price === null) continue;
+    quotes.push({
+      asset,
+      price,
+      source: "bybit",
+      marketSource: "bybit",
+      transport: "ws",
+      sourceLabel: "Bybit Perp",
+      exchangeAt: exchangeAt !== null && exchangeAt > 0 ? exchangeAt : receivedAt,
+      receivedAt,
+    });
+  }
+  return quotes;
+}
+
+export function parseGateMessage(
+  raw: unknown,
+  receivedAt = Date.now(),
+  symbolMapping: SymbolMapping = null,
+): ParsedSocketEvent[] {
+  const message = parseJson<GateMessage>(raw);
+  if (!message || message.channel !== "futures.tickers") return [];
+
+  if (message.event === "subscribe") {
+    const result = message.result as Record<string, unknown> | null;
+    return !message.error && result && result.status === "success"
+      ? [{ kind: "subscriptionAck", key: "gate:tickers" }]
+      : [{ kind: "subscriptionError", code: null, message: "Gate subscription error" }];
+  }
+  if (message.event !== "update" || !Array.isArray(message.result)) return [];
+
+  const timeMs = finiteNumber(message.time_ms);
+  const timeSeconds = finiteNumber(message.time);
+  const exchangeAt = timeMs !== null && timeMs > 0
+    ? timeMs
+    : timeSeconds !== null && timeSeconds > 0
+      ? timeSeconds * 1_000
+      : receivedAt;
+  const quotes: Quote[] = [];
+  for (const entry of message.result) {
+    if (!entry || typeof entry !== "object") continue;
+    const ticker = entry as Record<string, unknown>;
+    const asset = mappedAsset(symbolMapping, ticker.contract, new Map());
+    const price = positivePrice(ticker.last);
+    if (!asset || price === null) continue;
+    quotes.push({
+      asset,
+      price,
+      source: "gate",
+      marketSource: "gate",
+      transport: "ws",
+      sourceLabel: "Gate Perp",
+      exchangeAt,
+      receivedAt,
+    });
+  }
+  return quotes;
 }
 
 function bitfinexTradeQuote(
@@ -548,6 +695,56 @@ export function parseRestTicker(
   };
 }
 
+export function parseBybitRestTicker(
+  asset: unknown,
+  payload: unknown,
+  receivedAt = Date.now(),
+  expectedSymbol: string | null = null,
+): Quote | null {
+  if (typeof asset !== "string" || !asset || !payload || typeof payload !== "object") return null;
+  const value = payload as Record<string, unknown>;
+  const result = value.result as Record<string, unknown> | null;
+  if (value.retCode !== 0 || !result || !Array.isArray(result.list)) return null;
+  const ticker = result.list[0] as Record<string, unknown> | null | undefined;
+  if (expectedSymbol && (!ticker || ticker.symbol !== expectedSymbol)) return null;
+  const price = ticker && positivePrice(ticker.lastPrice);
+  if (price === null || price === undefined) return null;
+  const serverAt = finiteNumber(value.time);
+  return {
+    asset,
+    price,
+    source: "bybitRest",
+    marketSource: "bybit",
+    transport: "rest",
+    sourceLabel: "Bybit REST",
+    exchangeAt: serverAt !== null && serverAt > 0 ? serverAt : receivedAt,
+    receivedAt,
+  };
+}
+
+export function parseGateRestTicker(
+  asset: unknown,
+  payload: unknown,
+  receivedAt = Date.now(),
+  expectedSymbol: string | null = null,
+): Quote | null {
+  if (typeof asset !== "string" || !asset || !Array.isArray(payload)) return null;
+  const ticker = payload[0] as Record<string, unknown> | null | undefined;
+  if (expectedSymbol && (!ticker || ticker.contract !== expectedSymbol)) return null;
+  const price = ticker && positivePrice(ticker.last);
+  if (price === null || price === undefined) return null;
+  return {
+    asset,
+    price,
+    source: "gateRest",
+    marketSource: "gate",
+    transport: "rest",
+    sourceLabel: "Gate REST",
+    exchangeAt: receivedAt,
+    receivedAt,
+  };
+}
+
 export function utcDayStart(timestampMs: number): number;
 export function utcDayStart(timestampMs: unknown): number | null;
 export function utcDayStart(timestampMs: unknown): number | null {
@@ -559,6 +756,17 @@ export function calculateUtcChange(price: unknown, openPrice: unknown): number |
   const current = positivePrice(price);
   const open = positivePrice(openPrice);
   return current === null || open === null ? null : ((current / open) - 1) * 100;
+}
+
+function marketSourceForQuoteSource(source: QuoteSource): MarketSource {
+  if (source === "coinbaseRest") return "coinbase";
+  if (source === "bybitRest") return "bybit";
+  if (source === "gateRest") return "gate";
+  return source;
+}
+
+function isRestQuoteSource(source: string): source is RestQuoteSource {
+  return (REST_QUOTE_SOURCE_IDS as string[]).includes(source);
 }
 
 function utcOpenSource(
@@ -576,7 +784,9 @@ function utcOpenSource(quoteOrSource: unknown): MarketSource | null {
   const source = quoteOrSource && typeof quoteOrSource === "object"
     ? (quoteOrSource as Record<string, unknown>).source
     : quoteOrSource;
-  return (source === "coinbaseRest" ? "coinbase" : source) as MarketSource | null;
+  return typeof source === "string" && (QUOTE_SOURCE_IDS as string[]).includes(source)
+    ? marketSourceForQuoteSource(source as QuoteSource)
+    : null;
 }
 
 function utcOpenRetryDelay(attempt: number): number {
@@ -601,6 +811,35 @@ export function parseCoinbaseUtcOpen(
     ))
     .sort((left, right) => Number(left[0]) - Number(right[0]));
   return matching.length > 0 ? positivePrice(matching[0][3]) : null;
+}
+
+export function parseBybitUtcOpen(payload: unknown, dayStartMs: number): number | null {
+  const value = payload as Record<string, unknown> | null;
+  const result = value && value.result as Record<string, unknown> | null;
+  const candles = result && result.list;
+  if (!value || value.retCode !== 0 || !Array.isArray(candles)) return null;
+  for (const candle of candles) {
+    if (
+      Array.isArray(candle)
+      && finiteNumber(candle[0]) === dayStartMs
+      && positivePrice(candle[1]) !== null
+    ) return positivePrice(candle[1]);
+  }
+  return null;
+}
+
+export function parseGateUtcOpen(payload: unknown, dayStartMs: number): number | null {
+  if (!Array.isArray(payload)) return null;
+  const dayStartSeconds = Math.floor(dayStartMs / 1_000);
+  for (const candle of payload) {
+    if (
+      candle
+      && typeof candle === "object"
+      && finiteNumber(candle.t) === dayStartSeconds
+      && positivePrice(candle.o) !== null
+    ) return positivePrice(candle.o);
+  }
+  return null;
 }
 
 export function parseBitstampUtcOpen(
@@ -713,21 +952,22 @@ export function selectQuote<T extends SelectableQuote>(
   const quotes = Object.values(sourceQuotes || {}).filter((quote): quote is T => Boolean(quote));
   if (quotes.length === 0) return null;
 
-  const coinbase = sourceQuotes?.coinbase;
-  if (coinbase && now - coinbase.receivedAt <= PRIMARY_PREFERENCE_MS) {
-    return { ...coinbase, stale: false };
+  const preferred = sourceQuotes?.coinbase || sourceQuotes?.bybit;
+  if (preferred && now - preferred.receivedAt <= PRIMARY_PREFERENCE_MS) {
+    return { ...preferred, stale: false };
   }
 
   const freshWebSockets = quotes
-    .filter((quote) => quote.source !== "coinbaseRest")
+    .filter((quote) => !isRestQuoteSource(quote.source))
     .filter((quote) => now - quote.receivedAt <= STALE_AFTER_MS)
     .sort(newestQuoteFirst);
   if (freshWebSockets.length > 0) return { ...freshWebSockets[0], stale: false };
 
-  const restFallback = sourceQuotes?.coinbaseRest;
-  if (restFallback && now - restFallback.receivedAt <= STALE_AFTER_MS) {
-    return { ...restFallback, stale: false };
-  }
+  const freshRest = quotes
+    .filter((quote) => isRestQuoteSource(quote.source))
+    .filter((quote) => now - quote.receivedAt <= STALE_AFTER_MS)
+    .sort(newestQuoteFirst);
+  if (freshRest.length > 0) return { ...freshRest[0], stale: false };
 
   const newest = quotes.sort(newestQuoteFirst)[0];
   return { ...newest, stale: true };
@@ -853,7 +1093,7 @@ class ResilientSocket {
       this.setStatus("open");
 
       for (const subscription of this.config.subscriptions) {
-        socket.send(JSON.stringify(subscription));
+        socket.send(JSON.stringify(typeof subscription === "function" ? subscription() : subscription));
       }
 
       this.pendingSubscriptionAcks = new Set(this.config.subscriptionAckKeys || []);
@@ -969,7 +1209,8 @@ class ResilientSocket {
 }
 
 function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
-  const coinbaseMapping = new Map(products.map((product) => [product.id, product.id]));
+  const coinbaseProducts = products.filter((product) => sourceSupportsProduct("coinbase", product));
+  const coinbaseMapping = new Map(coinbaseProducts.map((product) => [product.id, product.id]));
   const krakenProducts = products.filter((product) => product.krakenSymbol) as Array<
     Product & { krakenSymbol: string }
   >;
@@ -990,6 +1231,18 @@ function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
   >;
   const bitfinexMapping = new Map(
     bitfinexProducts.map((product) => [product.bitfinexSymbol, product.id]),
+  );
+  const bybitProducts = products.filter((product) => product.bybitSymbol) as Array<
+    Product & { bybitSymbol: string }
+  >;
+  const bybitMapping = new Map(
+    bybitProducts.map((product) => [product.bybitSymbol, product.id]),
+  );
+  const gateProducts = products.filter((product) => product.gateSymbol) as Array<
+    Product & { gateSymbol: string }
+  >;
+  const gateMapping = new Map(
+    gateProducts.map((product) => [product.gateSymbol, product.id]),
   );
   const bitfinexSubscriptions: Array<{
     event: "subscribe";
@@ -1015,24 +1268,28 @@ function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
     );
   }
 
-  const configs: SourceConfig[] = [{
-    id: "coinbase",
-    label: "Coinbase",
-    url: "wss://advanced-trade-ws.coinbase.com",
-    subscriptions: [
-      {
-        type: "subscribe",
-        product_ids: products.map((product) => product.id),
-        channel: "ticker",
-      },
-      { type: "subscribe", channel: "heartbeats" },
-    ],
-    parser: (raw, receivedAt) => parseCoinbaseMessage(raw, receivedAt, coinbaseMapping),
-    idleTimeoutMs: 10_000,
-    quoteTimeoutMs: 20_000,
-    assets: products.map((product) => product.id),
-    sentinelAssets: sentinelIds,
-  }];
+  const configs: SourceConfig[] = [];
+
+  if (coinbaseProducts.length > 0) {
+    configs.push({
+      id: "coinbase",
+      label: "Coinbase",
+      url: "wss://advanced-trade-ws.coinbase.com",
+      subscriptions: [
+        {
+          type: "subscribe",
+          product_ids: coinbaseProducts.map((product) => product.id),
+          channel: "ticker",
+        },
+        { type: "subscribe", channel: "heartbeats" },
+      ],
+      parser: (raw, receivedAt) => parseCoinbaseMessage(raw, receivedAt, coinbaseMapping),
+      idleTimeoutMs: 10_000,
+      quoteTimeoutMs: 20_000,
+      assets: coinbaseProducts.map((product) => product.id),
+      sentinelAssets: sentinelIds.filter((id) => coinbaseProducts.some((product) => product.id === id)),
+    });
+  }
 
   if (krakenProducts.length > 0) {
     configs.push({
@@ -1055,6 +1312,47 @@ function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
       assets: krakenProducts.map((product) => product.id),
       sentinelAssets: sentinelIds.filter((id) => krakenProducts.some((product) => product.id === id)),
       pingMessage: () => ({ method: "ping", req_id: Date.now() % 2_147_483_647 }),
+    });
+  }
+
+  if (bybitProducts.length > 0) {
+    configs.push({
+      id: "bybit",
+      label: "Bybit Perp",
+      url: "wss://stream.bybit.com/v5/public/linear",
+      subscriptions: [{
+        op: "subscribe",
+        args: bybitProducts.map((product) => `tickers.${product.bybitSymbol}`),
+      }],
+      parser: (raw, receivedAt) => parseBybitMessage(raw, receivedAt, bybitMapping),
+      subscriptionAckKeys: ["bybit:tickers"],
+      subscriptionAckTimeoutMs: 10_000,
+      idleTimeoutMs: 35_000,
+      quoteTimeoutMs: 30_000,
+      assets: bybitProducts.map((product) => product.id),
+      sentinelAssets: [],
+      pingMessage: () => ({ op: "ping" }),
+    });
+  }
+
+  if (gateProducts.length > 0) {
+    configs.push({
+      id: "gate",
+      label: "Gate Perp",
+      url: "wss://fx-ws.gateio.ws/v4/ws/usdt",
+      subscriptions: [() => ({
+        time: Math.floor(Date.now() / 1_000),
+        channel: "futures.tickers",
+        event: "subscribe",
+        payload: gateProducts.map((product) => product.gateSymbol),
+      })],
+      parser: (raw, receivedAt) => parseGateMessage(raw, receivedAt, gateMapping),
+      subscriptionAckKeys: ["gate:tickers"],
+      subscriptionAckTimeoutMs: 10_000,
+      idleTimeoutMs: 35_000,
+      quoteTimeoutMs: 30_000,
+      assets: gateProducts.map((product) => product.id),
+      sentinelAssets: [],
     });
   }
 
@@ -1243,13 +1541,13 @@ export class PriceFeed {
         ),
       ]));
       this.quotes[product.id] = Object.fromEntries(QUOTE_SOURCE_IDS.map((source) => {
-        const marketSource = source === "coinbaseRest" ? "coinbase" : source;
-        const mayPreserve = marketSource === "coinbase" || sameSourcePair[marketSource];
+        const marketSource = marketSourceForQuoteSource(source);
+        const mayPreserve = sameSourcePair[marketSource];
         return [source, oldQuotes && mayPreserve ? oldQuotes[source] || null : null];
       }));
 
       for (const source of SOURCE_IDS) {
-        const mayPreserve = source === "coinbase" || sameSourcePair[source];
+        const mayPreserve = sameSourcePair[source];
         this.utcOpens[source][product.id] = preserve && mayPreserve && previousOpens[source]
           ? previousOpens[source][product.id] || null
           : null;
@@ -1329,7 +1627,7 @@ export class PriceFeed {
     this.revision += 1;
     this.abortRequests();
     for (const connection of this.connections) connection.stop();
-    this.sourceStatus.coinbaseRest = "idle";
+    for (const source of REST_QUOTE_SOURCE_IDS) this.sourceStatus[source] = "idle";
     this.applyProducts(nextProducts, true);
     this.connections = this.createConnections();
 
@@ -1356,40 +1654,79 @@ export class PriceFeed {
       ));
     });
     if (neededProducts.length === 0) {
-      this.handleStatus("coinbaseRest", "idle");
+      for (const source of REST_QUOTE_SOURCE_IDS) this.sourceStatus[source] = "idle";
+      this.emit();
       return;
     }
+
+    const requests: Array<{ source: RestQuoteSource; product: Product }> = [];
+    for (const product of neededProducts) {
+      if (sourceSupportsProduct("coinbase", product)) {
+        requests.push({ source: "coinbaseRest", product });
+      }
+      if (sourceSupportsProduct("bybit", product)) {
+        requests.push({ source: "bybitRest", product });
+      }
+      if (sourceSupportsProduct("gate", product)) {
+        requests.push({ source: "gateRest", product });
+      }
+    }
+    if (requests.length === 0) return;
 
     const controller = new AbortController();
     const revision = this.revision;
     this.restRequest = controller;
-    this.handleStatus("coinbaseRest", "connecting");
+    const attemptedSources = new Set(requests.map((request) => request.source));
+    for (const source of REST_QUOTE_SOURCE_IDS) {
+      this.sourceStatus[source] = attemptedSources.has(source) ? "connecting" : "idle";
+    }
+    this.emit();
     const timeout = setTimeout(() => controller.abort(), 8_000);
 
     try {
       const fetchedAt = this.now();
-      const results = await mapWithConcurrency(neededProducts, REST_CONCURRENCY, async (product) => {
+      const results = await mapWithConcurrency(requests, REST_CONCURRENCY, async ({ source, product }) => {
         try {
-          const productId = encodeURIComponent(product.id);
-          const response = await this.fetchImpl!(`${COINBASE_API_ROOT}/${productId}/ticker`, {
+          let url: string;
+          if (source === "coinbaseRest") {
+            url = `${COINBASE_API_ROOT}/${encodeURIComponent(product.id)}/ticker`;
+          } else if (source === "bybitRest") {
+            url = `${BYBIT_API_ROOT}/tickers?category=linear`
+              + `&symbol=${encodeURIComponent(product.bybitSymbol as string)}`;
+          } else {
+            url = `${GATE_API_ROOT}/tickers?contract=${encodeURIComponent(product.gateSymbol as string)}`;
+          }
+          const response = await this.fetchImpl!(url, {
             signal: controller.signal,
             cache: "no-store",
             headers: { Accept: "application/json" },
           });
           if (!response.ok) throw new Error(`REST ${response.status}`);
-          return parseRestTicker(product.id, await response.json(), fetchedAt);
+          const payload = await response.json();
+          const quote = source === "coinbaseRest"
+            ? parseRestTicker(product.id, payload, fetchedAt)
+            : source === "bybitRest"
+              ? parseBybitRestTicker(product.id, payload, fetchedAt, product.bybitSymbol || null)
+              : parseGateRestTicker(product.id, payload, fetchedAt, product.gateSymbol || null);
+          return { source, quote };
         } catch {
-          return null;
+          return { source, quote: null };
         }
       });
       if (!this.started || revision !== this.revision) return;
-      const quotes = results.filter(Boolean) as Quote[];
-      if (quotes.length === 0) throw new Error("all REST fallback requests failed");
-      this.handleQuotes(quotes);
-      this.handleStatus("coinbaseRest", "open");
+      const quotes = results.map((result) => result.quote).filter(Boolean) as Quote[];
+      const successfulSources = new Set(
+        results.filter((result) => result.quote).map((result) => result.source),
+      );
+      if (quotes.length > 0) this.handleQuotes(quotes);
+      for (const source of attemptedSources) {
+        this.sourceStatus[source] = successfulSources.has(source) ? "open" : "reconnecting";
+      }
+      this.emit();
     } catch {
       if (this.started && revision === this.revision) {
-        this.handleStatus("coinbaseRest", "reconnecting");
+        for (const source of attemptedSources) this.sourceStatus[source] = "reconnecting";
+        this.emit();
       }
     } finally {
       clearTimeout(timeout);
@@ -1616,6 +1953,49 @@ export class PriceFeed {
         } catch {
           return [product.id, null];
         }
+        },
+      );
+      return Object.fromEntries(results);
+    }
+
+    if (source === "bybit") {
+      const endMs = Math.max(dayStart + 1_000, this.now());
+      const results = await mapWithConcurrency<Product, [string, number | null]>(
+        products,
+        REST_CONCURRENCY,
+        async (product) => {
+          try {
+            const symbol = encodeURIComponent(product.bybitSymbol as string);
+            const url = `${BYBIT_API_ROOT}/kline?category=linear&symbol=${symbol}`
+              + `&interval=D&start=${dayStart}&end=${endMs}&limit=2`;
+            const response = await this.fetchImpl!(url, options);
+            if (!response.ok) throw new Error(`Bybit UTC open ${response.status}`);
+            return [product.id, parseBybitUtcOpen(await response.json(), dayStart)];
+          } catch {
+            return [product.id, null];
+          }
+        },
+      );
+      return Object.fromEntries(results);
+    }
+
+    if (source === "gate") {
+      const endSeconds = Math.floor(Math.max(dayStart + 1_000, this.now()) / 1_000);
+      const startSeconds = Math.floor(dayStart / 1_000);
+      const results = await mapWithConcurrency<Product, [string, number | null]>(
+        products,
+        REST_CONCURRENCY,
+        async (product) => {
+          try {
+            const symbol = encodeURIComponent(product.gateSymbol as string);
+            const url = `${GATE_API_ROOT}/candlesticks?contract=${symbol}`
+              + `&interval=1d&from=${startSeconds}&to=${endSeconds}`;
+            const response = await this.fetchImpl!(url, options);
+            if (!response.ok) throw new Error(`Gate UTC open ${response.status}`);
+            return [product.id, parseGateUtcOpen(await response.json(), dayStart)];
+          } catch {
+            return [product.id, null];
+          }
         },
       );
       return Object.fromEntries(results);

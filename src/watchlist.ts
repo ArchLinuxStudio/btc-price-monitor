@@ -1,10 +1,14 @@
 const STORAGE_KEY = "crypto-top.watchlist.v1";
 const STORAGE_VERSION = 1;
 const PRODUCT_ID_PATTERN = /^([A-Z0-9][A-Z0-9._-]{0,63})-USD$/;
+const PERPETUAL_PRODUCT_ID_PATTERN = /^([A-Z0-9][A-Z0-9.]{0,39})-USDT-PERP$/;
 const SYMBOL_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,63}$/;
 const PRODUCTS_ENDPOINT = "https://api.exchange.coinbase.com/products";
 const CURRENCIES_ENDPOINT = "https://api.exchange.coinbase.com/currencies";
 const BITSTAMP_MARKETS_ENDPOINT = "https://www.bitstamp.net/api/v2/markets/";
+const BYBIT_STOCKS_ENDPOINT = "https://api.bybit.com/v5/market/instruments-info"
+  + "?category=linear&symbolType=stock&status=Trading&limit=1000";
+const GATE_CONTRACTS_ENDPOINT = "https://api.gateio.ws/api/v4/futures/usdt/contracts";
 
 export interface Product {
   id: string;
@@ -13,12 +17,28 @@ export interface Product {
   krakenSymbol: string | null;
   bitstampSymbol: string | null;
   bitfinexSymbol: string | null;
+  bybitSymbol?: string | null;
+  gateSymbol?: string | null;
+  quoteCurrency?: "USD" | "USDT";
+  marketType?: "spot" | "perpetual";
+  assetClass?: "crypto" | "equity";
   fixed: boolean;
 }
 
 export interface BackupSourceMappings {
   bitstamp: Map<string, string> | null;
   bitfinex: Map<string, string> | null;
+}
+
+export interface ProductCatalogAvailability {
+  coinbase: boolean;
+  bybit: boolean;
+  gate: boolean;
+}
+
+export interface ProductCatalogSnapshot {
+  products: Product[];
+  availability: ProductCatalogAvailability;
 }
 
 export interface SearchableProduct {
@@ -71,15 +91,7 @@ function isRecord(value: unknown): value is UnknownRecord {
 }
 
 function cloneProduct(product: Readonly<Product>): Product {
-  return {
-    id: product.id,
-    symbol: product.symbol,
-    name: product.name,
-    krakenSymbol: product.krakenSymbol,
-    bitstampSymbol: product.bitstampSymbol,
-    bitfinexSymbol: product.bitfinexSymbol,
-    fixed: product.fixed,
-  };
+  return { ...product };
 }
 
 function defaultProducts(): Product[] {
@@ -106,6 +118,24 @@ function fixedProduct(id: string): Product | null {
 export function inferProduct(productId: unknown): Product | null {
   if (typeof productId !== "string") return null;
   const id = productId.trim().toUpperCase();
+  const perpetualMatch = PERPETUAL_PRODUCT_ID_PATTERN.exec(id);
+  if (perpetualMatch) {
+    const ticker = perpetualMatch[1];
+    return {
+      id,
+      symbol: `${ticker}.P`,
+      name: ticker,
+      krakenSymbol: null,
+      bitstampSymbol: null,
+      bitfinexSymbol: null,
+      bybitSymbol: null,
+      gateSymbol: null,
+      quoteCurrency: "USDT",
+      marketType: "perpetual",
+      assetClass: "equity",
+      fixed: false,
+    };
+  }
   const match = PRODUCT_ID_PATTERN.exec(id);
   if (!match) return null;
 
@@ -160,11 +190,34 @@ function storedBitfinexSymbol(value: unknown, productSymbol: unknown): string | 
     : null;
 }
 
+function storedBybitSymbol(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const symbol = value.trim().toUpperCase();
+  return /^[A-Z0-9]{2,80}USDT$/.test(symbol) ? symbol : null;
+}
+
+function storedGateSymbol(value: unknown, productTicker?: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const symbol = value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,80}_USDT$/.test(symbol)) return null;
+  if (typeof productTicker === "string") {
+    const ticker = symbol.slice(0, -"_USDT".length);
+    if (ticker !== productTicker.trim().toUpperCase()) return null;
+  }
+  return symbol;
+}
+
 function normalizeProduct(value: unknown): Product | null {
   if (!isRecord(value)) return null;
   const inferred = inferProduct(value.id);
   if (!inferred) return null;
   if (inferred.fixed) return inferred;
+  if (inferred.marketType === "perpetual") {
+    inferred.name = cleanText(value.name, inferred.name);
+    inferred.bybitSymbol = storedBybitSymbol(value.bybitSymbol);
+    inferred.gateSymbol = storedGateSymbol(value.gateSymbol, inferred.id.slice(0, -"-USDT-PERP".length));
+    return inferred.bybitSymbol || inferred.gateSymbol ? inferred : null;
+  }
   inferred.name = cleanText(value.name, inferred.symbol);
   inferred.bitstampSymbol = storedBitstampSymbol(value.bitstampSymbol, inferred.symbol);
   inferred.bitfinexSymbol = storedBitfinexSymbol(value.bitfinexSymbol, inferred.symbol);
@@ -280,6 +333,126 @@ export function parseProductCatalog(productsPayload: unknown, currenciesPayload:
   return catalog.sort(compareProducts);
 }
 
+export function parseBybitStockCatalog(payload: unknown): Product[] {
+  if (!isRecord(payload) || payload.retCode !== 0 || !isRecord(payload.result)) return [];
+  const entries = payload.result.list;
+  if (!Array.isArray(entries)) return [];
+  const seen = new Set<string>();
+  const catalog: Product[] = [];
+
+  for (const entry of entries) {
+    if (!isRecord(entry)) continue;
+    const ticker = typeof entry.underlyingTicker === "string"
+      ? entry.underlyingTicker.trim().toUpperCase()
+      : "";
+    const bybitSymbol = storedBybitSymbol(entry.symbol);
+    if (
+      !PERPETUAL_PRODUCT_ID_PATTERN.test(`${ticker}-USDT-PERP`)
+      || !bybitSymbol
+      || entry.symbolType !== "stock"
+      || entry.marketRegion !== "US"
+      || entry.contractType !== "LinearPerpetual"
+      || entry.status !== "Trading"
+      || entry.quoteCoin !== "USDT"
+      || entry.settleCoin !== "USDT"
+      || seen.has(ticker)
+    ) continue;
+
+    seen.add(ticker);
+    catalog.push({
+      id: `${ticker}-USDT-PERP`,
+      symbol: `${ticker}.P`,
+      name: `${cleanText(entry.fullName, ticker)} · USDT永续`,
+      krakenSymbol: null,
+      bitstampSymbol: null,
+      bitfinexSymbol: null,
+      bybitSymbol,
+      gateSymbol: null,
+      quoteCurrency: "USDT",
+      marketType: "perpetual",
+      assetClass: "equity",
+      fixed: false,
+    });
+  }
+  return catalog.sort(compareProducts);
+}
+
+export function parseGateStockMappings(payload: unknown): Map<string, string> | null {
+  if (!Array.isArray(payload)) return null;
+  const mappings = new Map(
+    parseGateStockCatalog(payload).map((product) => [
+      product.id.slice(0, -"-USDT-PERP".length),
+      product.gateSymbol as string,
+    ]),
+  );
+  return mappings.size > 0 ? mappings : null;
+}
+
+export function parseGateStockCatalog(payload: unknown): Product[] {
+  if (!Array.isArray(payload)) return [];
+  const seen = new Set<string>();
+  const catalog: Product[] = [];
+  for (const entry of payload) {
+    if (
+      !isRecord(entry)
+      || entry.contract_type !== "stocks"
+      || entry.status !== "trading"
+      || entry.in_delisting === true
+    ) continue;
+    const gateSymbol = storedGateSymbol(entry.name);
+    if (!gateSymbol) continue;
+    const ticker = gateSymbol.slice(0, -"_USDT".length);
+    if (
+      !PERPETUAL_PRODUCT_ID_PATTERN.test(`${ticker}-USDT-PERP`)
+      || seen.has(ticker)
+    ) continue;
+
+    seen.add(ticker);
+    catalog.push({
+      id: `${ticker}-USDT-PERP`,
+      symbol: `${ticker}.P`,
+      name: `${ticker} · Gate USDT永续`,
+      krakenSymbol: null,
+      bitstampSymbol: null,
+      bitfinexSymbol: null,
+      bybitSymbol: null,
+      gateSymbol,
+      quoteCurrency: "USDT",
+      marketType: "perpetual",
+      assetClass: "equity",
+      fixed: false,
+    });
+  }
+  return catalog.sort(compareProducts);
+}
+
+export function mergeStockCatalogs(
+  bybitProducts: readonly Product[],
+  gateProducts: readonly Product[],
+): Product[] {
+  const merged = new Map<string, Product>();
+  for (const product of gateProducts) merged.set(product.id, cloneProduct(product));
+  for (const product of bybitProducts) {
+    const gateProduct = merged.get(product.id);
+    merged.set(product.id, {
+      ...product,
+      gateSymbol: gateProduct?.gateSymbol || null,
+    });
+  }
+  return [...merged.values()].sort(compareProducts);
+}
+
+export function applyGateStockMappings(
+  products: readonly Product[],
+  mappings: ReadonlyMap<string, string> | null,
+): Product[] {
+  return products.map((product) => {
+    if (product.marketType !== "perpetual" || !mappings) return cloneProduct(product);
+    const ticker = product.id.slice(0, -"-USDT-PERP".length);
+    return { ...product, gateSymbol: mappings.get(ticker) || null };
+  });
+}
+
 async function responseJson(response: unknown, label: string): Promise<unknown> {
   const candidate = response as ResponseLike | null | undefined;
   if (!candidate || candidate.ok !== true) {
@@ -291,28 +464,104 @@ async function responseJson(response: unknown, label: string): Promise<unknown> 
   return candidate.json();
 }
 
-export async function fetchProductCatalog(
+async function optionalResponseJson(response: unknown, label: string): Promise<unknown> {
+  try {
+    return await responseJson(response, label);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchOptionalCatalogPayload(
+  fetchImpl: FetchImplementation,
+  url: string,
+  label: string,
+  options: RequestInit,
+  timeoutMs = 5_000,
+): Promise<unknown> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      Promise.resolve()
+        .then(() => fetchImpl(url, options))
+        .then((response) => optionalResponseJson(response, label))
+        .catch(() => null),
+      new Promise<null>((resolve) => {
+        timeout = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout!);
+  }
+}
+
+function isBybitCatalogPayload(payload: unknown): boolean {
+  return isRecord(payload)
+    && payload.retCode === 0
+    && isRecord(payload.result)
+    && Array.isArray(payload.result.list);
+}
+
+export async function fetchProductCatalogSnapshot(
   fetchImpl?: FetchImplementation | null,
-): Promise<Product[]> {
+): Promise<ProductCatalogSnapshot> {
   if (typeof fetchImpl !== "function") throw new TypeError("fetchImpl must be a function");
   const options: RequestInit = {
     cache: "no-store",
     headers: { Accept: "application/json" },
   };
-  const responses = await Promise.all([
-    fetchImpl(PRODUCTS_ENDPOINT, options),
-    fetchImpl(CURRENCIES_ENDPOINT, options),
+  const [productsPayload, currenciesPayload, bybitPayload, gatePayload] = await Promise.all([
+    fetchOptionalCatalogPayload(fetchImpl, PRODUCTS_ENDPOINT, "Coinbase products", options),
+    fetchOptionalCatalogPayload(fetchImpl, CURRENCIES_ENDPOINT, "Coinbase currencies", options),
+    fetchOptionalCatalogPayload(fetchImpl, BYBIT_STOCKS_ENDPOINT, "Bybit stock instruments", options),
+    fetchOptionalCatalogPayload(fetchImpl, GATE_CONTRACTS_ENDPOINT, "Gate stock contracts", options),
   ]);
-  const payloads = await Promise.all([
-    responseJson(responses[0], "Coinbase products"),
-    responseJson(responses[1], "Coinbase currencies"),
-  ]);
-  if (!Array.isArray(payloads[0]) || !Array.isArray(payloads[1])) {
-    throw new Error("Coinbase catalog response is invalid");
+
+  const catalog = parseProductCatalog(productsPayload, currenciesPayload);
+  const seen = new Set(catalog.map((product) => product.id));
+  const stockCatalog = mergeStockCatalogs(
+    parseBybitStockCatalog(bybitPayload),
+    parseGateStockCatalog(gatePayload),
+  );
+  for (const product of stockCatalog) {
+    if (!seen.has(product.id)) catalog.push(cloneProduct(product));
   }
-  const catalog = parseProductCatalog(payloads[0], payloads[1]);
-  if (catalog.length === 0) throw new Error("Coinbase catalog is empty");
-  return catalog;
+  if (catalog.length === 0) throw new Error("product catalogs are unavailable or empty");
+  return {
+    products: catalog.sort(compareProducts),
+    availability: {
+      coinbase: Array.isArray(productsPayload),
+      bybit: isBybitCatalogPayload(bybitPayload),
+      gate: Array.isArray(gatePayload),
+    },
+  };
+}
+
+export async function fetchProductCatalog(
+  fetchImpl?: FetchImplementation | null,
+): Promise<Product[]> {
+  return (await fetchProductCatalogSnapshot(fetchImpl)).products;
+}
+
+export function refreshProductsFromCatalog(
+  selectedProducts: readonly Product[],
+  snapshot: ProductCatalogSnapshot,
+): Product[] {
+  const catalogById = new Map(snapshot.products.map((product) => [product.id, product]));
+  return selectedProducts.map((product) => {
+    const current = catalogById.get(product.id);
+    if (!current) return cloneProduct(product);
+    const next = { ...current, fixed: product.fixed || current.fixed };
+    if (product.marketType === "perpetual") {
+      if (!snapshot.availability.bybit && !next.bybitSymbol) {
+        next.bybitSymbol = product.bybitSymbol || null;
+      }
+      if (!snapshot.availability.gate && !next.gateSymbol) {
+        next.gateSymbol = product.gateSymbol || null;
+      }
+    }
+    return next;
+  });
 }
 
 export function parseBitstampMarkets(payload: unknown): Map<string, string> | null {
@@ -421,10 +670,11 @@ export async function fetchBackupSourceMappings(
 function searchRank(product: SearchableProduct, query: string): number | null {
   if (!query) return 0;
   const symbol = product.symbol.toLowerCase();
+  const underlying = symbol.endsWith(".p") ? symbol.slice(0, -2) : symbol;
   const id = product.id.toLowerCase();
   const name = product.name.toLowerCase();
-  if (symbol === query || id === query) return 0;
-  if (symbol.startsWith(query)) return 1;
+  if (symbol === query || underlying === query || id === query) return 0;
+  if (symbol.startsWith(query) || underlying.startsWith(query)) return 1;
   if (id.startsWith(query)) return 2;
   if (name.startsWith(query)) return 3;
   if (symbol.includes(query)) return 4;

@@ -5,8 +5,9 @@ import {
   MAX_PRODUCTS,
   applyBackupSourceMappings,
   fetchBackupSourceMappings,
-  fetchProductCatalog,
+  fetchProductCatalogSnapshot,
   loadWatchlist,
+  refreshProductsFromCatalog,
   saveWatchlist,
   searchProducts,
 } from "./watchlist.js";
@@ -40,6 +41,7 @@ type CatalogState = "idle" | "loading" | "ready" | "error";
 const elements = {
   liveDot: document.querySelector<HTMLSpanElement>("#live-dot")!,
   statusText: document.querySelector<HTMLSpanElement>("#status-text")!,
+  marketLabel: document.querySelector<HTMLSpanElement>("#market-label")!,
   sourceLabel: document.querySelector<HTMLSpanElement>("#source-label")!,
   updateTime: document.querySelector<HTMLSpanElement>("#update-time")!,
   watchlistButton: document.querySelector<HTMLButtonElement>("#watchlist-button")!,
@@ -65,7 +67,11 @@ const sourceLabels: Record<string, string> = {
   Kraken: "Kraken",
   Bitstamp: "Bitstamp",
   Bitfinex: "Bitfinex",
+  "Bybit Perp": "Bybit-P",
+  "Gate Perp": "Gate-P",
   "Coinbase REST": "REST",
+  "Bybit REST": "BY-REST",
+  "Gate REST": "GT-REST",
 };
 
 const sourceAbbreviations: Record<string, string> = {
@@ -73,7 +79,11 @@ const sourceAbbreviations: Record<string, string> = {
   Kraken: "KR",
   Bitstamp: "BS",
   Bitfinex: "BFX",
+  "Bybit Perp": "BY",
+  "Gate Perp": "GT",
   "Coinbase REST": "REST",
+  "Bybit REST": "BY-R",
+  "Gate REST": "GT-R",
 };
 
 const markerColorCount = 8;
@@ -144,7 +154,26 @@ function productColorIndex(product: Product): number {
   return 2 + (hash % (markerColorCount - 2));
 }
 
+function productQuoteCurrency(product: Product): "USD" | "USDT" {
+  return product.quoteCurrency === "USDT" ? "USDT" : "USD";
+}
+
+function productMarketDescription(product: Product): string {
+  return product.marketType === "perpetual" ? "股票类永续合约" : "现货";
+}
+
+function updateMarketLabel(): void {
+  const currencies = new Set(selectedProducts.map(productQuoteCurrency));
+  const mixed = currencies.size > 1;
+  elements.marketLabel.textContent = mixed ? "USD/USDT" : currencies.has("USDT") ? "USDT" : "USD";
+  elements.marketLabel.setAttribute(
+    "aria-label",
+    mixed ? "包含 USD 现货与 USDT 永续合约" : currencies.has("USDT") ? "USDT 计价" : "美元计价",
+  );
+}
+
 function rebuildQuoteRows(): void {
+  updateMarketLabel();
   const activeIds = new Set<string>(selectedProducts.map((product) => product.id));
   for (const animation of priceAnimations.values()) {
     if (animation) animation.cancel();
@@ -165,7 +194,10 @@ function rebuildQuoteRows(): void {
     const price = row.querySelector<HTMLSpanElement>(".price")!;
     const change = row.querySelector<HTMLSpanElement>(".change")!;
     row.dataset.productId = product.id;
-    row.setAttribute("aria-label", `${product.name}，${product.symbol} 美元行情`);
+    row.setAttribute(
+      "aria-label",
+      `${product.name}，${product.symbol}，${productQuoteCurrency(product)} 计价${productMarketDescription(product)}行情`,
+    );
     marker.classList.add(`marker-${productColorIndex(product)}`);
     symbol.textContent = product.symbol;
     if (product.symbol.length > 5) symbol.classList.add("is-long-symbol");
@@ -179,10 +211,10 @@ function rebuildQuoteRows(): void {
   elements.quotes.classList.toggle("is-scrollable", scrollable);
   if (scrollable) {
     elements.quotes.tabIndex = 0;
-    elements.quotes.setAttribute("aria-label", "自选币种实时价格，可用方向键滚动");
+    elements.quotes.setAttribute("aria-label", "自选品种实时价格，可用方向键滚动");
   } else {
     elements.quotes.removeAttribute("tabindex");
-    elements.quotes.setAttribute("aria-label", "自选币种实时价格");
+    elements.quotes.setAttribute("aria-label", "自选品种实时价格");
   }
   if (latestState) render(latestState);
   if (!managementOpen) void setMonitorLayout(selectedProducts.length);
@@ -230,7 +262,7 @@ function render(state: PriceFeedState): void {
   elements.sourceLabel.textContent = compactSourceLabel(sourceList);
   elements.sourceLabel.setAttribute("aria-label", sourceList.length > 0
     ? sourceList.join(" / ")
-    : "等待 Coinbase、Kraken、Bitstamp 或 Bitfinex 行情");
+    : "等待 Coinbase、Kraken、Bitstamp、Bitfinex、Bybit 或 Gate 行情");
 
   const dataSecond = state.lastUpdateAt ? Math.floor(state.lastUpdateAt / 1_000) : null;
   if (dataSecond !== lastDataSecond) {
@@ -257,7 +289,10 @@ function renderQuote(product: Product, quote: DisplayQuote | null | undefined): 
   const previous = previousPrices.has(product.id) ? previousPrices.get(product.id)! : null;
   const formattedPrice = formatUsdPrice(quote.price);
   view.price.textContent = formattedPrice;
-  view.price.setAttribute("aria-label", `${product.symbol} ${formattedPrice} 美元`);
+  view.price.setAttribute(
+    "aria-label",
+    `${product.symbol} ${formattedPrice} ${productQuoteCurrency(product)}`,
+  );
   view.row.classList.toggle("is-stale", quote.stale);
 
   if (quote.changeUtc === null) {
@@ -390,7 +425,7 @@ function renderManager(): void {
   }
 
   if (catalogState === "idle" || catalogState === "loading") {
-    renderManagerMessage("正在加载免费 USD 币种…", false);
+    renderManagerMessage("正在加载免费行情品种…", false);
     return;
   }
   if (catalogState === "error") {
@@ -400,7 +435,7 @@ function renderManager(): void {
 
   visibleSearchResults = searchProducts(catalog, query, 24);
   if (visibleSearchResults.length === 0) {
-    renderManagerMessage("没有匹配的 USD 币种", false);
+    renderManagerMessage("没有匹配的行情品种", false);
     return;
   }
   visibleSearchResults.forEach(renderSearchProduct);
@@ -419,7 +454,7 @@ async function ensureCatalog(force: boolean): Promise<Product[]> {
     : null;
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | null = null;
-  const catalogFetch = fetchProductCatalog(fetchImpl
+  const catalogFetch = fetchProductCatalogSnapshot(fetchImpl
     ? (url, options) => fetchImpl(url, { ...options, signal: controller.signal })
     : null);
   const deadline = new Promise<never>((resolve, reject) => {
@@ -429,24 +464,29 @@ async function ensureCatalog(force: boolean): Promise<Product[]> {
     }, 8_000);
   });
   catalogRequest = Promise.race([catalogFetch, deadline])
-    .then((products) => {
+    .then((snapshot) => {
+      const products = snapshot.products;
       if (products.length === 0) throw new Error("catalog is empty");
       catalog = applyBackupSourceMappings(products, backupSourceMappings);
       catalogState = "ready";
-      const catalogById = new Map(catalog.map((product) => [product.id, product]));
-      const enriched = selectedProducts.map((product) => {
-        const current = catalogById.get(product.id);
-        if (!current) return product;
-        return { ...product, name: current.name };
+      const enriched = refreshProductsFromCatalog(selectedProducts, {
+        ...snapshot,
+        products: catalog,
       });
-      const namesChanged = enriched.some((product, index) => (
+      const displayChanged = enriched.some((product, index) => (
         product.name !== selectedProducts[index].name
+        || product.symbol !== selectedProducts[index].symbol
+        || productQuoteCurrency(product) !== productQuoteCurrency(selectedProducts[index])
       ));
+      const sourceCoverageBefore = sourceCoverageSignature(selectedProducts);
       selectedProducts = applyBackupSourceMappings(
         saveWatchlist(enriched),
         backupSourceMappings,
       );
-      if (namesChanged) rebuildQuoteRows();
+      if (sourceCoverageSignature(selectedProducts) !== sourceCoverageBefore) {
+        feed.setProducts(selectedProducts);
+      }
+      if (displayChanged) rebuildQuoteRows();
       renderManager();
       return catalog;
     })
@@ -457,6 +497,7 @@ async function ensureCatalog(force: boolean): Promise<Product[]> {
     })
     .finally(() => {
       clearTimeout(timeout!);
+      controller.abort();
       catalogRequest = null;
     });
   return catalogRequest;
@@ -465,6 +506,14 @@ async function ensureCatalog(force: boolean): Promise<Product[]> {
 function backupCoverageSignature(products: Product[]): string {
   return products.map((product) => (
     `${product.id}\u0000${product.bitstampSymbol || ""}\u0000${product.bitfinexSymbol || ""}`
+  )).join("\u0001");
+}
+
+function sourceCoverageSignature(products: Product[]): string {
+  return products.map((product) => (
+    `${product.id}\u0000${product.krakenSymbol || ""}\u0000${product.bitstampSymbol || ""}`
+      + `\u0000${product.bitfinexSymbol || ""}\u0000${product.bybitSymbol || ""}`
+      + `\u0000${product.gateSymbol || ""}`
   )).join("\u0001");
 }
 
@@ -551,7 +600,7 @@ function closeManager(restoreFocus: boolean): void {
   elements.quotes.hidden = false;
   elements.watchlistButton.classList.remove("is-open");
   elements.watchlistButton.setAttribute("aria-expanded", "false");
-  elements.watchlistButton.setAttribute("aria-label", "添加或管理自选币种");
+  elements.watchlistButton.setAttribute("aria-label", "添加或管理自选品种");
   elements.search.value = "";
   clearElement(elements.managerList);
   void setMonitorLayout(selectedProducts.length);
@@ -561,7 +610,7 @@ function closeManager(restoreFocus: boolean): void {
 function addProduct(product: Product): void {
   if (selectedProducts.some((entry) => entry.id === product.id)) return;
   if (selectedProducts.length >= MAX_PRODUCTS) {
-    announceManager(`最多可显示 ${MAX_PRODUCTS} 个币种`);
+    announceManager(`最多可显示 ${MAX_PRODUCTS} 个品种`);
     return;
   }
 

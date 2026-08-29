@@ -44,33 +44,33 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** Layout changes require a real rendered image when presenting a prototype and a final native Tauri-window smoke test. Do not rely only on a browser viewport.
 
-## Decision: Real USD and same-source UTC+0 change
+## Decision: Separate real-USD crypto spot from labeled stock-related USDT perpetuals
 
-**Status:** Accepted; explicit user requirement
+**Status:** Accepted; amended by explicit user request on 2026-08-29
 
-**Context:** Fast crypto APIs often expose USDT pairs or rolling 24-hour change, but the user explicitly requires USD and a UTC+0 daily basis.
+**Context:** The user originally required true USD and a UTC+0 daily basis. The user later explicitly allowed USDT-settled perpetual contracts for stock-related products, while clarifying that the integration must cover dynamic exchange catalogs rather than hard-code MU.
 
-**Decision:** Use only true USD products. Compute change from the displayed exchange's own first valid current UTC-day open.
+**Decision:** Crypto spot remains true USD only. Stock-related USDT perpetuals are a separate product class, identified visibly as `.P` and `USDT永续`; they must not be described as direct shares. Compute change from the displayed exchange product's own current UTC-day open in both classes.
 
-**Reason:** USDT is not fiat USD, rolling 24-hour values answer a different question, and cross-exchange price/open combinations introduce artificial change.
+**Reason:** Explicit product labeling accepts the requested derivative without pretending USDT is fiat USD. Rolling 24-hour values and cross-exchange price/open combinations still answer a different question or introduce artificial change.
 
-**Rejected alternatives:** Silent USDT/USDC substitution, provider 24-hour percentage fields, local-time midnight, and cross-exchange mixing.
+**Rejected alternatives:** Silent USDT/USDC substitution for crypto spot, calling a perpetual a stock holding, hard-coding MU, provider 24-hour percentage fields, local-time midnight, guessed aliases, and cross-exchange mixing.
 
-**Implications:** If the selected source has no current-day open, show `—`. Any change to this semantic must update market-data tests first.
+**Implications:** If the selected source has no current-day open, show `—`. Search/persistence/UI must preserve product class and quote currency. Any change to this semantic must update market-data tests first.
 
-## Decision: Four hot sources with exact mappings
+## Decision: Product-specific hot sources with exact mappings
 
 **Status:** Accepted
 
 **Context:** Reliability requires independent live providers, but custom symbols differ between exchanges and can contain aliases or colon formats.
 
-**Decision:** Keep Coinbase, Kraken, Bitstamp, and Bitfinex sockets hot. Prefer recent Coinbase briefly, then the newest healthy WebSocket, then Coinbase REST. Subscribe only when an exact mapping exists.
+**Decision:** Keep Coinbase, Kraken, Bitstamp, and Bitfinex sockets hot for supported USD spot products. For stock-related perpetuals, use the independently discovered Bybit and Gate catalogs, keep exact supported sockets hot, and use source-specific REST fallback. Prefer recent Coinbase for USD spot or recent Bybit where mapped, then the newest healthy WebSocket, then a supported source-specific REST quote. Subscribe/query only when an exact official mapping exists.
 
 **Reason:** Hot sockets fail over without a post-failure handshake. Exact catalogs/mappings prevent bad subscriptions such as assumed `${symbol}/USD` pairs.
 
 **Rejected alternatives:** Cross-exchange averaging, guessed symbols, REST-only polling, and letting a recent REST response outrank healthy WebSockets.
 
-**Implications:** Coinbase covers every selectable product; Bitstamp can enrich exact catalog intersections; Kraken/Bitfinex custom coverage remains disabled until an official browser-safe exact directory exists.
+**Implications:** Coinbase covers every selectable USD spot product. Bybit and Gate each contribute stock-related perpetuals; an exact canonical-ticker match combines their coverage without equating aliases. Bitstamp can enrich exact USD-spot catalog intersections; Kraken/Bitfinex custom coverage remains disabled until an official browser-safe exact directory exists.
 
 ## Decision: Do not add weak sources merely to increase the count
 
@@ -80,7 +80,7 @@ This document records accepted decisions that a future developer might otherwise
 
 **Decision:** The following were not added:
 
-- Binance: its mainstream high-frequency pairs are USDT; strict USD availability/liquidity/region behavior did not justify default use.
+- Binance: its mainstream high-frequency crypto pairs are USDT, so it was not suitable as a silent replacement for true-USD crypto spot. This older conclusion does not prohibit explicitly labeled stock-related USDT perpetuals; Bybit/Gate were selected for the current implementation because their live public directories and browser paths were verified for this product class.
 - Crypto.com: the API's “USD” represented a renamed stablecoin bundle rather than strict fiat USD.
 - Gemini: a new public multi-product WebSocket was promising, but documented versus live candle timeframe values (`1d`/`1day`) differed.
 - Coin Metrics Community: aggregated reference methodology could include stablecoin conversion and its free license was not a clean general redistribution fit.
@@ -98,7 +98,7 @@ This document records accepted decisions that a future developer might otherwise
 
 **Context:** A public endpoint reachable by curl is not necessarily callable from a WebView.
 
-**Decision:** Browser-fetch only the Coinbase, Kraken, and Bitstamp REST endpoints currently allowed by exact CSP origins. Keep Bitfinex entirely on public WSS for current runtime needs.
+**Decision:** Browser-fetch only the Coinbase, Kraken, Bitstamp, Bybit, and Gate REST endpoints currently allowed by exact CSP origins. Keep Bitfinex entirely on public WSS for current runtime needs. Allow only the exact six market-data WSS origins used by configured providers.
 
 **Reason:** Bitfinex public REST lacked the required Tauri-origin CORS response. Adding a wildcard CSP would not fix CORS and would weaken security.
 

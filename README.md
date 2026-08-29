@@ -1,14 +1,14 @@
 # Crypto Top
 
-一个轻量、始终置顶的加密货币美元实时价格监视器。默认显示 BTC / ETH，并支持添加自选币种；可运行于 Windows、macOS 和 Linux。
+一个轻量、始终置顶的跨市场实时行情监视器。默认显示 BTC / ETH 真实美元现货，并支持添加加密货币 USD 现货或清楚标注的股票相关 USDT 永续合约；可运行于 Windows、macOS 和 Linux。
 
 ## 功能
 
-- **自选币种**：默认固定 BTC / ETH，可搜索并添加最多 6 个 Coinbase 在线 `*-USD` 现货币种；自选顺序会保存在本机，随时可以删除后重新添加。
-- **真实 USD 行情**：搜索结果和价格都严格使用美元交易对，不会把 USDT 或 USDC 静默当成美元。
+- **动态自选目录**：默认固定 BTC / ETH，可搜索并添加最多 6 个 Coinbase 在线 `*-USD` 现货，或 Bybit / Gate 官方目录中的股票相关 USDT 永续；自选顺序与精确交易所代码保存在本机。
+- **品类清楚隔离**：加密现货仍严格使用真实 USD，不会把 USDT / USDC 静默当成美元；股票相关合约显示为 `.P` 与 `USDT永续`，不是直接持有美股。
 - **UTC 自然日涨跌**：涨跌幅严格以当天 `00:00 UTC` 后的首笔同交易所成交价为基准，不使用滚动 24 小时数据。
 - **WebSocket 实时推送**：成交发生后立即更新，不使用慢速轮询。
-- **四路免费热备**：Coinbase、Kraken、Bitstamp、Bitfinex 的公共行情都不需要 API Key；四条实时连接彼此独立，单家交易所故障不会中断其他来源。
+- **六路免费分品类行情**：Coinbase、Kraken、Bitstamp、Bitfinex 服务 USD 现货，Bybit、Gate 服务股票相关 USDT 永续；全部使用无需用户 API Key 的公共行情，并只订阅官方目录验证过的精确代码。
 - **超紧凑界面**：宽度始终为 `208px`，默认两行时仅 `208 × 92`；最多同时展示四行并在内部滚动，窗口最高 `170px`。添加/删除面板只在点击 `+` 时临时替换行情区。
 - **自动恢复**：心跳监测、超时切源、带抖动的指数退避重连；若 WebSocket 被网络拦截，会启用免费的 HTTPS 最新价兜底。
 - **始终置顶**：启动、窗口重新获得焦点、系统唤醒和运行期间都会重新确认置顶状态。
@@ -35,7 +35,7 @@ npm.cmd run build:windows
 
 输出位于 `src-tauri/target/release/bundle/nsis/`。
 
-窗口标题栏的 `+` 用于搜索、添加或删除自选币种；右侧关闭按钮只把监视器隐藏到系统托盘，程序仍保持运行，恢复窗口后会自动继续刷新行情。需要完全退出时，右键单击托盘图标并选择“退出 Crypto Top”。Windows 可能会根据系统设置把新托盘图标放进 `^` 隐藏图标区域。
+窗口标题栏的 `+` 用于搜索、添加或删除自选品种；例如搜索 `MU` 可在交易所当前上架时添加 `MU.P`。右侧关闭按钮只把监视器隐藏到系统托盘，程序仍保持运行，恢复窗口后会自动继续刷新行情。需要完全退出时，右键单击托盘图标并选择“退出 Crypto Top”。Windows 可能会根据系统设置把新托盘图标放进 `^` 隐藏图标区域。
 
 ## macOS / Linux
 
@@ -60,12 +60,16 @@ npm.cmd run build:windows
 - [Bitfinex Public Candles](https://docs.bitfinex.com/reference/ws-public-candles)：在同一条 WebSocket 上订阅 `1D` UTC 日 K，不依赖其缺少浏览器 CORS 的 REST 接口。
 - [Coinbase Exchange Candles](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-candles)：从当天 UTC 零点到当前时间查询一小时 K 线，并取当日最早成交的开盘价。
 - [Kraken Ticker](https://docs.kraken.com/api-reference/market-data/get-ticker-information)：字段 `o` 是 Kraken 官方定义的 UTC 当日开盘价。
+- [Bybit V5 Instruments](https://bybit-exchange.github.io/docs/v5/market/instrument)：动态读取 `stock + US + LinearPerpetual + Trading + USDT` 合约，使用官方 `underlyingTicker`、名称和精确交易代码。
+- [Bybit Public Ticker WebSocket](https://bybit-exchange.github.io/docs/v5/websocket/public/ticker)：`wss://stream.bybit.com/v5/public/linear`；HTTPS ticker 与 `D` 日 K 在 WebSocket 失效和 UTC 开盘加载时按需使用。
+- [Gate Futures API](https://www.gate.com/docs/developers/apiv4/en/#futures)：动态读取启用且未进入下架流程的 `stocks` 类 USDT 合约，并使用精确合约名订阅行情和查询 `1d` UTC 日 K。
+- [Gate Futures WebSocket](https://www.gate.com/docs/developers/futures/ws/en/)：`wss://fx-ws.gateio.ws/v4/ws/usdt`，频道 `futures.tickers`。
 
-Coinbase WebSocket 会按当前自选列表订阅全部币种；Kraken 与 Bitfinex 为内置且已验证的 BTC / ETH 交易对提供备用，Bitstamp 还会通过官方市场目录为能够精确匹配的自选币增加覆盖。程序不会通过拼接币种代码猜交易对，也不会将 USDT / USDC 当成 USD。Bitfinex 的公开 REST 目录缺少 WebView 所需的 CORS，因此不会用它猜测或扩展自选币映射。
+Coinbase WebSocket 会按当前 USD 现货自选列表订阅；Kraken 与 Bitfinex 为内置且已验证的 BTC / ETH 提供备用，Bitstamp 通过官方市场目录扩展能够精确匹配的 USD 现货。Bybit 与 Gate 的官方目录各自贡献股票相关 USDT 永续；代码完全相同的合约可合并为双源覆盖，`AAPL` 与 `AAPLX` 之类的别名不会被猜成同一产品。
 
-Coinbase 在 5 秒内有新价格时优先显示；主源不够新鲜时，先从其余实时 WebSocket 选择最新的健康成交，仅在所有实时源均失效时使用 Coinbase HTTPS 兜底。某个低流动币缺少新成交只会让该币种变为延迟或启用兜底，不会拖累承载其他币种的共享连接；Bitfinex 的成交与 UTC 日线订阅必须全部确认，拒绝或超时会自动退避重连。UTC 开盘价只为当前实际显示的来源按需加载，单一免费 REST 来源每批最多并发 3 个请求，避免启动或故障时突发打满接口。
+USD 现货优先显示 5 秒内的 Coinbase 行情；有 Bybit 精确映射的股票相关合约同样短暂优先 Bybit。主源不够新鲜时，程序从该产品支持的实时 WebSocket 中选择最新健康成交，仅在实时源均失效时使用对应的 Coinbase / Bybit / Gate HTTPS 兜底。某个低流动品种缺少新成交只会让该品种变为延迟或启用兜底，不会拖累共享连接；需要确认订阅的来源若拒绝或超时会自动退避重连。UTC 开盘价只为当前实际显示的来源按需加载，免费 REST 工作每批最多并发 3 个请求，避免启动或故障时突发打满接口。
 
-涨跌幅始终和当前显示价格使用同一交易所的日开盘价，避免跨交易所混算。程序根据交易所消息时间识别 UTC 换日；跨日后昨日基准立即失效，新基准加载完成前显示 `—`。
+涨跌幅始终和当前显示价格使用同一交易所、同一现货或永续产品的 UTC 日开盘价，避免跨交易所或借用标的股票开盘价。程序根据交易所消息时间识别 UTC 换日；跨日后昨日基准立即失效，新基准加载完成前显示 `—`。
 
 以上来源均按其公开接口与当前使用条款接入；如果将行情用于商业化产品或再分发，应另外复核各数据提供方届时的许可要求。
 

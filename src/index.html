@@ -9,14 +9,14 @@
     <script type="module" src="./main.js"></script>
   </head>
   <body>
-    <main class="monitor" aria-label="加密货币美元实时价格监视器">
+    <main class="monitor" aria-label="加密货币与美股相关合约实时行情监视器">
       <header class="titlebar">
         <div class="drag-zone" data-tauri-drag-region="deep">
           <div class="connection" data-tauri-drag-region="deep">
             <span class="live-dot is-connecting" id="live-dot" aria-hidden="true"></span>
             <span class="status-text" id="status-text" role="status" aria-live="polite">LINK</span>
-            <span class="market-label">USD</span>
-            <span class="source-label" id="source-label" aria-label="Coinbase 和 Kraken">Coinbase</span>
+            <span class="market-label" id="market-label" aria-label="美元计价">USD</span>
+            <span class="source-label" id="source-label" aria-label="等待行情来源">Coinbase</span>
           </div>
           <span aria-hidden="true"></span>
           <span class="baseline-label" aria-label="涨跌幅以 UTC+0 当天 00:00 的价格为基准">Δ UTC+0</span>
@@ -27,7 +27,7 @@
           <button
             id="watchlist-button"
             type="button"
-            aria-label="添加或管理自选币种"
+            aria-label="添加或管理自选品种"
             aria-controls="watchlist-manager"
             aria-expanded="false"
           >
@@ -42,13 +42,13 @@
         </div>
       </header>
 
-      <section class="quotes" id="quotes" aria-label="自选币种实时价格"></section>
+      <section class="quotes" id="quotes" aria-label="自选品种实时价格"></section>
 
       <section
         class="watchlist-manager"
         id="watchlist-manager"
         role="dialog"
-        aria-label="管理自选币种"
+        aria-label="管理自选品种"
         hidden
       >
         <div class="search-track">
@@ -63,8 +63,8 @@
             autocomplete="off"
             spellcheck="false"
             maxlength="30"
-            placeholder="搜索币种"
-            aria-label="按代码或名称搜索美元币种"
+            placeholder="搜索币种 / 美股"
+            aria-label="按代码或名称搜索 USD 现货或美股相关 USDT 永续合约"
           />
         </div>
         <div class="manager-list" id="manager-list"></div>
