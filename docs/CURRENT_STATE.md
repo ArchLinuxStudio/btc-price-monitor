@@ -4,17 +4,17 @@ Checkpoint date: 2026-08-29 (Asia/Shanghai)
 
 ## Current Objective
 
-Publish `v1.3.0` containing the completed multi-product/four-source feature set and strict TypeScript migration. The migration keeps features, UI, runtime contracts, market semantics, and Rust source unchanged; the release changes only required package/Cargo/Tauri version metadata.
+There is no active product-code objective. `v1.3.0`, containing the multi-product/four-source feature set and strict TypeScript migration, was published and fully verified on 2026-08-29.
 
 ## Current Status
 
-- Branch/upstream: `main` tracking `origin/main`; the completed TypeScript migration is currently uncommitted, so live Git is authoritative.
-- Most recent product-code commit: `3f68c6d4d2a4f8f50df3f12a2740b760454565b3` (`feat: add compact multi-source crypto watchlist`). The documentation-only checkpoint commit follows it without changing product source/config/tests.
-- Product-code baseline described as `v1.2.1-3-g3f68c6d` before the documentation commit. No new tag was created.
-- Source version is synchronized to `1.3.0` in package/Cargo/Tauri metadata for the explicitly authorized release.
-- Latest published GitHub Release is still `v1.2.1`; it has five platform assets but predates the current watchlist/four-source implementation.
-- The TypeScript migration is complete and currently uncommitted on top of `main`; the user explicitly authorized committing, pushing, and publishing release `v1.3.0` on 2026-08-29.
-- Live Git currently contains the intentional `.js` → `.ts` renames plus build/config/documentation work. Treat live Git as authoritative if this checkpoint is resumed.
+- Branch/upstream: `main` tracking `origin/main`; the release preparation commit was pushed and the post-release documentation finalization follows it without product changes.
+- Release product commit: `c1738ed9e8c7f7b7c078f84ff2a54f8c366b884c` (`release: prepare v1.3.0`).
+- Annotated tag `v1.3.0` points to `c1738ed` locally and remotely; published tags were not moved or overwritten.
+- Source version is synchronized to `1.3.0` in package/Cargo/Tauri metadata.
+- Latest published GitHub Release is [`v1.3.0`](https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.3.0), titled `Crypto Top v1.3.0 · 多币种四源版`; it is public, non-draft, and non-prerelease.
+- The previous `v1.2.1` tag and five assets remain untouched.
+- The user explicitly authorized committing, pushing, and publishing this release on 2026-08-29; those operations are complete.
 
 ### Documentation checkpoint
 
@@ -33,7 +33,7 @@ Publish `v1.3.0` containing the completed multi-product/four-source feature set 
 - Strict same-source UTC+0 calendar-day change, source-specific open acquisition, rollover invalidation, retry/timeout guards, and request concurrency limits.
 - Bitstamp exact official USD-SPOT mappings and Bitfinex trade/candle subscription-ACK health checks.
 - Tray-only resident behavior, dynamic native height, no taskbar/Dock entry, and no hover text tooltips.
-- Cross-platform release workflow configured to use four build runners and publish five Release assets on a new tag; its release job still needs its first production end-to-end run.
+- Cross-platform release workflow completed its first production end-to-end run for `v1.3.0`: four build runners succeeded and the release job published five verified assets.
 - This checkpoint split the former monolithic `CODEX_CONTEXT.md` into `AGENTS.md` and routed `docs/` documents, then committed and pushed that migration with explicit user authorization.
 - All four frontend modules and all four Node test files now use strict TypeScript; source imports still emit as native `.js` browser-module specifiers.
 - The framework-free build/watch path emits ES2019 modules into ignored `dist/`, copies HTML/CSS byte-for-byte, and makes Tauri consume that output without changing CSP, permissions, window settings, or Rust/Cargo source.
@@ -41,8 +41,7 @@ Publish `v1.3.0` containing the completed multi-product/four-source feature set 
 
 ## In Progress
 
-- Formal `v1.3.0` release preparation is active: version sources are synchronized and release-level verification is complete; commit/push/tag operations remain.
-- After the tag workflow starts, wait for all platform builds and verify exactly five published assets before declaring the release complete.
+No implementation or release operation remains in progress.
 
 ## Relevant Files
 
@@ -75,14 +74,12 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`MARKET_DATA.md`](MARKET_DATA.md) 
 
 ## Current Problems
 
-- Current main has not been released. The published `v1.2.1` binaries do not contain the newest features.
-- The newer automatic Release job has never been exercised end-to-end by a tag created after that job was added.
 - Real macOS/Linux runtime smoke coverage, code signing/notarization, and several low-priority quality gaps remain. See [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md).
 - No blocker prevents local development or a future versioned release.
 
 ## Verification State
 
-Verified on 2026-08-29 against the current uncommitted migration:
+Verified on 2026-08-29 against release commit `c1738ed` and the published `v1.3.0` artifacts:
 
 - Pre-migration `npm.cmd run check`: passed, 58/58 tests plus syntax checks for the original four JavaScript modules.
 - Final `npm.cmd run check` at version `1.3.0`: passed; strict application and test TypeScript checks, 58/58 tests, and a clean ES2019 frontend emit all succeeded.
@@ -96,10 +93,22 @@ Verified on 2026-08-29 against the current uncommitted migration:
 - Native Windows `v1.3.0` release smoke passed with the persisted three-row watchlist: client area `208×125`, live BTC/ETH/ZEC real-USD values and UTC changes rendered, and closing hid the window while the exact test process remained resident. The test process was then terminated explicitly.
 - Runtime-equivalence audits found `main.ts`/`price-format.ts` emits identical to their prior JavaScript and only type-guard/equivalent narrowing differences in watchlist/price-feed; test counts and assertions were preserved.
 - No Rust `.rs` source, capability, permission, HTML, CSS, CSP origin, or window-envelope value changed. Cargo/package/Tauri metadata changed only as required to synchronize `1.3.0`. `git diff --check` passes with only working-copy LF→CRLF notices.
+- GitHub Actions run [`33224614032`](https://github.com/ArchLinuxStudio/btc-price-monitor/actions/runs/33224614032) passed: Windows x64, Linux x64, macOS Apple Silicon, macOS Intel, and `Publish release assets` all completed successfully.
+- Release `v1.3.0` was created with readable UTF-8 Chinese title/body and exactly five assets. Every asset was downloaded through GitHub CLI; local size and SHA-256 matched GitHub's uploaded digest:
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Crypto.Top_1.3.0_x64-setup.exe` | 1,141,335 | `b8429e1305cb13de7098db25ca49191887c6601d27a73f9271bdebc4902c252c` |
+| `Crypto-Top_1.3.0_linux-amd64.AppImage` | 79,423,992 | `ab801ffc16acfad7ba6df3cce0f2b99a190078fcab462dbb33d20df5769d7721` |
+| `Crypto-Top_1.3.0_linux-amd64.deb` | 1,528,402 | `aa2064000e48c2a8461d9c1b9d741e7d778520211ee4496acf7f9e0fa7d5445e` |
+| `Crypto-Top_1.3.0_macos-aarch64.dmg` | 1,706,940 | `b7a9980669c3d320cf4a5744d8714bc21ad21fedc77db75d8e02edff5e5ed041` |
+| `Crypto-Top_1.3.0_macos-x64.dmg` | 1,797,353 | `67368374c9aa4d242450d402a9c97de6c50bab16cd7362ff33b780d976d41e62` |
+
+- GitHub's latest-release API returns `v1.3.0`; the remote annotated tag dereferences to `c1738ed`.
 
 Still not verified:
 
-- Current `main` has no main/PR CI result. The manual/tag workflow now runs complete frontend checks on Node 20, but the workflow change has not run remotely and still omits Rust fmt/check/clippy.
+- There is still no ordinary main/PR workflow. The `v1.3.0` tag workflow ran complete frontend checks on Node 20, but tag CI still omits Rust fmt/check/clippy; those passed locally.
 - The current feature set has not had full real-device runtime acceptance on macOS Intel/Apple Silicon or Linux/Wayland.
 - Code signing and Apple notarization are not configured. Auto-update is deliberately outside the current requested product scope, not a failed verification.
 
@@ -108,8 +117,8 @@ Documentation-only final checks:
 - all local relative Markdown links resolve;
 - `git diff --check` passes (PowerShell reports only LF→CRLF working-copy notices);
 - sensitive token/private-key signatures and personal absolute paths were not found in the scoped source/config/documentation set;
-- there are no staged changes; live Git contains only the documented uncommitted migration and generated outputs remain ignored;
-- no commit, push, tag, release edit, or artifact publication was performed for this migration.
+- generated `dist/`, local installers, smoke screenshots, release notes input, and downloaded verification assets remained ignored and were not committed;
+- release commit `c1738ed`, `main`, annotated tag `v1.3.0`, UTF-8 release text, and five assets were all verified after publication.
 
 Consult live `git status` before acting; any later change is outside this completed checkpoint.
 
@@ -125,13 +134,13 @@ Detected on the current Windows machine during this checkpoint:
 
 ## Next Recommended Action
 
-1. Stage and review the authorized migration/release preparation, then commit and push it to `main`.
-2. Create and push the new immutable `v1.3.0` tag at that verified commit.
-3. Monitor the full workflow and verify all five Release assets, names, sizes, digests, downloads, and UTF-8 release text before declaring completion.
+1. Run `git status --short --branch` and understand any changes after this documentation finalization.
+2. No release recovery action is required; `v1.3.0` is complete. Future product or maintenance work requires a new explicit objective.
+3. For any future release, choose a version newer than `1.3.0`, follow `docs/RELEASE.md`, and never move or overwrite existing tags.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`.
 2. Read `docs/INDEX.md` and `docs/CURRENT_STATE.md`.
-3. Run `git status --short --branch`; the working tree is expected to contain this completed uncommitted migration, so preserve it and understand any newer changes.
-4. Release `v1.3.0` is explicitly authorized and in progress. Resume from **Next Recommended Action** without changing the chosen version or reusing an older tag.
+3. Run `git status --short --branch`; this release/documentation checkpoint is expected to be clean and synchronized with `origin/main`, so preserve and understand any newer changes.
+4. There is no active product or release task. Start only from a new explicit user objective.

@@ -2,28 +2,6 @@
 
 There is no known blocking business bug and no known flaky test at this checkpoint. This document records real limitations and technical debt; actionable work is linked to [`TODO.md`](TODO.md).
 
-## Current main is newer than the published release
-
-**Symptom:** The currently published binaries predate the self-selected watchlist and four-source implementation on main. The exact current commit/release snapshot is authoritative in [`CURRENT_STATE.md`](CURRENT_STATE.md).
-
-**Impact:** Cloning/building main and installing the latest GitHub Release produce different feature sets.
-
-**Reproduction:** Compare `git describe --tags --always` and the latest GitHub Release; do not rely on a copied commit count here.
-
-**Workaround:** Build locally for development. Do not upload the local same-version installer over `v1.2.1`.
-
-**Next direction:** Only after explicit authorization, release a new version following `RELEASE.md` and the P1 checklist.
-
-## Automatic Release job is not production-proven
-
-**Symptom:** `.github/workflows/build-desktop.yml` contains a later explicit release job, but no tag created after that change has exercised it end-to-end.
-
-**Impact:** The first new release may reveal artifact-pattern, naming, permission, or upload assumptions despite the workflow being reviewed.
-
-**Already known:** Older tag runs succeeded at platform builds, and historical missing assets were repaired. That does not test the newer release job.
-
-**Workaround:** Treat the first new tag as a monitored release; wait for every job and verify all five assets.
-
 ## No normal main/PR CI and incomplete CI checks
 
 **Symptom:** The desktop workflow triggers only for manual dispatch or `v*` tags. It now runs the complete TypeScript/frontend `npm run check`, but it still does not run Rust fmt/check/clippy.

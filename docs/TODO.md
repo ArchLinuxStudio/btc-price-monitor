@@ -6,16 +6,6 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 None. There is no known blocking business bug or active product task.
 
-## P1 — Conditional operations (only after explicit authorization)
-
-- [ ] Publish the current main features only when the user explicitly asks for a release.
-  - Done when:
-    - a SemVer version newer than `1.2.1` is synchronized across all sources listed in `RELEASE.md`;
-    - TypeScript/frontend and Rust checks plus a relevant native smoke pass;
-    - a new tag triggers the full workflow;
-    - the GitHub Release contains the expected Windows, two macOS, and two Linux assets with correct names/digests and UTF-8 text;
-    - the old `v1.2.1` tag/assets remain untouched.
-
 ## P2 — Release quality and cross-platform confidence
 
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
