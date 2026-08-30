@@ -28,7 +28,7 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
-**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow on both platforms, and all Wayland tray/always-on-top combinations.
+**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow, the tray-opened About window, and all Wayland tray/always-on-top combinations on those platforms.
 
 **Next direction:** Use real target systems for the next release candidate; do not “fix” a platform by widening CSP without diagnosis.
 

@@ -2,6 +2,20 @@
 
 This document records accepted decisions that a future developer might otherwise “simplify” into a regression. Current work status belongs in [`CURRENT_STATE.md`](CURRENT_STATE.md).
 
+## Decision: License the project under GPL v3 only
+
+**Status:** Accepted implementation default; GPL was explicitly requested, but the exact SPDX variant was not specified
+
+**Context:** The user requested that the About view expose a GPL license. The repository previously had no project-level license file or package metadata, and the request did not specify a GPL version or an “or any later version” grant.
+
+**Decision:** License the project under GNU General Public License version 3 only, identified by the SPDX expression `GPL-3.0-only`. Keep the complete, unmodified GPLv3 text in the root [`LICENSE`](../LICENSE) file; the grant does not include the “or any later version” option.
+
+**Reason:** Distribution needs a concrete license text and SPDX expression. Version 3 is the current GNU GPL text selected for this implementation, and `only` avoids silently granting use under unspecified future license versions; the project owner can explicitly broaden the grant later if desired.
+
+**Rejected alternatives:** `GPL-3.0-or-later`, a shortened or paraphrased license file, and leaving the package metadata unspecified.
+
+**Implications:** Keep the root license, npm and Cargo package metadata, README, and About view consistent. Distribution of binaries or modified versions must follow the GPLv3 terms, including the applicable corresponding-source and notice obligations; third-party components retain their own licenses.
+
 ## Decision: Keep Tauri 2 with a static frontend
 
 **Status:** Accepted
@@ -119,6 +133,20 @@ This document records accepted decisions that a future developer might otherwise
 **Rejected alternatives:** Normal taskbar/Dock presence, default silent startup with no visible monitor, or treating the close button as process termination.
 
 **Implications:** Do not promise that hidden WebViews process every tick on every OS; promise that the process stays resident and reconnects/continues when restored.
+
+## Decision: Use a local static About window
+
+**Status:** Accepted; explicit user request
+
+**Context:** The tray menu must expose an About view containing the current application version, application icon, GitHub repository address, and GPL license information consistently on Windows, macOS, and Linux.
+
+**Decision:** Pre-create one hidden, fixed-size `about` WebView from local `about.html`, show/center/focus it from a normal tray menu item, and hide/reuse it on close. Inject the application version from `tauri.conf.json` and an HTML-escaped copy of the complete root `LICENSE` during the frontend build, copy the canonical `assets/app-icon.svg` and `LICENSE.txt` into the frontend distribution, configure the root license as Tauri's bundle license file, and leave the About window outside every IPC capability.
+
+**Reason:** Tauri's platform-native predefined About item cannot display the full requested metadata consistently across all three operating systems. A local static page is deterministic, keeps the current CSP, and needs no new plugin, network origin, or frontend-native permission.
+
+**Rejected alternatives:** Platform-native `PredefinedMenuItem::about`, hard-coding a second version string, duplicating the icon source, granting the About page the main monitor's IPC commands, and adding an external-URL opener when the requested repository address only needs to be displayed and selectable.
+
+**Implications:** Keep `src/about.html`, `scripts/frontend.ts`, Tauri version/bundle metadata, `LICENSE`, and the canonical icon synchronized. Recipients must be able to read the complete license without access to the source checkout. The About window must not change the main monitor's `208px` envelope, taskbar/Dock policy, or tray-only exit contract.
 
 ## Decision: Cap the watchlist at eight and compute size natively
 

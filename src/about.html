@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>关于 Crypto Top</title>
+    <link rel="stylesheet" href="about.css" />
+  </head>
+  <body>
+    <main class="about-shell" aria-labelledby="app-name">
+      <img class="app-icon" src="app-icon.svg" alt="Crypto Top 应用图标" width="76" height="76" />
+      <h1 id="app-name">Crypto Top</h1>
+      <p class="version">版本 <strong id="app-version">{{APP_VERSION}}</strong></p>
+
+      <section class="details" aria-label="应用信息">
+        <div class="detail-card">
+          <h2>GitHub 仓库</h2>
+          <p class="repository">https://github.com/ArchLinuxStudio/btc-price-monitor</p>
+        </div>
+
+        <div class="detail-card license-card">
+          <h2>许可证</h2>
+          <p class="license-name">GNU General Public License v3.0</p>
+          <p class="license-note">
+            SPDX: GPL-3.0-only。本软件不提供任何担保；源代码和二进制分发均遵循以下完整许可条款。
+          </p>
+          <details class="license-details">
+            <summary>
+              <span class="license-summary-open">查看完整 GPL v3 许可条款</span>
+              <span class="license-summary-close">关闭完整 GPL v3 许可条款</span>
+            </summary>
+            <pre class="license-text">{{GPL_LICENSE_TEXT}}</pre>
+          </details>
+        </div>
+      </section>
+
+      <p class="copyright">Copyright © 2026 Crypto Top contributors</p>
+    </main>
+  </body>
+</html>

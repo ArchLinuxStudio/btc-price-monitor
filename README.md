@@ -12,7 +12,7 @@
 - **超紧凑界面**：宽度始终为 `208px`，默认两行时仅 `208 × 92`；最多同时展示四行并在内部滚动，窗口最高 `170px`。添加/删除面板只在点击 `+` 时临时替换行情区。
 - **自动恢复**：心跳监测、超时切源、带抖动的指数退避重连；若 WebSocket 被网络拦截，会启用免费的 HTTPS 最新价兜底。
 - **始终置顶**：启动、窗口重新获得焦点、系统唤醒和运行期间都会重新确认置顶状态。
-- **系统托盘运行**：Windows、Linux 不占任务栏；macOS 不占 Dock。Windows、macOS 可左键托盘图标恢复窗口；所有平台都可通过托盘菜单显示、隐藏或彻底退出。
+- **系统托盘运行**：Windows、Linux 不占任务栏；macOS 不占 Dock。Windows、macOS 可左键托盘图标恢复窗口；所有平台都可通过托盘菜单显示、隐藏、查看“关于”信息或彻底退出。
 - **三平台打包**：Tauri 2 使用系统 WebView，常驻内存和安装体积明显小于 Electron。
 
 ## 在 Windows 上运行
@@ -35,7 +35,7 @@ npm.cmd run build:windows
 
 输出位于 `src-tauri/target/release/bundle/nsis/`。
 
-窗口标题栏的 `+` 用于搜索、添加或删除自选品种；例如搜索 `MU` 可在交易所当前上架时添加 `MU.P`。右侧关闭按钮只把监视器隐藏到系统托盘，程序仍保持运行，恢复窗口后会自动继续刷新行情。需要完全退出时，右键单击托盘图标并选择“退出 Crypto Top”。Windows 可能会根据系统设置把新托盘图标放进 `^` 隐藏图标区域。
+窗口标题栏的 `+` 用于搜索、添加或删除自选品种；例如搜索 `MU` 可在交易所当前上架时添加 `MU.P`。右侧关闭按钮只把监视器隐藏到系统托盘，程序仍保持运行，恢复窗口后会自动继续刷新行情。右键单击托盘图标并选择“关于 Crypto Top”可查看当前版本、应用图标、GitHub 仓库地址和 GPL 许可证（包括可展开的完整条款）；选择“退出 Crypto Top”才会完全退出。Windows 可能会根据系统设置把新托盘图标放进 `^` 隐藏图标区域。
 
 ## macOS / Linux
 
@@ -80,3 +80,7 @@ USD 现货优先显示 5 秒内的 Coinbase 行情；有 Bybit 精确映射的�
 ## 开发文档
 
 新的开发 Thread 请从 [`AGENTS.md`](AGENTS.md) 和 [`docs/INDEX.md`](docs/INDEX.md) 开始；当前状态与下一步见 [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md)。这些文件是持久化开发上下文，README 继续只承担用户使用说明。
+
+## 许可证
+
+本项目仅按 [GNU General Public License v3.0](LICENSE)（SPDX：`GPL-3.0-only`）授权，不包含“或任何后续版本”选项。

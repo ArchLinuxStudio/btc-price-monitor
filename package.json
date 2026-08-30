@@ -2,6 +2,7 @@
   "name": "crypto-top-monitor",
   "version": "1.4.0",
   "private": true,
+  "license": "GPL-3.0-only",
   "type": "module",
   "description": "A tiny always-on-top USD crypto and stock-perpetual watchlist for Windows, macOS, and Linux.",
   "scripts": {

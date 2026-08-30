@@ -29,6 +29,28 @@
         "visibleOnAllWorkspaces": true,
         "shadow": true,
         "focus": true
+      },
+      {
+        "label": "about",
+        "title": "关于 Crypto Top",
+        "url": "about.html",
+        "width": 380,
+        "height": 450,
+        "minWidth": 380,
+        "minHeight": 450,
+        "maxWidth": 380,
+        "maxHeight": 450,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false,
+        "decorations": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visibleOnAllWorkspaces": true,
+        "shadow": true,
+        "center": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {
@@ -63,6 +85,7 @@
   "bundle": {
     "active": true,
     "category": "Finance",
+    "licenseFile": "../LICENSE",
     "shortDescription": "Compact real-time crypto and market prices",
     "longDescription": "A compact always-on-top watchlist for USD crypto spot and USDT stock perpetual market data.",
     "icon": [

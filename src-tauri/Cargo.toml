@@ -3,6 +3,7 @@ name = "crypto-top-monitor"
 version = "1.4.0"
 description = "Always-on-top BTC and ETH USD price monitor"
 authors = ["Crypto Top contributors"]
+license = "GPL-3.0-only"
 edition = "2021"
 
 [lib]

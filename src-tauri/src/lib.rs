@@ -5,9 +5,18 @@ use tauri::{
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const ABOUT_WINDOW_LABEL: &str = "about";
 const MONITOR_WIDTH: u32 = 208;
 const MONITOR_MIN_HEIGHT: u32 = 92;
 const MONITOR_MAX_HEIGHT: u32 = 170;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TrayAction {
+    ShowMain,
+    HideMain,
+    ShowAbout,
+    Quit,
+}
 
 fn monitor_height(row_count: u32, management_open: bool, item_count: u32) -> u32 {
     if management_open {
@@ -58,6 +67,11 @@ fn main_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "main window is unavailable".to_owned())
 }
 
+fn about_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    app.get_webview_window(ABOUT_WINDOW_LABEL)
+        .ok_or_else(|| "about window is unavailable".to_owned())
+}
+
 fn show_main_window(app: &AppHandle) -> Result<(), String> {
     let window = main_window(app)?;
     window.show().map_err(|error| error.to_string())?;
@@ -70,25 +84,62 @@ fn hide_main_window(app: &AppHandle) -> Result<(), String> {
     main_window(app)?.hide().map_err(|error| error.to_string())
 }
 
+fn show_about_window(app: &AppHandle) -> Result<(), String> {
+    let window = about_window(app)?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.center().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
+fn hides_on_close(label: &str) -> bool {
+    label == MAIN_WINDOW_LABEL || label == ABOUT_WINDOW_LABEL
+}
+
+fn tray_action(id: &str) -> Option<TrayAction> {
+    match id {
+        "show-window" => Some(TrayAction::ShowMain),
+        "hide-window" => Some(TrayAction::HideMain),
+        "about" => Some(TrayAction::ShowAbout),
+        "quit" => Some(TrayAction::Quit),
+        _ => None,
+    }
+}
+
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(app, "show-window", "显示窗口", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, "hide-window", "隐藏窗口", true, None::<&str>)?;
-    let separator = PredefinedMenuItem::separator(app)?;
+    let window_separator = PredefinedMenuItem::separator(app)?;
+    let about_item = MenuItem::with_id(app, "about", "关于 Crypto Top", true, None::<&str>)?;
+    let quit_separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出 Crypto Top", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_item, &hide_item, &separator, &quit_item])?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &show_item,
+            &hide_item,
+            &window_separator,
+            &about_item,
+            &quit_separator,
+            &quit_item,
+        ],
+    )?;
 
     let mut builder = TrayIconBuilder::with_id("crypto-top-tray")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "show-window" => {
+        .on_menu_event(|app, event| match tray_action(event.id().as_ref()) {
+            Some(TrayAction::ShowMain) => {
                 let _ = show_main_window(app);
             }
-            "hide-window" => {
+            Some(TrayAction::HideMain) => {
                 let _ = hide_main_window(app);
             }
-            "quit" => app.exit(0),
-            _ => {}
+            Some(TrayAction::ShowAbout) => {
+                let _ = show_about_window(app);
+            }
+            Some(TrayAction::Quit) => app.exit(0),
+            None => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -157,13 +208,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::Focused(true) => {
+            WindowEvent::Focused(true) if window.label() == MAIN_WINDOW_LABEL => {
                 if let Some(webview_window) = window.app_handle().get_webview_window(window.label())
                 {
                     let _ = apply_window_behavior(&webview_window);
                 }
             }
-            WindowEvent::CloseRequested { api, .. } => {
+            WindowEvent::CloseRequested { api, .. } if hides_on_close(window.label()) => {
                 api.prevent_close();
                 let _ = window.hide();
             }
@@ -189,7 +240,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{monitor_height, MONITOR_MAX_HEIGHT, MONITOR_MIN_HEIGHT};
+    use super::{
+        hides_on_close, monitor_height, tray_action, TrayAction, MONITOR_MAX_HEIGHT,
+        MONITOR_MIN_HEIGHT,
+    };
 
     #[test]
     fn quote_layout_height_is_clamped_to_two_through_four_rows() {
@@ -211,5 +265,21 @@ mod tests {
         assert_eq!(monitor_height(0, true, 4), MONITOR_MAX_HEIGHT);
         assert_eq!(monitor_height(0, true, 5), MONITOR_MAX_HEIGHT);
         assert_eq!(monitor_height(0, true, u32::MAX), MONITOR_MAX_HEIGHT);
+    }
+
+    #[test]
+    fn only_managed_windows_hide_instead_of_closing() {
+        assert!(hides_on_close("main"));
+        assert!(hides_on_close("about"));
+        assert!(!hides_on_close("unexpected"));
+    }
+
+    #[test]
+    fn tray_menu_ids_route_to_the_expected_actions() {
+        assert_eq!(tray_action("show-window"), Some(TrayAction::ShowMain));
+        assert_eq!(tray_action("hide-window"), Some(TrayAction::HideMain));
+        assert_eq!(tray_action("about"), Some(TrayAction::ShowAbout));
+        assert_eq!(tray_action("quit"), Some(TrayAction::Quit));
+        assert_eq!(tray_action("unexpected"), None);
     }
 }

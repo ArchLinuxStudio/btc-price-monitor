@@ -4,12 +4,12 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 ## P0 — Blocking
 
-None. The active stock-related perpetual implementation has no known blocker; its exact checkpoint and remaining verification are recorded in `CURRENT_STATE.md`.
+None. The current About/GPL implementation has no known blocker; its exact checkpoint and remaining cross-platform verification are recorded in `CURRENT_STATE.md`.
 
 ## P2 — Release quality and cross-platform confidence
 
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
-  - Done when tray visibility/actions, close-to-hide, always-on-top, dynamic height, Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
+  - Done when tray visibility/actions (including About), monitor/About close-to-hide, always-on-top, dynamic height, Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 
 - [ ] Add signing/notarization before broad end-user distribution.
   - Done when Windows artifacts are signed and macOS artifacts use Developer ID plus notarization, with secrets stored only in protected CI configuration.
