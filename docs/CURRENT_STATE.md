@@ -10,9 +10,9 @@ Add a cross-platform tray-menu About view that displays the current application 
 
 - Branch/upstream: `main` tracking `origin/main`.
 - This task started from clean synchronized commit `66f3ace843b110016795fc37c44ab879915f21a4` (`feat: add dynamic stock perpetual markets`).
-- The working tree now contains only the scoped About/GPL implementation, tests, build-tooling, README, and documentation changes awaiting the authorized commit/push. No unrelated user edits were identified.
+- The scoped About/GPL implementation, tests, build-tooling, README, and documentation changes were committed as `e2e9144` (`feat: add tray about window and GPL license`) and pushed to `origin/main`. No unrelated user edits were included.
 - Source version remains synchronized at `1.4.0`; published `v1.3.0` remains the latest GitHub Release.
-- The user explicitly authorized committing and pushing this implementation to `origin/main`. No tag or GitHub Release is authorized.
+- The user explicitly authorized committing and pushing this implementation to `origin/main`; that operation is complete. No tag or GitHub Release was authorized or created.
 - The main monitor's `208px` envelope, market-data behavior, custom IPC surface, CSP origins, and taskbar/Dock policy are unchanged.
 - Installer-page verification unintentionally advanced into installation before cancellation took effect. A near-final unsigned `1.4.0` build replaced the existing per-user installation at `C:\Users\walle\AppData\Local\Crypto Top`; its installer-launched instance remains running, the main window is visible, and About is hidden. The final source and installer differ only by replacing the visually equivalent CSS `inset` shorthand with macOS 10.15-compatible edge declarations, and were deliberately not installed again. That local installation did not itself create a commit, tag, push, or published Release.
 
@@ -31,7 +31,7 @@ Add a cross-platform tray-menu About view that displays the current application 
 
 ## In Progress
 
-The scoped implementation and local verification are complete. Commit and push are explicitly authorized and are the active delivery step; tag/Release operations remain out of scope.
+The scoped implementation, local verification, commit, and source push are complete. There is no active implementation blocker; tag/Release operations remain out of scope.
 
 ## Relevant Files
 
@@ -85,18 +85,19 @@ About/GPL feature work, verified on 2026-08-30:
 - `git diff --check`: passed with only expected Windows LF-to-CRLF notices.
 - All local relative links across `AGENTS.md`, `README.md`, and `docs/*.md` resolve (10 files, 0 broken links).
 - Generated `dist/`, target binaries, and the local NSIS remain ignored; smoke screenshots stayed outside the repository, and none of these artifacts is part of the working tree.
+- `git push origin main`: passed; feature commit `e2e9144` is present on `origin/main`. This follow-up state-document update records the completed delivery.
 
 Not verified: real macOS/Linux About/tray behavior, signing, and notarization.
 
 ## Next Recommended Action
 
-1. Commit the reviewed About/GPL changes and push them to `origin/main`, as explicitly authorized. Keep the ignored local NSIS out of source control.
-2. Verify local `main` and `origin/main` point at the pushed commit and that the worktree is clean.
+1. Preserve the completed About/GPL implementation on `main`; no further code action is currently required.
+2. Continue the remaining real macOS/Linux runtime checks only when an appropriate environment or release-candidate task is available.
 3. Do not tag or publish a Release unless the user separately authorizes it; any future release must follow `docs/RELEASE.md` and verify all five workflow-built assets without moving or overwriting published `v1.3.0`.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`; preserve any remaining scoped About/GPL changes and understand any newer edits before acting.
+2. Run `git status --short --branch`; confirm the pushed About/GPL state is clean and understand any newer edits before acting.
 3. Read the GPL/About decisions in `docs/DECISIONS.md` and inspect `src-tauri/src/lib.rs`, `src/about.html`, and `scripts/frontend.ts` before changing this feature.
-4. Continue from `Next Recommended Action`; commit/push is authorized for this implementation, but tag/Release publication is not.
+4. Continue from `Next Recommended Action`; the prior commit/push authorization has been fulfilled and does not authorize a tag or Release.
