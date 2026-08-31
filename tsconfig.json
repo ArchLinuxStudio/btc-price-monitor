@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "target": "ES2019",
+    "target": "ES2025",
     "module": "ES2022",
     "moduleResolution": "Bundler",
-    "lib": ["ES2019", "DOM", "DOM.Iterable"],
+    "lib": ["ES2025", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmit": true,
     "noEmitOnError": true,

@@ -18,7 +18,8 @@ interface TauriConfig {
       maxWidth: number;
       height: number;
       minHeight: number;
-      maxHeight: number;
+      maxHeight?: number;
+      dragDropEnabled?: boolean;
       resizable: boolean;
       maximizable: boolean;
       decorations: boolean;
@@ -37,9 +38,51 @@ interface TauriConfig {
   };
 }
 
+interface TypeScriptConfig {
+  compilerOptions: {
+    target: string;
+    module: string;
+    lib: string[];
+  };
+}
+
+interface MacOSTauriConfig {
+  bundle: {
+    macOS: {
+      minimumSystemVersion: string;
+    };
+  };
+}
+
 function readProjectFile(relativePath: string): string {
   return readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 }
+
+test("uses the ES2025 language baseline and requires macOS 12 or later", () => {
+  const typescriptConfig = JSON.parse(readProjectFile("tsconfig.json")) as TypeScriptConfig;
+  const macOSConfig = JSON.parse(
+    readProjectFile("src-tauri/tauri.macos.conf.json"),
+  ) as MacOSTauriConfig;
+
+  assert.equal(typescriptConfig.compilerOptions.target, "ES2025");
+  assert.equal(typescriptConfig.compilerOptions.module, "ES2022");
+  assert.deepEqual(typescriptConfig.compilerOptions.lib, ["ES2025", "DOM", "DOM.Iterable"]);
+  assert.equal(macOSConfig.bundle.macOS.minimumSystemVersion, "12.0");
+});
+
+test("blocks a release when either macOS bundle misses the 12.0 deployment floor", () => {
+  const workflow = readProjectFile(".github/workflows/build-desktop.yml");
+
+  assert.match(workflow, /name: Verify macOS 12 deployment floor/);
+  assert.match(workflow, /if: startsWith\(matrix\.platform, 'macos-'\)/);
+  assert.match(workflow, /Print :LSMinimumSystemVersion/);
+  assert.match(workflow, /Print :CFBundleExecutable/);
+  assert.match(workflow, /minimum_system_version[\s\S]*?!= "12\.0"/);
+  assert.match(workflow, /otool -l/);
+  assert.match(workflow, /LC_BUILD_VERSION/);
+  assert.match(workflow, /LC_VERSION_MIN_MACOSX/);
+  assert.match(workflow, /deployment_target[\s\S]*?!= "12\.0"/);
+});
 
 test("does not expose mouse-hover text tooltips", () => {
   const html = readProjectFile("src/index.html");
@@ -53,10 +96,11 @@ test("does not expose mouse-hover text tooltips", () => {
   assert.doesNotMatch(rust, /\.tooltip\s*\(/);
 });
 
-test("keeps the compact manager and exposes only bounded vertical quote resizing", () => {
+test("keeps the compact manager and exposes screen-bounded vertical quote resizing", () => {
   const html = readProjectFile("src/index.html");
   const css = readProjectFile("src/styles.css");
   const typescript = readProjectFile("src/main.ts");
+  const watchlist = readProjectFile("src/watchlist.ts");
   const rust = readProjectFile("src-tauri/src/lib.rs");
   const windowPermission = readProjectFile("src-tauri/permissions/window-controls.toml");
   const mainCapability = readProjectFile("src-tauri/capabilities/main.json");
@@ -70,6 +114,10 @@ test("keeps the compact manager and exposes only bounded vertical quote resizing
   assert.match(html, /id="coin-search"[\s\S]*?type="search"/);
   assert.match(html, /placeholder="搜索币种 \/ 美股"/);
   assert.match(html, /id="quote-row-template"/);
+  assert.match(html, /id="quotes"[\s\S]*?role="list"/);
+  assert.match(html, /id="reorder-instructions"/);
+  assert.match(html, /id="reorder-status"[\s\S]*?aria-live="polite"[\s\S]*?aria-atomic="true"/);
+  assert.match(html, /class="quote-row" role="listitem"/);
   assert.match(
     html,
     /id="resize-handle"[\s\S]*?aria-label="拖动或使用方向键调整行情窗口高度"/,
@@ -79,22 +127,55 @@ test("keeps the compact manager and exposes only bounded vertical quote resizing
   assert.match(typescript, /feed\.setProducts\(selectedProducts\)/);
   assert.match(
     typescript,
-    /const selectedIndex = selectedProducts\.findIndex[\s\S]*?renderSelectedProduct\(selectedProducts\[selectedIndex\], selectedIndex\);[\s\S]*?row\.disabled = full;/,
+    /const selectedIndex = selectedProducts\.findIndex[\s\S]*?renderSelectedProduct\(selectedProducts\[selectedIndex\], selectedIndex\);/,
   );
-  assert.doesNotMatch(typescript, /row\.disabled = selected \|\| full/);
+  assert.doesNotMatch(`${typescript}\n${watchlist}`, /MAX_PRODUCTS|自选已满|最多可显示/);
+  assert.doesNotMatch(watchlist, /normalized\.length\s*>=/);
+  assert.match(
+    typescript,
+    /rowCount: selectedProducts\.length/,
+  );
+  assert.doesNotMatch(typescript, /nativeQuoteRowLimit|Math\.min\(selectedProducts\.length/);
   assert.match(
     typescript,
     /remove\.addEventListener\("click", \(\) => removeProduct\(product\.id, index\)\)/,
   );
+  assert.match(typescript, /previousRemovableIndex[\s\S]*?filter\(\(entry\) => !entry\.fixed\)[\s\S]*?Math\.min\(previousRemovableIndex, buttons\.length - 1\)/);
+  assert.match(typescript, /product\.symbol\.length > 6/);
+  assert.doesNotMatch(typescript, /product\.symbol\.length > 5/);
+  assert.match(typescript, /row\.draggable = true/);
+  assert.match(typescript, /aria-keyshortcuts", "Alt\+ArrowUp Alt\+ArrowDown"/);
+  assert.match(typescript, /aria-describedby", "reorder-instructions"/);
+  for (const eventName of ["dragstart", "dragover", "dragleave", "drop", "dragend"]) {
+    assert.match(typescript, new RegExp(`addEventListener\\("${eventName}"`));
+  }
+  assert.match(typescript, /dataTransfer\.setData\("text\/plain", productId\)/);
+  assert.match(typescript, /event\.dataTransfer\.effectAllowed = "move"/);
+  assert.match(typescript, /event\.dataTransfer\.dropEffect = "move"/);
+  assert.match(typescript, /event\.altKey[\s\S]*?event\.key === "ArrowDown"[\s\S]*?event\.key === "ArrowUp"/);
+  assert.match(typescript, /requestAnimationFrame\(\(\) => quoteViews\.get\(movingProductId\)\?\.row\.focus\(\)\)/);
+  assert.match(typescript, /document\.addEventListener\("drop"[\s\S]*?event\.preventDefault\(\)/);
+  const reorderFunction = typescript.match(
+    /function reorderSelectedProduct[\s\S]*?\n}\n\nfunction moveSelectedProductBy/,
+  )?.[0];
+  assert.ok(reorderFunction);
+  assert.match(reorderFunction, /selectedProducts = saveWatchlist\(reordered\)/);
+  assert.doesNotMatch(reorderFunction, /feed\.setProducts/);
   assert.match(typescript, /USD\/USDT/);
   assert.match(typescript, /scrollHeight > elements\.quotes\.clientHeight/);
   assert.match(typescript, /tauriInvoke\("resize_monitor_height"/);
   assert.match(css, /grid-template-columns:\s*40px minmax\(0, 1fr\) 40px/);
   assert.match(css, /\.resize-handle\s*\{[\s\S]*?cursor:\s*ns-resize/);
+  assert.match(css, /\.quote-row\[draggable="true"\][\s\S]*?cursor:\s*grab[\s\S]*?-webkit-app-region:\s*no-drag/);
+  assert.match(css, /\.quotes\.is-reordering \.quote-row[\s\S]*?cursor:\s*grabbing/);
+  assert.match(css, /\.quote-row\.is-drop-before[\s\S]*?inset 0 2px/);
+  assert.match(css, /\.quote-row\.is-drop-after[\s\S]*?inset 0 -2px/);
+  assert.match(css, /\.quote-row:focus-visible/);
   assert.match(
     rust,
-    /requested_height\.clamp\(\s*quote_auto_height\(row_count\),\s*quote_content_height\(row_count\),?\s*\)/,
+    /quote_content_height\(row_count\)[\s\S]*?\.min\(available_height\)[\s\S]*?requested_height\.clamp\(minimum_height, maximum_height\)/,
   );
+  assert.match(rust, /current_monitor\(\)[\s\S]*?work_area\(\)[\s\S]*?scale_factor\(\)/);
   assert.match(windowPermission, /"resize_monitor_height"/);
   assert.doesNotMatch(
     `${mainCapability}\n${windowPermission}`,
@@ -105,7 +186,8 @@ test("keeps the compact manager and exposes only bounded vertical quote resizing
   assert.equal(windowConfig.maxWidth, 208);
   assert.equal(windowConfig.height, 92);
   assert.equal(windowConfig.minHeight, 92);
-  assert.equal(windowConfig.maxHeight, 290);
+  assert.equal(windowConfig.maxHeight, undefined);
+  assert.equal(windowConfig.dragDropEnabled, false);
   assert.equal(windowConfig.resizable, false);
   assert.equal(windowConfig.maximizable, false);
 });

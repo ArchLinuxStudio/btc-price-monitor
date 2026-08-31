@@ -63,8 +63,6 @@ interface ResponseLike {
   json(): unknown;
 }
 
-export const MAX_PRODUCTS = 8;
-
 export const DEFAULT_PRODUCTS: readonly Readonly<Product>[] = Object.freeze([
   Object.freeze({
     id: "BTC-USD",
@@ -225,18 +223,21 @@ function normalizeProduct(value: unknown): Product | null {
 }
 
 function normalizeWatchlist(products: unknown): Product[] {
-  const normalized = defaultProducts();
-  const seen = new Set(normalized.map((product) => product.id));
-  if (!Array.isArray(products)) return normalized;
+  if (!Array.isArray(products)) return defaultProducts();
+
+  const normalized: Product[] = [];
+  const seen = new Set<string>();
 
   for (const value of products) {
-    if (normalized.length >= MAX_PRODUCTS) break;
     const product = normalizeProduct(value);
     if (!product || seen.has(product.id)) continue;
     seen.add(product.id);
     normalized.push(product);
   }
-  return normalized;
+
+  const hasEveryDefault = DEFAULT_PRODUCTS.every((product) => seen.has(product.id));
+  if (hasEveryDefault) return normalized;
+  return defaultProducts().concat(normalized.filter((product) => !product.fixed));
 }
 
 function resolveStorage(storage?: unknown): unknown {
@@ -283,6 +284,25 @@ export function saveWatchlist(products: unknown, storage?: unknown): Product[] {
     // Persistence can be unavailable in private or restricted WebViews.
   }
   return normalized;
+}
+
+export function reorderWatchlist(
+  products: readonly Product[],
+  movingProductId: string,
+  targetProductId: string,
+  placeAfter: boolean,
+): Product[] {
+  const normalized = normalizeWatchlist(products);
+  const movingIndex = normalized.findIndex((product) => product.id === movingProductId);
+  const targetIndex = normalized.findIndex((product) => product.id === targetProductId);
+  if (movingIndex < 0 || targetIndex < 0 || movingIndex === targetIndex) return normalized;
+
+  const reordered = normalized.slice();
+  const [movingProduct] = reordered.splice(movingIndex, 1);
+  const remainingTargetIndex = reordered.findIndex((product) => product.id === targetProductId);
+  const insertionIndex = remainingTargetIndex + (placeAfter ? 1 : 0);
+  reordered.splice(insertionIndex, 0, movingProduct);
+  return reordered;
 }
 
 function currencyNames(currenciesPayload: unknown): Map<string, string> {

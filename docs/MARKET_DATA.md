@@ -66,7 +66,7 @@ Stored fields are syntax-validated and product-class validated before reuse. Gat
 ### Bitfinex
 
 - Price and UTC open share `wss://api-pub.bitfinex.com/ws/2`.
-- Each mapped product subscribes to `trades` and `candles` key `trade:1D:{symbol}`. Eight products would be at most 16 channels, under the currently documented 25-channel socket limit, although runtime coverage is BTC/ETH only.
+- Each mapped product subscribes to `trades` and `candles` key `trade:1D:{symbol}`. Current built-in BTC/ETH coverage uses four channels. Any future expansion of exact Bitfinex mappings must partition connections as needed to respect the provider's per-socket channel limit; the watchlist itself no longer supplies an eight-product safety bound.
 - Bind dynamic `chanId` values from subscription acknowledgements. Trade snapshots may be newest-first; select maximum MTS. Handle `te`, `tu`, and `[chanId,"hb"]` correctly.
 - Every expected trade/candle subscription must receive a unique acknowledgement. A rejection or 10-second incomplete-ACK timeout closes the socket and enters normal reconnect backoff.
 - Candle control/data events must not update trade freshness. Accept a UTC open only when its MTS equals current UTC midnight and volume is positive.

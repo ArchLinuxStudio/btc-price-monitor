@@ -4,12 +4,12 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 ## P0 — Blocking
 
-None. No implementation task is active, and the completed bounded quote-height resize plus compact About/repository-opener work have no known blocker. Current Git and verification state are recorded in `CURRENT_STATE.md`.
+None. No implementation task is active, and quote-row ordering, the uncapped watchlist, screen-bounded quote-height resize, and compact About/repository-opener work have no known blocker. Current Git and verification state are recorded in `CURRENT_STATE.md`.
 
 ## P2 — Release quality and cross-platform confidence
 
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
-  - Done when tray visibility/actions (including About and its scoped GitHub opener), monitor/About close-to-hide, always-on-top, bounded quote-height drag (fixed `208px` width, overflow behavior, `290px` quote maximum, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
+  - Done when macOS bundle/deployment metadata reports the 12.0 floor and startup plus the fixed ES2025 output are exercised on macOS 12.x; tray visibility/actions (including About and its scoped GitHub opener), monitor/About close-to-hide, always-on-top, main-row mouse/keyboard ordering and restart persistence, screen-bounded quote-height drag (fixed `208px` width, expansion to the available work-area/content limit, overflow behavior, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 
 - [ ] Add signing/notarization before broad end-user distribution.
   - Done when Windows artifacts are signed and macOS artifacts use Developer ID plus notarization, with secrets stored only in protected CI configuration.

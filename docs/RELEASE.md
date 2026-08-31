@@ -48,8 +48,8 @@ Build targets:
 - Windows x64 NSIS
 - Linux x64 AppImage
 - Linux x64 deb
-- macOS Apple Silicon dmg
-- macOS Intel dmg
+- macOS Apple Silicon dmg (minimum macOS 12.0)
+- macOS Intel dmg (minimum macOS 12.0)
 
 `uploadWorkflowArtifacts: true` alone does not attach files to a GitHub Release. The explicit `release` job downloads artifacts, normalizes names, and invokes `gh release upload`.
 
@@ -73,7 +73,8 @@ The Windows dot after `Crypto` is intentional compatibility with v1.1.0+ assets 
 6. Create and push a strict `vMAJOR.MINOR.PATCH` tag matching the package version.
 7. Wait for every matrix build and the release job; do not report success while jobs are incomplete.
 8. Verify the Release has exactly the five expected platform assets, correct names/sizes/digests, working downloads, and readable UTF-8 Chinese text.
-9. When possible, smoke-test the actual artifacts on real Windows, macOS (both architectures as available), and a mainstream Linux desktop/Wayland environment.
+9. Confirm the `Verify macOS 12 deployment floor` step passed for both macOS build jobs before publication; it reads each app's `LSMinimumSystemVersion` and Mach-O deployment target and requires both to equal `12.0`. Independently inspect downloaded bundles when tooling is available.
+10. When possible, smoke-test the actual artifacts on real Windows, macOS 12.x at the supported floor (both architectures as available), and a mainstream Linux desktop/Wayland environment.
 
 ## Failure and safety notes
 

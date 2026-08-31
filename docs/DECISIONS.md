@@ -50,11 +50,11 @@ This document records accepted decisions that a future developer might otherwise
 
 **Context:** Earlier `372×188` and `264×92` designs were rejected as too large/wide. The user repeatedly asked for a compact, modern, premium-looking monitor without extreme-price whitespace.
 
-**Decision:** Width stays `208px`; default BTC/ETH view is `208×92`. Automatic quote height caps at four visible rows, while five to eight selected products expose a bottom handle that can increase quote height only up to the current content (`290px` for eight rows). Management still replaces the quote region temporarily and remains capped at `170px`.
+**Decision:** Width stays `208px`; default BTC/ETH view is `208×92`. Automatic quote height caps at four visible rows, while five or more selected products expose a bottom handle that can increase quote height up to the lesser of selected content and the current monitor's remaining work-area height. There is no eight-row manual-height ceiling; longer watchlists remain available through internal scrolling. Management still replaces the quote region temporarily and remains capped at `170px`.
 
 **Reason:** The accepted practical display range is BTC in the hundreds of thousands and ETH in the tens of thousands; verified current boundaries include `$999,999.99`, `$99,999.99`, and `−99.99%` without collision.
 
-**Rejected alternatives:** Restoring the large card/footer design, changing width, unbounded window expansion, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row.
+**Rejected alternatives:** Restoring the large card/footer design, changing width, automatic expansion beyond four rows, allowing manual expansion beyond the current screen work area, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row.
 
 **Implications:** Internal scrolling remains whenever content actually overflows. Layout changes require a real rendered image when presenting a prototype and a final native Tauri-window smoke test, including drag growth/shrink, fixed width, and the management cap. Do not rely only on a browser viewport.
 
@@ -148,19 +148,33 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** Keep `src/about.html`, `src/about.ts`, `scripts/frontend.ts`, the exact repository URL capability, Tauri version/bundle metadata, `LICENSE`, and the canonical icon synchronized. The full license remains in the root source, frontend distribution, and applicable installers rather than the About viewport. The About window must not change the main monitor's fixed `208px` width contract, CSP origins, taskbar/Dock policy, or tray-only exit contract.
 
-## Decision: Cap the watchlist at eight and compute size natively
+## Decision: Do not cap the watchlist; screen-bound manual quote height
 
 **Status:** Accepted; amended by explicit user request on 2026-08-31
 
-**Context:** Watchlist size affects compactness, channel counts, and failure-time REST load.
+**Context:** The original implementation fixed BTC/ETH and limited the user to six custom products. The user explicitly removed that product-count limit and accepted arbitrarily long lists without deriving a selection cap from screen boundaries.
 
-**Decision:** Fix BTC/ETH and allow six custom products. Start with at most four visible quote rows and use internal scrolling while content overflows; let the user drag only the quote height up to all selected rows. Rust computes automatic/management heights and clamps every requested quote height to the current row count while keeping width fixed.
+**Decision:** Keep BTC/ETH fixed but impose no application-level count limit on additional valid supported products. Persistence validates and deduplicates every entry without truncating the list; search add actions never become disabled because of selected count. Keep at most four rows in the automatic quote viewport, but let the dragged quote viewport grow past eight rows until it reaches either all selected content or the current monitor work-area bottom. Additional quote and management rows remain available through internal scrolling. Frontend IPC sends the complete quote row count while Rust owns the content/work-area clamp.
 
-**Reason:** The eight-product bound still protects UI density, provider subscription scale, and free API usage, while bounded vertical expansion lets the user trade screen space for fewer scroll operations. Native clamping keeps the IPC permission narrow and consistent across platforms.
+**Reason:** Selection capacity and screen-filling manual height are direct user requirements and must not be coupled to the former eight-row geometry. Validation, free REST concurrency control, and exact provider-symbol rules still protect data quality and load; native content/work-area sizing keeps the IPC permission narrow without discarding selected products or extending the window past the usable screen.
 
-**Rejected alternatives:** Unlimited items, unbounded desktop expansion, general OS resizing, and exposing arbitrary frontend width/height control or set-size permissions.
+**Rejected alternatives:** Any fixed selected-item cap, silently truncating persisted products, disabling search results because the list is “full,” retaining the eight-row/`290px` manual ceiling, unbounded automatic desktop expansion, general OS resizing, and exposing arbitrary frontend width/height control or set-size permissions.
 
-**Implications:** Keep `MAX_PRODUCTS`, the `26 + 33 × rows` budgets, the `158px` automatic and `290px` content maxima, the `170px` management cap, overflow accessibility, Rust height tests, Tauri width limits, and README behavior synchronized. The dragged preference is session-only and is clamped again after product changes.
+**Implications:** No `MAX_PRODUCTS`-style application constant, persistence truncation, eight-row frontend saturation, or static main-window `maxHeight` may return. Keep the `26 + 33 × rows` content budget, the `158px` automatic maximum, the `170px` management cap, overflow accessibility, complete quote-row sizing IPC, Rust content/work-area clamps, Tauri width limits, and README behavior synchronized. The dragged preference is session-only and is clamped again after product changes or monitor/work-area changes.
+
+## Decision: Every quote row is reorderable without reconnecting market feeds
+
+**Status:** Accepted; explicit user requirement on 2026-08-31
+
+**Context:** The user requested drag ordering directly in the main quote view. The prior persistence normalizer always restored BTC/ETH to the first two positions, and `PriceFeed.setProducts` treats array-order changes as subscription changes that would unnecessarily restart every socket.
+
+**Decision:** Treat `fixed` as non-removable rather than position-locked: BTC, ETH, and every custom quote row may be reordered. Use delegated HTML5 drag/drop with before/after insertion indicators, edge auto-scroll, unified cancellation cleanup, and `Alt+ArrowUp/Down` as the keyboard equivalent. Persist only after a successful order change and rebuild the quote DOM while retaining scroll/focus; do not call `PriceFeed.setProducts` for a display-only reorder. Preserve explicit fixed-item positions when both defaults are present, while incomplete/damaged persisted arrays recover canonical BTC/ETH before custom items.
+
+**Reason:** Direct row dragging matches the requested surface, the pure reorder helper makes index correction and persistence testable, and keeping the existing feed connections alive avoids visible data interruption for a presentation-only change. Keyboard ordering and live position announcements preserve access without taking ordinary Arrow keys away from scrolling.
+
+**Rejected alternatives:** Keeping BTC/ETH permanently first, limiting ordering to the management view, restarting market sockets after every move, exposing a native/general resize or drag permission, and whole-row custom Pointer Events that conflict with vertical scrolling. A dedicated touch drag handle may be reconsidered only if touch support is requested.
+
+**Implications:** Main-window `dragDropEnabled` is false because Tauri's native file-drop integration intercepts frontend HTML5 drag events on Windows; page-level external-drop guards are therefore required. Keep row `draggable`/list semantics, drop indicators, keyboard shortcuts, focus/live announcements, pure fixed/custom reorder tests, stored-order round trips, title-bar dragging, bottom height resizing, and the absence of a reorder-time `feed.setProducts` call synchronized.
 
 ## Decision: No hover text tooltips
 
@@ -176,19 +190,19 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** `tests/ui.test.ts` guards this behavior.
 
-## Decision: Maintain macOS 10.15 compatibility
+## Decision: Use the fixed ES2025 baseline and require macOS 12
 
-**Status:** Accepted
+**Status:** Accepted; explicit user requirement
 
-**Context:** The macOS bundle declares 10.15 minimum and ships browser-native JavaScript to WKWebView.
+**Context:** The former bundle floor was macOS 10.15 with an `ES2019` TypeScript target. The user explicitly ended 10.15 support and requested the newest project language baseline. The pinned TypeScript 6.0.3 toolchain exposes `ES2025` as its newest concrete target and also exposes the floating `ESNext` alias.
 
-**Decision:** Emit an ES2019 syntax target and avoid runtime APIs unsupported by that WebView, or make a deliberate target/minimum-version change.
+**Decision:** Set the shared TypeScript `target` and ECMAScript library to `ES2025`, keep the existing browser-native `module: ES2022` contract, and set Tauri `bundle.macOS.minimumSystemVersion` to `12.0`. Use the newest fixed standard implemented by the pinned compiler rather than the upgrade-dependent `ESNext` alias. Do not add a transpiler, bundler, or blanket polyfill layer as part of this baseline change.
 
-**Reason:** A new browser API can pass on Windows WebView2 while failing on the supported macOS floor.
+**Reason:** A named standard gives the requested modern output while keeping dependency upgrades reproducible. Tauri propagates the minimum-system setting to the bundle metadata and macOS deployment target, so a duplicate CI environment override is unnecessary.
 
-**Rejected alternatives:** Quietly raising the minimum or assuming all system WebViews match current Chromium.
+**Rejected alternatives:** Retaining `ES2019`/macOS 10.15, using floating `ESNext`, changing the independent module output without a module-format need, or introducing a framework/bundler merely to change the compiler target.
 
-**Implications:** Preserve compatibility choices such as `Object.prototype.hasOwnProperty.call` and test on real macOS before release when relevant.
+**Implications:** The shared application, test, and build configs inherit `ES2025`; a static regression locks it together with the macOS 12.0 floor. TypeScript target/lib settings do not polyfill APIs or guarantee that the system WKWebView shipped with every macOS 12 point release implements all ES2025-era features. Review new syntax and runtime APIs individually, retain fallbacks where needed, and perform minimum-version macOS runtime/package verification before release. A future compiler upgrade must not silently move this fixed target.
 
 ## Decision: Releases require a new version and five assets
 

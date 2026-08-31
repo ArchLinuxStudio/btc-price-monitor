@@ -296,6 +296,33 @@ button {
   border-bottom: 0;
 }
 
+.quote-row[draggable="true"] {
+  cursor: grab;
+  -webkit-user-drag: element;
+  -webkit-app-region: no-drag;
+}
+
+.quotes.is-reordering .quote-row {
+  cursor: grabbing;
+}
+
+.quote-row.is-dragging {
+  opacity: 0.32;
+}
+
+.quote-row.is-drop-before {
+  box-shadow: inset 0 2px #766cf0;
+}
+
+.quote-row.is-drop-after {
+  box-shadow: inset 0 -2px #766cf0;
+}
+
+.quote-row:focus-visible {
+  outline: 1px solid #766cf0;
+  outline-offset: -1px;
+}
+
 .asset {
   min-width: 0;
   display: grid;

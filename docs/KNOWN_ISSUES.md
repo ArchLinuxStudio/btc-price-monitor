@@ -28,9 +28,9 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
-**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow, the compact tray-opened About window and its exact-URL repository opener, the pointer-captured bounded quote-height drag under macOS/Linux window managers, and all Wayland tray/always-on-top combinations on those platforms.
+**Not fully verified:** The fixed ES2025 output and runtime API surface on the minimum supported macOS 12.x system WKWebView and representative Linux WebKitGTK versions; macOS bundle/deployment metadata at the new 12.0 floor; Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit; Bybit/Gate public WebSockets; the stock-perpetual search/add/display flow; the compact tray-opened About window and its exact-URL repository opener; quote-row mouse drag ordering in a real Tauri WebView on each platform; the pointer-captured screen/work-area-bounded quote-height drag under macOS/Linux window managers; and all Wayland tray/always-on-top combinations on those platforms.
 
-**Next direction:** Use real target systems for the next release candidate; do not “fix” a platform by widening CSP without diagnosis.
+**Next direction:** Use real target systems, including macOS 12.x, for the next release candidate; do not “fix” a platform by widening CSP or claiming TypeScript `target` supplies runtime polyfills.
 
 ## Stock-related products are exchange derivatives, not shares
 

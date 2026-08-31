@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 
 import {
   DEFAULT_PRODUCTS,
-  MAX_PRODUCTS,
   applyBackupSourceMappings,
   applyGateStockMappings,
   fetchBackupSourceMappings,
@@ -19,6 +18,7 @@ import {
   parseGateStockMappings,
   parseProductCatalog,
   refreshProductsFromCatalog,
+  reorderWatchlist,
   saveWatchlist,
   searchProducts,
 } from "../src/watchlist.ts";
@@ -69,8 +69,7 @@ function product(
   };
 }
 
-test("defines immutable BTC and ETH defaults and an eight-product cap", () => {
-  assert.equal(MAX_PRODUCTS, 8);
+test("defines immutable BTC and ETH defaults", () => {
   assert.deepEqual(DEFAULT_PRODUCTS, [
     {
       id: "BTC-USD",
@@ -112,12 +111,13 @@ test("infers normalized USD product models without accepting another quote curre
   assert.equal(inferProduct(null), null);
 });
 
-test("save and load keep fixed defaults first, deduplicate, and cap custom products at six", () => {
+test("save and load preserve explicit order, canonicalize fixed defaults, and deduplicate", () => {
   const storage = memoryStorage();
   const input = [
     { id: "SOL-USD", name: "Solana" },
     { id: "BTC-USD", name: "Altered Bitcoin", fixed: false },
     { id: "DOGE-USD", name: "Dogecoin" },
+    { id: "ETH-USD", name: "Altered Ethereum", fixed: false },
     { id: "SOL-USD", name: "Duplicate Solana" },
     { id: "ADA-USD", name: "Cardano" },
     { id: "XRP-USD", name: "XRP" },
@@ -128,15 +128,80 @@ test("save and load keep fixed defaults first, deduplicate, and cap custom produ
 
   const saved = saveWatchlist(input, storage);
   assert.deepEqual(saved.map((entry) => entry.id), [
-    "BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD", "ADA-USD", "XRP-USD", "LINK-USD", "AVAX-USD",
+    "SOL-USD", "BTC-USD", "DOGE-USD", "ETH-USD", "ADA-USD", "XRP-USD", "LINK-USD", "AVAX-USD",
+    "DOT-USD",
   ]);
-  assert.deepEqual(saved.slice(0, 2), DEFAULT_PRODUCTS);
-  assert.equal(saved.every((entry, index) => entry.fixed === (index < 2)), true);
+  assert.deepEqual(saved.filter((entry) => entry.fixed), DEFAULT_PRODUCTS);
+  assert.equal(saved.filter((entry) => !entry.fixed).length, 7);
 
   const key = [...storage.values.keys()][0]!;
   assert.match(key, /watchlist\.v1$/);
   const persisted = JSON.parse(storage.values.get(key)!) as { version: unknown };
   assert.equal(persisted.version, 1);
+  assert.deepEqual(loadWatchlist(storage), saved);
+
+  assert.deepEqual(
+    saveWatchlist([
+      { id: "SOL-USD", name: "Solana" },
+      DEFAULT_PRODUCTS[0],
+      { id: "DOGE-USD", name: "Dogecoin" },
+    ]).map((entry) => entry.id),
+    ["BTC-USD", "ETH-USD", "SOL-USD", "DOGE-USD"],
+  );
+});
+
+test("reorders fixed and custom products without mutation and persists the new order", () => {
+  const storage = memoryStorage();
+  const original = saveWatchlist([
+    ...DEFAULT_PRODUCTS,
+    { id: "SOL-USD", name: "Solana" },
+    { id: "DOGE-USD", name: "Dogecoin" },
+  ]);
+  const originalIds = original.map((entry) => entry.id);
+
+  const fixedMovedToEnd = reorderWatchlist(original, "BTC-USD", "DOGE-USD", true);
+  assert.deepEqual(fixedMovedToEnd.map((entry) => entry.id), [
+    "ETH-USD", "SOL-USD", "DOGE-USD", "BTC-USD",
+  ]);
+  assert.deepEqual(original.map((entry) => entry.id), originalIds);
+
+  const customMovedToStart = reorderWatchlist(fixedMovedToEnd, "DOGE-USD", "ETH-USD", false);
+  assert.deepEqual(customMovedToStart.map((entry) => entry.id), [
+    "DOGE-USD", "ETH-USD", "SOL-USD", "BTC-USD",
+  ]);
+  assert.deepEqual(
+    reorderWatchlist(customMovedToStart, "SOL-USD", "ETH-USD", true)
+      .map((entry) => entry.id),
+    customMovedToStart.map((entry) => entry.id),
+  );
+  assert.deepEqual(
+    reorderWatchlist(customMovedToStart, "UNKNOWN-USD", "ETH-USD", false)
+      .map((entry) => entry.id),
+    customMovedToStart.map((entry) => entry.id),
+  );
+
+  const saved = saveWatchlist(customMovedToStart, storage);
+  assert.deepEqual(loadWatchlist(storage), saved);
+  assert.deepEqual(saved.map((entry) => entry.id), [
+    "DOGE-USD", "ETH-USD", "SOL-USD", "BTC-USD",
+  ]);
+  assert.equal(saved.find((entry) => entry.id === "BTC-USD")?.fixed, true);
+  assert.equal(saved.find((entry) => entry.id === "ETH-USD")?.fixed, true);
+});
+
+test("watchlist persistence keeps every valid custom product without an item cap", () => {
+  const storage = memoryStorage();
+  const customProducts = Array.from({ length: 64 }, (_, index) => ({
+    id: `ASSET${index}-USD`,
+    name: `Asset ${index}`,
+  }));
+
+  const saved = saveWatchlist(customProducts, storage);
+  assert.equal(saved.length, DEFAULT_PRODUCTS.length + customProducts.length);
+  assert.deepEqual(
+    saved.slice(DEFAULT_PRODUCTS.length).map((entry) => entry.id),
+    customProducts.map((entry) => entry.id),
+  );
   assert.deepEqual(loadWatchlist(storage), saved);
 });
 

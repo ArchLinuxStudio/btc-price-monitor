@@ -11,7 +11,6 @@ const ABOUT_WINDOW_LABEL: &str = "about";
 const MONITOR_WIDTH: u32 = 208;
 const MONITOR_MIN_HEIGHT: u32 = 92;
 const MONITOR_MANAGEMENT_MAX_HEIGHT: u32 = 170;
-const MONITOR_QUOTE_MAX_HEIGHT: u32 = 290;
 
 #[derive(Debug, Default)]
 struct MonitorLayoutState {
@@ -33,15 +32,15 @@ fn quote_auto_height(row_count: u32) -> u32 {
 }
 
 fn quote_content_height(row_count: u32) -> u32 {
-    let visible_rows = row_count.clamp(2, 8);
-    (26 + 33 * visible_rows).min(MONITOR_QUOTE_MAX_HEIGHT)
+    26u32.saturating_add(33u32.saturating_mul(row_count.max(2)))
 }
 
-fn quote_height(row_count: u32, requested_height: u32) -> u32 {
-    requested_height.clamp(
-        quote_auto_height(row_count),
-        quote_content_height(row_count),
-    )
+fn quote_height(row_count: u32, requested_height: u32, available_height: u32) -> u32 {
+    let minimum_height = quote_auto_height(row_count);
+    let maximum_height = quote_content_height(row_count)
+        .min(available_height)
+        .max(minimum_height);
+    requested_height.clamp(minimum_height, maximum_height)
 }
 
 fn monitor_height(row_count: u32, management_open: bool, item_count: u32) -> u32 {
@@ -60,6 +59,47 @@ fn set_monitor_size(window: &WebviewWindow, height: u32) -> Result<(), String> {
             f64::from(height),
         ))
         .map_err(|error| error.to_string())
+}
+
+fn logical_available_height(
+    work_area_top: i32,
+    work_area_height: u32,
+    window_top: i32,
+    scale_factor: f64,
+) -> u32 {
+    if !scale_factor.is_finite() || scale_factor <= 0.0 {
+        return u32::MAX;
+    }
+
+    let window_top = window_top.max(work_area_top);
+    let work_area_bottom = i64::from(work_area_top) + i64::from(work_area_height);
+    let available_physical_height = work_area_bottom
+        .saturating_sub(i64::from(window_top))
+        .max(0) as u64;
+    ((available_physical_height as f64 / scale_factor).floor() as u32).max(MONITOR_MIN_HEIGHT)
+}
+
+fn available_quote_height(window: &WebviewWindow) -> u32 {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return u32::MAX;
+    };
+
+    let work_area = monitor.work_area();
+    let window_top = window
+        .outer_position()
+        .map(|position| position.y)
+        .unwrap_or(work_area.position.y);
+    logical_available_height(
+        work_area.position.y,
+        work_area.size.height,
+        window_top,
+        monitor.scale_factor(),
+    )
 }
 
 fn apply_window_behavior(window: &WebviewWindow) -> Result<(), String> {
@@ -217,6 +257,7 @@ fn set_monitor_layout(
     management_open: bool,
     item_count: u32,
 ) -> Result<(), String> {
+    let available_height = available_quote_height(&window);
     let mut state = layout_state
         .lock()
         .map_err(|_| "monitor layout state is unavailable".to_owned())?;
@@ -228,7 +269,7 @@ fn set_monitor_layout(
         let requested_height = state
             .quote_height
             .unwrap_or_else(|| quote_auto_height(row_count));
-        let height = quote_height(row_count, requested_height);
+        let height = quote_height(row_count, requested_height, available_height);
         state.quote_height = Some(height);
         height
     };
@@ -249,6 +290,7 @@ fn resize_monitor_height(
     row_count: u32,
     requested_height: u32,
 ) -> Result<u32, String> {
+    let available_height = available_quote_height(&window);
     let mut state = layout_state
         .lock()
         .map_err(|_| "monitor layout state is unavailable".to_owned())?;
@@ -257,7 +299,7 @@ fn resize_monitor_height(
     }
 
     let previous_quote_height = state.quote_height;
-    let height = quote_height(row_count, requested_height);
+    let height = quote_height(row_count, requested_height, available_height);
     state.quote_height = Some(height);
     if let Err(error) = set_monitor_size(&window, height) {
         state.quote_height = previous_quote_height;
@@ -318,8 +360,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        hides_on_close, monitor_height, quote_height, tray_action, TrayAction,
-        MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT, MONITOR_QUOTE_MAX_HEIGHT,
+        hides_on_close, logical_available_height, monitor_height, quote_content_height,
+        quote_height, tray_action, TrayAction, MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT,
     };
 
     #[test]
@@ -335,12 +377,25 @@ mod tests {
 
     #[test]
     fn dragged_quote_height_is_clamped_to_auto_and_content_bounds() {
-        assert_eq!(quote_height(4, MONITOR_MIN_HEIGHT), 158);
-        assert_eq!(quote_height(5, MONITOR_MIN_HEIGHT), 158);
-        assert_eq!(quote_height(5, 170), 170);
-        assert_eq!(quote_height(5, u32::MAX), 191);
-        assert_eq!(quote_height(8, u32::MAX), MONITOR_QUOTE_MAX_HEIGHT);
-        assert_eq!(quote_height(u32::MAX, u32::MAX), MONITOR_QUOTE_MAX_HEIGHT);
+        assert_eq!(quote_height(4, MONITOR_MIN_HEIGHT, 900), 158);
+        assert_eq!(quote_height(5, MONITOR_MIN_HEIGHT, 900), 158);
+        assert_eq!(quote_height(5, 170, 900), 170);
+        assert_eq!(quote_height(5, u32::MAX, 900), 191);
+        assert_eq!(quote_height(8, u32::MAX, 900), 290);
+        assert_eq!(quote_height(9, u32::MAX, 900), 323);
+        assert_eq!(quote_height(40, u32::MAX, 900), 900);
+        assert_eq!(quote_height(u32::MAX, u32::MAX, 900), 900);
+        assert_eq!(quote_content_height(u32::MAX), u32::MAX);
+    }
+
+    #[test]
+    fn available_height_respects_window_position_work_area_and_scale() {
+        assert_eq!(logical_available_height(0, 1080, 16, 1.0), 1064);
+        assert_eq!(logical_available_height(-1440, 1440, -1424, 1.0), 1424);
+        assert_eq!(logical_available_height(0, 1350, 20, 1.25), 1064);
+        assert_eq!(logical_available_height(0, 1080, -100, 1.0), 1080);
+        assert_eq!(logical_available_height(0, 1080, 1200, 1.0), 92);
+        assert_eq!(logical_available_height(0, 1080, 16, 0.0), u32::MAX);
     }
 
     #[test]

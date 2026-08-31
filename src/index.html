@@ -42,7 +42,7 @@
         </div>
       </header>
 
-      <section class="quotes" id="quotes" aria-label="自选品种实时价格"></section>
+      <section class="quotes" id="quotes" role="list" aria-label="自选品种实时价格"></section>
 
       <section
         class="watchlist-manager"
@@ -81,9 +81,19 @@
       </button>
 
       <span class="sr-only" id="manager-status" role="status" aria-live="polite"></span>
+      <span class="sr-only" id="reorder-instructions">
+        拖动行情行可排序；也可聚焦一行后按 Alt 加上下方向键移动
+      </span>
+      <span
+        class="sr-only"
+        id="reorder-status"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></span>
 
       <template id="quote-row-template">
-        <article class="quote-row">
+        <article class="quote-row" role="listitem">
           <div class="asset">
             <span class="asset-marker" aria-hidden="true"></span>
             <strong></strong>

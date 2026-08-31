@@ -1103,6 +1103,35 @@ test("builds dynamic subscriptions and safely rebuilds them in setProducts", () 
   feed.stop();
 });
 
+test("keeps more than eight selected products in market subscriptions", () => {
+  FakeWebSocket.instances = [];
+  const products: Product[] = Array.from({ length: 16 }, (_, index) => ({
+    id: `ASSET${index}-USD`,
+    symbol: `ASSET${index}`,
+    name: `Asset ${index}`,
+    krakenSymbol: null,
+    bitstampSymbol: null,
+    bitfinexSymbol: null,
+    fixed: false,
+  }));
+  const feed = new PriceFeed({
+    WebSocketImpl: FakeWebSocket,
+    fetchImpl: null,
+    products,
+  });
+  feed.start();
+
+  const coinbaseSocket = FakeWebSocket.instances.find((socket) => (
+    socket.url.includes("coinbase")
+  ))!;
+  coinbaseSocket.open();
+  assert.deepEqual(
+    coinbaseSocket.sent[0].product_ids,
+    products.map((product) => product.id),
+  );
+  feed.stop();
+});
+
 test("stock perpetual products subscribe only to exact Bybit and Gate symbols", () => {
   FakeWebSocket.instances = [];
   const now = Date.parse("2026-08-29T02:00:00.000Z");

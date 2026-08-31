@@ -2,12 +2,12 @@ import { PriceFeed } from "./price-feed.js";
 import type { DisplayQuote, FeedStatus, PriceFeedState } from "./price-feed.js";
 import { formatUsdPrice } from "./price-format.js";
 import {
-  MAX_PRODUCTS,
   applyBackupSourceMappings,
   fetchBackupSourceMappings,
   fetchProductCatalogSnapshot,
   loadWatchlist,
   refreshProductsFromCatalog,
+  reorderWatchlist,
   saveWatchlist,
   searchProducts,
 } from "./watchlist.js";
@@ -34,6 +34,16 @@ interface ResizeDragState {
   startHeight: number;
   startClientY: number;
   pointerId: number | null;
+}
+
+interface QuoteDragState {
+  productId: string;
+  row: HTMLElement;
+}
+
+interface QuoteDropState {
+  row: HTMLElement;
+  placeAfter: boolean;
 }
 
 interface TauriApi {
@@ -68,6 +78,7 @@ const elements = {
   search: document.querySelector<HTMLInputElement>("#coin-search")!,
   managerList: document.querySelector<HTMLDivElement>("#manager-list")!,
   managerStatus: document.querySelector<HTMLSpanElement>("#manager-status")!,
+  reorderStatus: document.querySelector<HTMLSpanElement>("#reorder-status")!,
   resizeHandle: document.querySelector<HTMLButtonElement>("#resize-handle")!,
 };
 
@@ -104,6 +115,7 @@ const sourceAbbreviations: Record<string, string> = {
 };
 
 const markerColorCount = 8;
+const nativeManagementItemLimit = 4;
 
 let selectedProducts: Product[] = loadWatchlist();
 let quoteViews = new Map<string, QuoteView>();
@@ -129,6 +141,8 @@ let pendingResizeHeight: number | null = null;
 let resizeFrame: number | null = null;
 let resizeInFlight = false;
 let resizeDrag: ResizeDragState | null = null;
+let quoteDrag: QuoteDragState | null = null;
+let quoteDrop: QuoteDropState | null = null;
 
 function prefersReducedMotion(): boolean {
   return typeof globalThis.matchMedia === "function"
@@ -203,10 +217,11 @@ function clearResizeDrag(clearPending: boolean): void {
 }
 
 function setMonitorLayout(itemCount: number): void {
+  const requestedItemCount = Number.isFinite(itemCount) ? itemCount : selectedProducts.length;
   pendingLayout = {
     rowCount: selectedProducts.length,
     managementOpen,
-    itemCount: Number.isFinite(itemCount) ? itemCount : selectedProducts.length,
+    itemCount: Math.min(Math.max(0, Math.trunc(requestedItemCount)), nativeManagementItemLimit),
   };
   if (layoutFrame !== null) return;
   layoutFrame = requestAnimationFrame(() => {
@@ -221,6 +236,65 @@ function setMonitorLayout(itemCount: number): void {
 
 function clearElement(element: Element): void {
   while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+function clearQuoteDropIndicator(): void {
+  if (!quoteDrop) return;
+  quoteDrop.row.classList.remove("is-drop-before", "is-drop-after");
+  quoteDrop = null;
+}
+
+function clearQuoteDrag(): void {
+  clearQuoteDropIndicator();
+  if (quoteDrag) quoteDrag.row.classList.remove("is-dragging");
+  quoteDrag = null;
+  elements.quotes.classList.remove("is-reordering");
+}
+
+function setQuoteDropIndicator(row: HTMLElement, placeAfter: boolean): void {
+  if (quoteDrop?.row === row && quoteDrop.placeAfter === placeAfter) return;
+  clearQuoteDropIndicator();
+  row.classList.add(placeAfter ? "is-drop-after" : "is-drop-before");
+  quoteDrop = { row, placeAfter };
+}
+
+function quoteRowFromEvent(event: Event): HTMLElement | null {
+  if (!(event.target instanceof Element)) return null;
+  const row = event.target.closest<HTMLElement>(".quote-row[data-product-id]");
+  return row && elements.quotes.contains(row) ? row : null;
+}
+
+function reorderSelectedProduct(
+  movingProductId: string,
+  targetProductId: string,
+  placeAfter: boolean,
+): boolean {
+  const previousOrder = selectedProducts.map((product) => product.id).join("\u0000");
+  const reordered = reorderWatchlist(
+    selectedProducts,
+    movingProductId,
+    targetProductId,
+    placeAfter,
+  );
+  if (reordered.map((product) => product.id).join("\u0000") === previousOrder) return false;
+
+  selectedProducts = saveWatchlist(reordered);
+  rebuildQuoteRows();
+  const product = selectedProducts.find((entry) => entry.id === movingProductId);
+  const position = selectedProducts.findIndex((entry) => entry.id === movingProductId) + 1;
+  if (product && position > 0) {
+    elements.reorderStatus.textContent = `已将 ${product.symbol} 移至第 ${position} 项，共 ${selectedProducts.length} 项`;
+  }
+  return true;
+}
+
+function moveSelectedProductBy(movingProductId: string, offset: -1 | 1): void {
+  const movingIndex = selectedProducts.findIndex((product) => product.id === movingProductId);
+  const targetIndex = movingIndex + offset;
+  if (movingIndex < 0 || targetIndex < 0 || targetIndex >= selectedProducts.length) return;
+  const targetProduct = selectedProducts[targetIndex];
+  if (!reorderSelectedProduct(movingProductId, targetProduct.id, offset > 0)) return;
+  requestAnimationFrame(() => quoteViews.get(movingProductId)?.row.focus());
 }
 
 function productColorIndex(product: Product): number {
@@ -252,6 +326,8 @@ function updateMarketLabel(): void {
 }
 
 function rebuildQuoteRows(): void {
+  const previousScrollTop = elements.quotes.scrollTop;
+  clearQuoteDrag();
   updateMarketLabel();
   const activeIds = new Set<string>(selectedProducts.map((product) => product.id));
   for (const animation of priceAnimations.values()) {
@@ -273,19 +349,25 @@ function rebuildQuoteRows(): void {
     const price = row.querySelector<HTMLSpanElement>(".price")!;
     const change = row.querySelector<HTMLSpanElement>(".change")!;
     row.dataset.productId = product.id;
+    row.draggable = true;
+    row.tabIndex = 0;
+    row.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    row.setAttribute("aria-describedby", "reorder-instructions");
     row.setAttribute(
       "aria-label",
-      `${product.name}，${product.symbol}，${productQuoteCurrency(product)} 计价${productMarketDescription(product)}行情`,
+      `${product.name}，${product.symbol}，${productQuoteCurrency(product)} 计价`
+        + `${productMarketDescription(product)}行情，第 ${index + 1} 项，共 ${selectedProducts.length} 项`,
     );
     marker.classList.add(`marker-${productColorIndex(product)}`);
     symbol.textContent = product.symbol;
-    if (product.symbol.length > 5) symbol.classList.add("is-long-symbol");
+    if (product.symbol.length > 6) symbol.classList.add("is-long-symbol");
     if (product.symbol.length > 8) symbol.classList.add("is-very-long-symbol");
     quoteViews.set(product.id, { row, price, change });
     fragment.appendChild(row);
   });
 
   elements.quotes.appendChild(fragment);
+  elements.quotes.scrollTop = previousScrollTop;
   updateResizeHandleVisibility();
   requestAnimationFrame(updateQuoteOverflow);
   if (latestState) render(latestState);
@@ -449,24 +531,17 @@ function renderSearchProduct(product: Product): void {
     return;
   }
 
-  const full = selectedProducts.length >= MAX_PRODUCTS;
   const row = document.createElement("button");
   row.type = "button";
   row.className = "manager-row";
-  row.disabled = full;
-  row.setAttribute("aria-label", full
-    ? `自选已满，无法添加 ${product.name}`
-    : `添加 ${product.name} ${product.symbol}`);
+  row.setAttribute("aria-label", `添加 ${product.name} ${product.symbol}`);
   row.appendChild(managerCell("manager-symbol", product.symbol));
   row.appendChild(managerCell("manager-name", product.name));
 
-  const action = managerCell(
-    `manager-action${full ? " is-full" : ""}`,
-    full ? "满" : "+",
-  );
+  const action = managerCell("manager-action", "+");
   action.setAttribute("aria-hidden", "true");
   row.appendChild(action);
-  if (!full) row.addEventListener("click", () => addProduct(product));
+  row.addEventListener("click", () => addProduct(product));
   elements.managerList.appendChild(row);
 }
 
@@ -654,6 +729,7 @@ async function ensureBackupSourceMappings(force: boolean): Promise<BackupSourceM
 }
 
 function openManager(): void {
+  clearQuoteDrag();
   clearResizeDrag(true);
   managementOpen = true;
   updateResizeHandleVisibility();
@@ -689,10 +765,6 @@ function closeManager(restoreFocus: boolean): void {
 
 function addProduct(product: Product): void {
   if (selectedProducts.some((entry) => entry.id === product.id)) return;
-  if (selectedProducts.length >= MAX_PRODUCTS) {
-    announceManager(`最多可显示 ${MAX_PRODUCTS} 个品种`);
-    return;
-  }
 
   selectedProducts = saveWatchlist(selectedProducts.concat([product]));
   feed.setProducts(selectedProducts);
@@ -704,6 +776,10 @@ function addProduct(product: Product): void {
 function removeProduct(productId: string, previousIndex: number): void {
   const product = selectedProducts.find((entry) => entry.id === productId);
   if (!product || product.fixed) return;
+  const previousRemovableIndex = selectedProducts
+    .slice(0, previousIndex)
+    .filter((entry) => !entry.fixed)
+    .length;
   selectedProducts = saveWatchlist(selectedProducts.filter((entry) => entry.id !== productId));
   feed.setProducts(selectedProducts);
   rebuildQuoteRows();
@@ -713,7 +789,7 @@ function removeProduct(productId: string, previousIndex: number): void {
     if (!managementOpen || elements.manager.hidden) return;
     const buttons = elements.managerList.querySelectorAll<HTMLButtonElement>(".manager-remove");
     if (buttons.length > 0) {
-      const targetIndex = Math.min(Math.max(0, previousIndex - 2), buttons.length - 1);
+      const targetIndex = Math.min(previousRemovableIndex, buttons.length - 1);
       if (buttons[targetIndex].isConnected) buttons[targetIndex].focus();
     } else {
       elements.search.focus();
@@ -732,7 +808,7 @@ elements.search.addEventListener("keydown", (event) => {
     const firstAvailable = visibleSearchResults.find((product) => (
       !selectedProducts.some((entry) => entry.id === product.id)
     ));
-    if (firstAvailable && selectedProducts.length < MAX_PRODUCTS) {
+    if (firstAvailable) {
       event.preventDefault();
       addProduct(firstAvailable);
     }
@@ -761,10 +837,101 @@ elements.manager.addEventListener("keydown", (event) => {
   }
 });
 
+elements.quotes.addEventListener("dragstart", (event) => {
+  const row = quoteRowFromEvent(event);
+  const productId = row?.dataset.productId;
+  if (!row || !productId || managementOpen) {
+    event.preventDefault();
+    return;
+  }
+  quoteDrag = { productId, row };
+  elements.quotes.classList.add("is-reordering");
+  row.classList.add("is-dragging");
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", productId);
+  }
+});
+
+elements.quotes.addEventListener("dragover", (event) => {
+  if (!quoteDrag) return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+
+  const row = quoteRowFromEvent(event);
+  if (!row || row.dataset.productId === quoteDrag.productId) {
+    clearQuoteDropIndicator();
+  } else {
+    const bounds = row.getBoundingClientRect();
+    setQuoteDropIndicator(row, event.clientY >= bounds.top + bounds.height / 2);
+  }
+
+  const bounds = elements.quotes.getBoundingClientRect();
+  const edge = Math.min(28, bounds.height / 3);
+  if (event.clientY < bounds.top + edge) elements.quotes.scrollTop -= 16;
+  else if (event.clientY > bounds.bottom - edge) elements.quotes.scrollTop += 16;
+});
+
+elements.quotes.addEventListener("dragleave", (event) => {
+  const row = quoteRowFromEvent(event);
+  if (!row || quoteDrop?.row !== row) return;
+  if (event.relatedTarget instanceof Node && row.contains(event.relatedTarget)) return;
+  clearQuoteDropIndicator();
+});
+
+elements.quotes.addEventListener("drop", (event) => {
+  if (!quoteDrag) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const row = quoteRowFromEvent(event);
+  const targetProductId = row?.dataset.productId;
+  const movingProductId = quoteDrag.productId;
+  if (!row || !targetProductId || targetProductId === movingProductId) {
+    clearQuoteDrag();
+    return;
+  }
+  const placeAfter = quoteDrop?.row === row
+    ? quoteDrop.placeAfter
+    : event.clientY >= row.getBoundingClientRect().top + row.offsetHeight / 2;
+  clearQuoteDrag();
+  if (reorderSelectedProduct(movingProductId, targetProductId, placeAfter)) {
+    requestAnimationFrame(() => quoteViews.get(movingProductId)?.row.focus());
+  }
+});
+
+elements.quotes.addEventListener("dragend", clearQuoteDrag);
+
 elements.quotes.addEventListener("keydown", (event) => {
+  const row = quoteRowFromEvent(event);
+  const productId = row?.dataset.productId;
+  if (
+    productId
+    && event.altKey
+    && (event.key === "ArrowDown" || event.key === "ArrowUp")
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    moveSelectedProductBy(productId, event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
   elements.quotes.scrollTop += event.key === "ArrowDown" ? 33 : -33;
+});
+
+document.addEventListener("dragover", (event) => {
+  if (!quoteDrag) event.preventDefault();
+});
+
+document.addEventListener("drop", (event) => {
+  if (!quoteDrag) {
+    event.preventDefault();
+    return;
+  }
+  if (!(event.target instanceof Node) || !elements.quotes.contains(event.target)) {
+    event.preventDefault();
+    clearQuoteDrag();
+  }
 });
 
 function beginResizeDrag(clientY: number, pointerId: number | null): void {
@@ -841,7 +1008,10 @@ elements.resizeHandle.addEventListener("keydown", (event) => {
   queueMonitorHeight(globalThis.innerHeight + (event.key === "ArrowDown" ? 33 : -33));
 });
 
-globalThis.addEventListener("blur", () => clearResizeDrag(false));
+globalThis.addEventListener("blur", () => {
+  clearQuoteDrag();
+  clearResizeDrag(false);
+});
 
 globalThis.addEventListener("resize", updateQuoteOverflow);
 
@@ -865,6 +1035,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
     feed.reconnectAll();
   } else {
+    clearQuoteDrag();
     closeManager(false);
   }
 });
