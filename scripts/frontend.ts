@@ -10,7 +10,6 @@ const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..
 const sourceDirectory = resolve(repositoryDirectory, "src");
 const outputDirectory = resolve(repositoryDirectory, "dist");
 const appVersionToken = "{{APP_VERSION}}";
-const gplLicenseTextToken = "{{GPL_LICENSE_TEXT}}";
 const licensePath = resolve(repositoryDirectory, "LICENSE");
 const tauriConfigPath = resolve(repositoryDirectory, "src-tauri", "tauri.conf.json");
 const staticFiles = new Map<string, string>([
@@ -37,31 +36,20 @@ async function copyStaticFile(fileName: string): Promise<void> {
   const outputPath = resolve(outputDirectory, fileName);
 
   if (fileName === "about.html") {
-    const [tauriConfigSource, template, licenseText] = await Promise.all([
+    const [tauriConfigSource, template] = await Promise.all([
       readFile(tauriConfigPath, "utf8"),
       readFile(sourcePath, "utf8"),
-      readFile(licensePath, "utf8"),
     ]);
     const tauriConfig = JSON.parse(tauriConfigSource) as { version?: unknown };
     if (typeof tauriConfig.version !== "string" || tauriConfig.version.length === 0) {
       throw new Error("Tauri application version is unavailable");
     }
 
-    for (const token of [appVersionToken, gplLicenseTextToken]) {
-      if (!template.includes(token)) {
-        throw new Error(`Missing ${token} in about.html`);
-      }
+    if (!template.includes(appVersionToken)) {
+      throw new Error(`Missing ${appVersionToken} in about.html`);
     }
 
-    const escapedLicenseText = licenseText
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    const renderedAbout = template
-      .split(appVersionToken)
-      .join(tauriConfig.version)
-      .split(gplLicenseTextToken)
-      .join(escapedLicenseText);
+    const renderedAbout = template.split(appVersionToken).join(tauriConfig.version);
     await writeFile(outputPath, renderedAbout, "utf8");
     return;
   }
@@ -111,7 +99,7 @@ if (watchMode) {
       const affectedOutputs = [...staticFiles.entries()]
         .filter(([, sourcePath]) => sourcePath === changedPath)
         .map(([outputName]) => outputName);
-      if (changedPath === licensePath || changedPath === tauriConfigPath) {
+      if (changedPath === tauriConfigPath) {
         affectedOutputs.push("about.html");
       }
 

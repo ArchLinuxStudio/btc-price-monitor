@@ -4,18 +4,18 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 ## P0 — Blocking
 
-None. The current About/GPL implementation has no known blocker; its exact checkpoint and remaining cross-platform verification are recorded in `CURRENT_STATE.md`.
+None. No implementation task is active, and the completed bounded quote-height resize plus compact About/repository-opener work have no known blocker. Current Git and verification state are recorded in `CURRENT_STATE.md`.
 
 ## P2 — Release quality and cross-platform confidence
 
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
-  - Done when tray visibility/actions (including About), monitor/About close-to-hide, always-on-top, dynamic height, Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
+  - Done when tray visibility/actions (including About and its scoped GitHub opener), monitor/About close-to-hide, always-on-top, bounded quote-height drag (fixed `208px` width, overflow behavior, `290px` quote maximum, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 
 - [ ] Add signing/notarization before broad end-user distribution.
   - Done when Windows artifacts are signed and macOS artifacts use Developer ID plus notarization, with secrets stored only in protected CI configuration.
 
 - [ ] Harden version consistency checks in the release workflow.
-  - Done when the tag is checked against `package.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, with a regression test or demonstrated failing mismatch.
+  - Done when the tag is checked against `package.json`, both root entries in `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, with a regression test or demonstrated failing mismatch.
 
 - [ ] Add an ordinary main/PR quality workflow or extend CI coverage.
   - Done when non-tag changes run the full TypeScript/frontend tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases.

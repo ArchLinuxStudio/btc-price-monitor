@@ -13,13 +13,13 @@ This repository is the persistent source of development context. Do not assume t
 ## Non-negotiable product constraints
 
 - Keep the app a small Tauri 2 desktop monitor with a static HTML/CSS/TypeScript frontend compiled to unbundled browser ES modules; do not migrate frameworks or add a bundler without explicit approval and evidence.
-- The monitor is fixed at `208px` wide. Normal height is `92/125/158px` for 2/3/4+ rows; management height is capped at `170px`.
+- The monitor is fixed at `208px` wide. Automatic height is `92/125/158px` for 2/3/4+ rows; quote height may be dragged vertically up to the selected content (`290px` for eight rows), while management height remains capped at `170px`.
 - BTC and ETH are fixed. Up to six additional supported products may be selected, for eight products total: Coinbase online real-USD crypto spot products or officially cataloged stock-related USDT perpetuals.
 - Market data must be free and keyless for the user. Crypto spot USD means real USD; never silently substitute USDT/USDC. Stock-related USDT perpetuals are a separate, explicitly approved category and must be visibly identified with `.P` / `USDT永续`; never describe them as direct share ownership or guess another exchange's symbol.
 - Change is the current UTC+0 calendar-day change, calculated from the displayed exchange's own open. Never restore rolling 24-hour change or mix sources.
 - Closing the window hides it to the tray. Only the tray Quit action exits the process. Do not restore a taskbar/Dock item or the old redundant minimize button.
 - Do not add hover text tooltips (`title`, dynamic `.title`, or tray tooltip). Use `aria-label` for nonvisual descriptions.
-- Do not widen CSP origins or Tauri permissions casually. Dynamic size is computed in Rust; the frontend must not receive arbitrary resize permission.
+- Do not widen CSP origins or Tauri permissions casually. Dynamic size is computed and clamped in Rust; the frontend may request only the bounded quote-height command and must not receive arbitrary resize permission.
 
 The rationale and rejected alternatives are authoritative in [`docs/DECISIONS.md`](docs/DECISIONS.md). Market-data details are authoritative in [`docs/MARKET_DATA.md`](docs/MARKET_DATA.md).
 

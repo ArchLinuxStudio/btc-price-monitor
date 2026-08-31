@@ -4,7 +4,7 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 ## No normal main/PR CI and incomplete CI checks
 
-**Symptom:** The desktop workflow triggers only for manual dispatch or `v*` tags. It now runs the complete TypeScript/frontend `npm run check`, but it still does not run Rust fmt/check/clippy.
+**Symptom:** The desktop workflow triggers only for manual dispatch or `v*` tags. It now runs the complete TypeScript/frontend `npm run check`, but it still does not run Rust fmt/test/check/clippy.
 
 **Impact:** A pushed main commit can have no GitHub status even when local verification was performed; Rust quality regressions may be discovered only at release time.
 
@@ -28,7 +28,7 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
-**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow, the tray-opened About window, and all Wayland tray/always-on-top combinations on those platforms.
+**Not fully verified:** Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit, Bybit/Gate public WebSockets, the stock-perpetual search/add/display flow, the compact tray-opened About window and its exact-URL repository opener, the pointer-captured bounded quote-height drag under macOS/Linux window managers, and all Wayland tray/always-on-top combinations on those platforms.
 
 **Next direction:** Use real target systems for the next release candidate; do not “fix” a platform by widening CSP without diagnosis.
 

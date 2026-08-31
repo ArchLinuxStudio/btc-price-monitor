@@ -1,103 +1,107 @@
 # Current Development State
 
-Checkpoint date: 2026-08-30 (Asia/Shanghai)
+Checkpoint date: 2026-08-31 (Asia/Shanghai)
 
 ## Current Objective
 
-Add a cross-platform tray-menu About view that displays the current application version, canonical application icon, GitHub repository address, and an unambiguous GPL license, without changing the monitor UI or its tray-only lifecycle.
+Prepare the completed compact About redesign and bounded quote-height resizing as synchronized version `1.5.0`, run the release-grade local checks, commit the source, and build a new unsigned Windows NSIS installer without publishing or installing it.
 
 ## Current Status
 
 - Branch/upstream: `main` tracking `origin/main`.
-- This task started from clean synchronized commit `66f3ace843b110016795fc37c44ab879915f21a4` (`feat: add dynamic stock perpetual markets`).
-- The scoped About/GPL implementation, tests, build-tooling, README, and documentation changes were committed as `e2e9144` (`feat: add tray about window and GPL license`) and pushed to `origin/main`. No unrelated user edits were included.
-- Source version remains synchronized at `1.4.0`; published `v1.3.0` remains the latest GitHub Release.
-- The user explicitly authorized committing and pushing this implementation to `origin/main`; that operation is complete. No tag or GitHub Release was authorized or created.
-- The main monitor's `208px` envelope, market-data behavior, custom IPC surface, CSP origins, and taskbar/Dock policy are unchanged.
-- Installer-page verification unintentionally advanced into installation before cancellation took effect. A near-final unsigned `1.4.0` build replaced the existing per-user installation at `C:\Users\walle\AppData\Local\Crypto Top`; its installer-launched instance remains running, the main window is visible, and About is hidden. The final source and installer differ only by replacing the visually equivalent CSS `inset` shorthand with macOS 10.15-compatible edge declarations, and were deliberately not installed again. That local installation did not itself create a commit, tag, push, or published Release.
+- The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
+- The completed compact About redesign/exact repository opener, bounded quote-height resizing, version bump, tests, and preserved handoff-document changes are included in one authorized local `1.5.0` commit. After that commit, `main` is one commit ahead of `origin/main`; it has not been pushed.
+- All six source/lock/config version fields are synchronized at `1.5.0`.
+- The user authorized committing the current work and building a new local installer. Push, tag, GitHub Release publication, installer execution, and installation remain unauthorized.
+- Full source verification and unsigned Windows NSIS packaging against exact version `1.5.0` are complete; no implementation blocker is known. Generated `dist/` and `src-tauri/target/` outputs remain ignored.
+- The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
 
 ## Completed
 
-- Recovered the clean `1.4.0` baseline and inspected the native tray, window lifecycle, static frontend build, capabilities, and related decisions before editing.
-- Rejected Tauri's predefined platform About item because the locked Tauri/muda implementation cannot show icon, website, and license consistently across Windows, macOS, and Linux.
-- Added a normal tray item, `关于 Crypto Top`, routed through a tested native `TrayAction::ShowAbout` action.
-- Added one pre-created, initially hidden, fixed `380×450px` decorated `about` WebView. It is centered/focused when requested and hidden/reused on close, while Quit remains the only process-exit path.
-- Kept About outside every IPC capability and added no plugin, remote origin, wildcard permission, inline script, or external navigation behavior.
-- Added a local static About page that shows the canonical icon, build-time Tauri version, selectable repository address, GPL name/SPDX identifier, warranty notice, copyright, and a fixed in-window disclosure overlay containing the complete independently scrollable license text.
-- Extended the frontend build/watch copier for `about.html`, `about.css`, canonical `assets/app-icon.svg`, and `LICENSE.txt`; version injection reads `src-tauri/tauri.conf.json`, while the root license is HTML-escaped into About and configured as Tauri's bundle license file.
-- Adopted `GPL-3.0-only`: added the complete unmodified GNU GPL v3 text, synchronized npm/Cargo metadata, and documented the user-facing and engineering implications.
-- Added TypeScript/static regression coverage plus Rust tests for tray action routing and the two managed close-to-hide window labels.
-- Updated README, architecture, decisions, known issues, and cross-platform TODO coverage.
+- Reduced the fixed About window from `380×450px` to `320×280px` and replaced the disclosure-heavy layout with compact identity and license cards.
+- Removed the visible full repository address and complete GPL disclosure from About while retaining the `GPL-3.0-only` summary and warranty notice.
+- Added a local GitHub icon button backed by Tauri's opener plugin. A dedicated `about` capability permits only `https://github.com/ArchLinuxStudio/btc-price-monitor`; no wildcard/default URL permission or new CSP origin was added.
+- Kept the complete root `LICENSE`, generated `dist/LICENSE.txt`, package metadata, and `bundle.licenseFile` delivery intact.
+- Updated static regression coverage and the stable About architecture/decision documentation for the revised user requirement.
+- Added a seven-pixel bottom resize handle only for quote views with five to eight products. Pointer capture supports drag outside the narrow WebView, arrow keys resize by one row, and a mouse fallback remains for engines without Pointer Events.
+- Added a single-flight/latest-value resize request path so fast movement cannot accumulate stale native calls. Scrolling, focusability, and its accessible label now follow real `scrollHeight > clientHeight` overflow rather than product count alone.
+- Added a main-window-only `resize_monitor_height` command. Rust fixes width at `208px`, clamps requested height between the automatic four-row minimum and current content, keeps the session quote height across management mode, and leaves management at its existing `170px` maximum. No general set-size/native-resize permission was granted and `resizable` remains false.
+- Amended the compact-layout and native-sizing decisions plus architecture/README/agent constraints for the explicit bounded-resize requirement.
 
 ## In Progress
 
-The scoped implementation, local verification, commit, and source push are complete. There is no active implementation blocker; tag/Release operations remain out of scope.
+None. The requested implementation, synchronized `1.5.0` version, local source commit, and unsigned Windows installer build are complete.
 
 ## Relevant Files
 
 | Path | Current responsibility |
 | --- | --- |
-| `src-tauri/src/lib.rs` | Tray About action, main/About show-hide routing, tray-only exit, monitor layout behavior |
-| `src-tauri/tauri.conf.json` | Fixed main monitor plus pre-created hidden About window, shared narrow CSP, application version, bundle license |
-| `src/about.html` / `src/about.css` | Script-free About content and fixed auxiliary-window presentation |
-| `assets/app-icon.svg` | Canonical icon copied into frontend output; not duplicated in source |
-| `scripts/frontend.ts` | Static asset/license copying plus safe About version/license injection before TypeScript emit |
-| `src-tauri/capabilities/main.json` | Main-only IPC capability; About deliberately remains outside it |
-| `LICENSE` | Complete GNU GPL v3 license text for the `GPL-3.0-only` project grant |
-| `package.json` / `package-lock.json` / `src-tauri/Cargo.toml` | Synchronized project-license metadata |
-| `tests/ui.test.ts` | About content/window/build/capability constraints plus existing UI/CSP coverage |
-| `README.md` / `docs/ARCHITECTURE.md` / `docs/DECISIONS.md` | User behavior and stable About/GPL design decisions |
+| `src-tauri/src/lib.rs` | Tray action routing, main/About show-hide behavior, tray-only exit, monitor sizing, opener plugin initialization |
+| `src-tauri/tauri.conf.json` | Main and compact About window envelopes, capability selection, version, CSP, bundle license |
+| `src/index.html` / `src/styles.css` / `src/main.ts` | Quote/manager UI, overflow-aware scrolling, resize handle/input coalescing, and native layout calls |
+| `src/about.html` / `src/about.css` / `src/about.ts` | Compact About content, styling, accessible GitHub button, and opener interaction |
+| `scripts/frontend.ts` | Clean frontend emit, static/license copying, and authoritative version injection |
+| `src-tauri/capabilities/main.json` / `about.json` | Isolated main-window commands and exact repository URL permission |
+| `src-tauri/build.rs` / `src-tauri/permissions/window-controls.toml` | Narrow custom-command manifest and main-window command allowlist |
+| `LICENSE` | Complete GNU GPL v3 text for the `GPL-3.0-only` grant |
+| `package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` | Version/license metadata and locked opener dependency |
+| `tests/ui.test.ts` / `src-tauri/src/lib.rs` tests | Bounded sizing, fixed width, permission negatives, compact About, native routing, and lifecycle coverage |
+| `docs/DECISIONS.md` | Stable compact-layout, native-sizing, GPL/About choices, and rejected alternatives |
+| `docs/RELEASE.md` | Packaging/release procedure and safe installer-license verification |
 
 ## Current Implementation
 
-The native shell pre-creates both configured windows. `main` retains its existing compact monitor behavior. `about` starts hidden and has no IPC capability. The tray callback maps stable item IDs to show main, hide main, show About, or exit. Showing About reuses the configured window, centers it, and focuses it; closing either managed window hides it, while tray Quit exits.
+Tauri pre-creates `main` and hidden `about` windows from `tauri.conf.json`. Stable tray item IDs map to show main, hide main, show About, or quit. Showing About centers, reveals, and focuses the existing window; close requests for either managed window are prevented and converted to hide.
 
-The About page is entirely local and script-free. During every clean frontend build, `scripts/frontend.ts` reads the authoritative Tauri version and root license, replaces the `{{APP_VERSION}}` token, injects an HTML-escaped complete GPL text into its fixed disclosure overlay, and copies the canonical SVG icon plus `LICENSE.txt` into `dist/`. The repository address is plain selectable text, so no browser-opener plugin or URL permission was introduced.
+The About page uses one local ES module. During each clean frontend build, `scripts/frontend.ts` reads the authoritative Tauri version, replaces its template token, and copies the canonical icon plus a standalone complete `LICENSE.txt` into ignored `dist/`. The UI shows only a concise GPL/SPDX/warranty summary.
 
-The previous USD spot and stock-related perpetual implementation remains unchanged; see `docs/MARKET_DATA.md` for those semantics.
+The GitHub icon invokes `window.__TAURI__.opener.openUrl` with one fixed repository URL. About has its own capability containing only `opener:allow-open-url` for that exact URL; it does not receive the main commands, default URL protocols, wildcard scope, or a new CSP network origin. Tauri still embeds the complete root license in applicable bundles.
+
+The main window remains `resizable: false` with `minWidth = maxWidth = 208`. Five to eight selected products reveal a small bottom handle. Pointer movement sends only a row count and requested logical height through the custom command; Rust clamps it to `quote_auto_height(row_count)..=quote_content_height(row_count)` and calls `set_size` with the fixed width. The maximum Tauri envelope is `290px`, exactly eight quote rows plus chrome. Opening management hides the handle and temporarily applies its count-derived height up to `170px`; closing restores the remembered quote height, clamped again if products changed. Height is session-only and returns to automatic sizing after process restart.
+
+Resize requests are requestAnimationFrame-coalesced with at most one resize IPC in flight; the newest pending height replaces older movement. Pointer capture makes growth/shrink robust when the cursor leaves the 208px content area. Native window behavior is not reasserted on every drag frame; its existing focus/resume/10-second resilience layers remain.
+
+The established real-USD crypto spot and explicitly labeled stock-related USDT perpetual implementation is unchanged. [`MARKET_DATA.md`](MARKET_DATA.md) remains authoritative for provider and UTC-day semantics.
 
 ## Current Problems
 
-- The new About window/tray path has not been exercised on real macOS WKWebView or Linux WebKit/Wayland.
-- The repository address is intentionally displayed/selectable rather than opened automatically; adding click-to-open later would require a separately reviewed, exact-URL opener permission.
-- Existing market/platform limitations remain in `docs/KNOWN_ISSUES.md`.
+- No known blocking product bug and no known flaky test.
+- Real bounded-resize runtime verification is complete on Windows; macOS/Linux pointer/window-manager behavior remains unverified.
+- Real compact-About and repository-opener verification remains incomplete on macOS and Linux/Wayland.
+- Local artifacts are unsigned; macOS signing/notarization is not configured.
+- The installed per-user binary on this machine is not authoritative for final HEAD. A prior NSIS UI-automation check advanced past the license page and installed a near-final same-version build before cancellation; do not repeat interactive installation merely to inspect the license page. See [`RELEASE.md`](RELEASE.md).
+- Remaining limitations and technical debt are maintained in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md); executable but unauthorized backlog items are in [`TODO.md`](TODO.md).
 
 ## Verification State
 
-About/GPL feature work, verified on 2026-08-30:
+Verified on Windows, 2026-08-31, against the exact synchronized `1.5.0` compact About and bounded-resize source:
 
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 69/69 Node tests, and a clean ES2019 frontend emit succeeded.
-- Generated `dist/about.html` contains version `1.4.0` and the complete HTML-escaped GPL text with no remaining template token. Decoding its license block reproduces root `LICENSE` exactly. `dist/LICENSE.txt` is byte-identical to root `LICENSE` (SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`), while `dist/app-icon.svg` is byte-identical to canonical `assets/app-icon.svg` (SHA-256 `AA9CFE8CE1D871AE169C826D909A135C5C0695E66CB333096FDF3F9D56C0D003`).
+- `npm.cmd ci`: passed; lockfile dependencies installed cleanly.
+- `npm.cmd run check`: passed; strict application/test TypeScript checks, 69/69 Node tests, and clean ES2019 frontend emit.
 - `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 4/4 Rust tests. It emitted only the already documented benign MSVC import-library linker message.
+- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 5/5 Rust tests; quote automatic/content clamps and the unchanged `170px` management cap are covered. Only the documented benign MSVC import-library message appeared.
 - `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
 - `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed at version `1.4.0`. The final ignored unsigned NSIS `Crypto Top_1.4.0_x64-setup.exe` is 1,181,848 bytes with SHA-256 `2EF35503E189181C0D67F60CCD9A59EF31C8ACA68431B643701FDE6563308435`; it is a local verification artifact, not a published Release.
-- The generated NSIS `license_file` exists, contains the GNU GPL header, and is referenced by a non-empty `!define LICENSE` in `installer.nsi`. UI Automation reached the installer's native `License Agreement` page with its scrollable document and `I Agree` action, proving the license page is self-contained rather than loaded from the repository at runtime.
-- Native Windows tray/About smoke passed against the final release binary while the separate installed instance remained running:
-  - UI Automation process-differencing identified exactly one new test-process tray icon; its accessible name remained empty, preserving the no-tooltip constraint.
-  - Real right-click opened the native menu containing `显示窗口`, `隐藏窗口`, `关于 Crypto Top`, and `退出 Crypto Top`; the About item was located and clicked by exact Win32 menu text.
-  - About opened from that tray action with a `380×450px` client area. Visual inspection confirmed the canonical icon, `版本 1.4.0`, exact GitHub repository address, `GNU General Public License v3.0`, `GPL-3.0-only`, and the warranty/license notice without clipping or a collapsed-page scrollbar.
-  - Expanding the disclosure replaced the content with a fixed in-window license view whose complete GPL text scrolls independently and whose close label remains visible.
-  - The final release-binary test process exited through the exact tray Quit action. Close-to-hide and same-handle About reuse had already passed on the preceding visually equivalent build before the final CSS compatibility-only edit.
-- Installer UI automation reused the advancing button control and completed the per-user install before cancellation took effect. The original running instance ended, NSIS automatically launched one near-final-build instance, and a briefly duplicated manual restart was removed. Exactly one application process remains at the original installation path; the installer action performed no source-control or release-publishing operation.
-- Root `LICENSE` is the complete GNU GPL v3 text, 35,149 bytes, SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; npm/lockfile/Cargo metadata all declare `GPL-3.0-only`.
-- `git diff --check`: passed with only expected Windows LF-to-CRLF notices.
-- All local relative links across `AGENTS.md`, `README.md`, and `docs/*.md` resolve (10 files, 0 broken links).
-- Generated `dist/`, target binaries, and the local NSIS remain ignored; smoke screenshots stayed outside the repository, and none of these artifacts is part of the working tree.
-- `git push origin main`: passed; feature commit `e2e9144` is present on `origin/main`. This follow-up state-document update records the completed delivery.
+- `npm.cmd run build:windows`: passed without running the installer. The ignored unsigned release executable is 3,298,304 bytes, SHA-256 `7E931A8F245914303BF74C49F42B43776F1167810E18C1E6B18B769CD2C0AC1C`. The ignored `Crypto Top_1.5.0_x64-setup.exe` NSIS installer is 1,208,942 bytes, SHA-256 `0E83EA901186418950CC0883A889D72886EEBF909C8E52D099E1A0023BA0B068`.
+- Browser visual QA used exact `208×158`, `208×191`, `208×290`, and `208×170` viewports with five/eight products. It confirmed four-row overflow, five/eight-row complete display without a false scroll label, a contained bottom handle, and the compact capped management layout.
+- A real Windows Tauri debug-window smoke started from a separate two-row test state, added six products through the native WebView, and verified: pointer-captured growth outside the narrow window from `208×158` to the clamped `208×290`; management at `208×170`; quote-height restoration to `208×290`; keyboard steps to `208×257` and back; and pointer shrink clamped to `208×158`. Width stayed `208px` throughout. The test process/config were removed, the pre-existing application process was not touched, and reopening the test binary confirmed the original two-row `208×92` state rather than a retained test watchlist.
+- Generated `dist/about.html` has version `1.5.0`, no unresolved token, no visible complete repository address, and no GPL-full-text container. `dist/LICENSE.txt` remains byte-identical to root `LICENSE` with SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`.
+- Browser visual QA at an exact `320×280` viewport confirmed no overflow, the compact two-card layout, visible keyboard focus, and a contained opener-failure message.
+- Native release-binary smoke identified the exact test process/tray menu, opened an About WebView with a `320×280` content area, confirmed the concise visible/accessibility content, and clicked the GitHub button. The system default browser loaded `github.com/ArchLinuxStudio/btc-price-monitor`. The test process then exited through its own tray Quit action with no application/WebView process left behind.
+- Generated NSIS `license_file` still contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
+- `git diff --check` passed with only the expected Windows LF-to-CRLF notices. A read-only pre-commit audit found no credentials, temporary files, generated artifacts, unrelated changes, or missing required source files.
 
-Not verified: real macOS/Linux About/tray behavior, signing, and notarization.
+Not verified: real macOS/Linux compact About/opener/resize behavior, signing, notarization, or a five-asset `v1.5.0` formal release. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
 
 ## Next Recommended Action
 
-1. Preserve the completed About/GPL implementation on `main`; no further code action is currently required.
-2. Continue the remaining real macOS/Linux runtime checks only when an appropriate environment or release-candidate task is available.
-3. Do not tag or publish a Release unless the user separately authorizes it; any future release must follow `docs/RELEASE.md` and verify all five workflow-built assets without moving or overwriting published `v1.3.0`.
+1. No further work is authorized or required for this local `1.5.0` checkpoint. Preserve the commit and ignored local installer; do not push, tag, publish a GitHub Release, or run the installer without explicit authorization.
+2. If resizing changes again, keep `208px` width, the `92/125/158px` automatic heights, current-content clamp (`290px` maximum), real-overflow accessibility, and `170px` management cap synchronized across frontend, Rust, config, tests, and documentation.
+3. Real macOS/Linux resize and About/opener smoke remain release-candidate tasks. A future formal release requires explicit authorization and the complete procedure in [`RELEASE.md`](RELEASE.md).
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`; confirm the pushed About/GPL state is clean and understand any newer edits before acting.
-3. Read the GPL/About decisions in `docs/DECISIONS.md` and inspect `src-tauri/src/lib.rs`, `src/about.html`, and `scripts/frontend.ts` before changing this feature.
-4. Continue from `Next Recommended Action`; the prior commit/push authorization has been fulfilled and does not authorize a tag or Release.
+2. Run `git status --short --branch`. Immediately after this checkpoint, the worktree should be clean and `main` should be one local commit ahead of `origin/main`; investigate before changing anything if that is not true.
+3. For the active resize work inspect `src/main.ts`, `src/index.html`, `src/styles.css`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, the window-control permission/manifest, and the UI/Rust tests. Inspect the About files only if that feature changes.
+4. Continue from `Next Recommended Action`; no push, tag, Release, installer execution, new implementation, or general resize permission is authorized.

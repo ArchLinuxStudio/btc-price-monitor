@@ -46,17 +46,17 @@ This document records accepted decisions that a future developer might otherwise
 
 ## Decision: Preserve the compact 208px design
 
-**Status:** Accepted; explicit user preference
+**Status:** Accepted; amended by explicit user request on 2026-08-31
 
 **Context:** Earlier `372×188` and `264×92` designs were rejected as too large/wide. The user repeatedly asked for a compact, modern, premium-looking monitor without extreme-price whitespace.
 
-**Decision:** Width stays `208px`; default BTC/ETH view is `208×92`. Normal rows cap at four visible entries and management replaces the quote region temporarily.
+**Decision:** Width stays `208px`; default BTC/ETH view is `208×92`. Automatic quote height caps at four visible rows, while five to eight selected products expose a bottom handle that can increase quote height only up to the current content (`290px` for eight rows). Management still replaces the quote region temporarily and remains capped at `170px`.
 
 **Reason:** The accepted practical display range is BTC in the hundreds of thousands and ETH in the tens of thousands; verified current boundaries include `$999,999.99`, `$99,999.99`, and `−99.99%` without collision.
 
-**Rejected alternatives:** Restoring the large card/footer design, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row.
+**Rejected alternatives:** Restoring the large card/footer design, changing width, unbounded window expansion, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row.
 
-**Implications:** Layout changes require a real rendered image when presenting a prototype and a final native Tauri-window smoke test. Do not rely only on a browser viewport.
+**Implications:** Internal scrolling remains whenever content actually overflows. Layout changes require a real rendered image when presenting a prototype and a final native Tauri-window smoke test, including drag growth/shrink, fixed width, and the management cap. Do not rely only on a browser viewport.
 
 ## Decision: Separate real-USD crypto spot from labeled stock-related USDT perpetuals
 
@@ -134,33 +134,33 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** Do not promise that hidden WebViews process every tick on every OS; promise that the process stays resident and reconnects/continues when restored.
 
-## Decision: Use a local static About window
+## Decision: Use a compact local About window with a scoped repository opener
 
-**Status:** Accepted; explicit user request
+**Status:** Accepted; updated by explicit user request on 2026-08-30
 
-**Context:** The tray menu must expose an About view containing the current application version, application icon, GitHub repository address, and GPL license information consistently on Windows, macOS, and Linux.
+**Context:** The original About design displayed the complete repository address and an expandable copy of the full GPL text without any script or native capability. The user subsequently requested a more compact layout, removal of the full GPL text, and a GitHub icon that opens the repository.
 
-**Decision:** Pre-create one hidden, fixed-size `about` WebView from local `about.html`, show/center/focus it from a normal tray menu item, and hide/reuse it on close. Inject the application version from `tauri.conf.json` and an HTML-escaped copy of the complete root `LICENSE` during the frontend build, copy the canonical `assets/app-icon.svg` and `LICENSE.txt` into the frontend distribution, configure the root license as Tauri's bundle license file, and leave the About window outside every IPC capability.
+**Decision:** Pre-create one hidden, fixed `320×280px` `about` WebView from local assets, show/center/focus it from a normal tray item, and hide/reuse it on close. Inject only the application version from `tauri.conf.json`; show the canonical icon, a concise `GPL-3.0-only` notice, and one accessible GitHub icon button. The button uses Tauri's opener plugin through a separate `about` capability scoped to the exact canonical repository URL. Continue copying `assets/app-icon.svg` and the complete `LICENSE.txt`, and keep the root `LICENSE` configured as the bundle license file.
 
-**Reason:** Tauri's platform-native predefined About item cannot display the full requested metadata consistently across all three operating systems. A local static page is deterministic, keeps the current CSP, and needs no new plugin, network origin, or frontend-native permission.
+**Reason:** The revised layout matches the user's explicit request while preserving deterministic local presentation and complete license delivery in the source and packaged artifacts. A dedicated exact-URL permission opens the repository in the system browser without granting general navigation, changing CSP origins, or exposing the main monitor's commands.
 
-**Rejected alternatives:** Platform-native `PredefinedMenuItem::about`, hard-coding a second version string, duplicating the icon source, granting the About page the main monitor's IPC commands, and adding an external-URL opener when the requested repository address only needs to be displayed and selectable.
+**Rejected alternatives:** The superseded full-address/full-license overlay, platform-native `PredefinedMenuItem::about`, hard-coding a second version string, duplicating the icon source, ordinary WebView navigation, `opener:default`, wildcard URL scope, or granting About the main monitor capability.
 
-**Implications:** Keep `src/about.html`, `scripts/frontend.ts`, Tauri version/bundle metadata, `LICENSE`, and the canonical icon synchronized. Recipients must be able to read the complete license without access to the source checkout. The About window must not change the main monitor's `208px` envelope, taskbar/Dock policy, or tray-only exit contract.
+**Implications:** Keep `src/about.html`, `src/about.ts`, `scripts/frontend.ts`, the exact repository URL capability, Tauri version/bundle metadata, `LICENSE`, and the canonical icon synchronized. The full license remains in the root source, frontend distribution, and applicable installers rather than the About viewport. The About window must not change the main monitor's fixed `208px` width contract, CSP origins, taskbar/Dock policy, or tray-only exit contract.
 
 ## Decision: Cap the watchlist at eight and compute size natively
 
-**Status:** Accepted
+**Status:** Accepted; amended by explicit user request on 2026-08-31
 
 **Context:** Watchlist size affects compactness, channel counts, and failure-time REST load.
 
-**Decision:** Fix BTC/ETH, allow six custom products, display four rows/items before internal scroll, and let Rust compute height from counts.
+**Decision:** Fix BTC/ETH and allow six custom products. Start with at most four visible quote rows and use internal scrolling while content overflows; let the user drag only the quote height up to all selected rows. Rust computes automatic/management heights and clamps every requested quote height to the current row count while keeping width fixed.
 
-**Reason:** One bound simultaneously protects UI density, provider subscription scale, and free API usage. Native calculation keeps the IPC permission narrow.
+**Reason:** The eight-product bound still protects UI density, provider subscription scale, and free API usage, while bounded vertical expansion lets the user trade screen space for fewer scroll operations. Native clamping keeps the IPC permission narrow and consistent across platforms.
 
-**Rejected alternatives:** Unlimited items, expanding the desktop window indefinitely, and exposing arbitrary frontend width/height control.
+**Rejected alternatives:** Unlimited items, unbounded desktop expansion, general OS resizing, and exposing arbitrary frontend width/height control or set-size permissions.
 
-**Implications:** Keep `MAX_PRODUCTS`, CSS row budgets, Rust height tests, Tauri width limits, and README behavior synchronized.
+**Implications:** Keep `MAX_PRODUCTS`, the `26 + 33 × rows` budgets, the `158px` automatic and `290px` content maxima, the `170px` management cap, overflow accessibility, Rust height tests, Tauri width limits, and README behavior synchronized. The dragged preference is session-only and is clamped again after product changes.
 
 ## Decision: No hover text tooltips
 

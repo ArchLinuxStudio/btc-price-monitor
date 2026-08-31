@@ -1,6 +1,6 @@
 [package]
 name = "crypto-top-monitor"
-version = "1.4.0"
+version = "1.5.0"
 description = "Always-on-top BTC and ETH USD price monitor"
 authors = ["Crypto Top contributors"]
 license = "GPL-3.0-only"
@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
 
 [profile.release]
 codegen-units = 1

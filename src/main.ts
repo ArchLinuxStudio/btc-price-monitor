@@ -25,6 +25,17 @@ interface MonitorLayout {
   itemCount: number;
 }
 
+interface MonitorHeightRequest {
+  rowCount: number;
+  requestedHeight: number;
+}
+
+interface ResizeDragState {
+  startHeight: number;
+  startClientY: number;
+  pointerId: number | null;
+}
+
 interface TauriApi {
   core?: {
     invoke?: (command: string, args?: unknown) => Promise<unknown>;
@@ -35,10 +46,15 @@ type TauriGlobal = typeof globalThis & {
   __TAURI__?: TauriApi;
 };
 
-type TauriCommand = "close_window" | "ensure_always_on_top" | "set_monitor_layout";
+type TauriCommand =
+  | "close_window"
+  | "ensure_always_on_top"
+  | "set_monitor_layout"
+  | "resize_monitor_height";
 type CatalogState = "idle" | "loading" | "ready" | "error";
 
 const elements = {
+  monitor: document.querySelector<HTMLElement>(".monitor")!,
   liveDot: document.querySelector<HTMLSpanElement>("#live-dot")!,
   statusText: document.querySelector<HTMLSpanElement>("#status-text")!,
   marketLabel: document.querySelector<HTMLSpanElement>("#market-label")!,
@@ -52,6 +68,7 @@ const elements = {
   search: document.querySelector<HTMLInputElement>("#coin-search")!,
   managerList: document.querySelector<HTMLDivElement>("#manager-list")!,
   managerStatus: document.querySelector<HTMLSpanElement>("#manager-status")!,
+  resizeHandle: document.querySelector<HTMLButtonElement>("#resize-handle")!,
 };
 
 const statusLabels: Record<FeedStatus, { compact: string; full: string }> = {
@@ -108,6 +125,10 @@ let visibleSearchResults: Product[] = [];
 let pendingLayout: MonitorLayout | null = null;
 let layoutFrame: number | null = null;
 let layoutQueue: Promise<unknown> = Promise.resolve();
+let pendingResizeHeight: number | null = null;
+let resizeFrame: number | null = null;
+let resizeInFlight = false;
+let resizeDrag: ResizeDragState | null = null;
 
 function prefersReducedMotion(): boolean {
   return typeof globalThis.matchMedia === "function"
@@ -115,12 +136,70 @@ function prefersReducedMotion(): boolean {
 }
 
 function tauriInvoke(command: "set_monitor_layout", args: MonitorLayout): Promise<unknown>;
+function tauriInvoke(command: "resize_monitor_height", args: MonitorHeightRequest): Promise<unknown>;
 function tauriInvoke(command: "close_window" | "ensure_always_on_top"): Promise<unknown>;
-function tauriInvoke(command: TauriCommand, args?: MonitorLayout): Promise<unknown> {
+function tauriInvoke(
+  command: TauriCommand,
+  args?: MonitorLayout | MonitorHeightRequest,
+): Promise<unknown> {
   const tauri = (globalThis as TauriGlobal).__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
   if (!invoke) return Promise.resolve();
   return invoke(command, args).catch(() => undefined);
+}
+
+function updateQuoteOverflow(): void {
+  const scrollable = !managementOpen
+    && elements.quotes.scrollHeight > elements.quotes.clientHeight + 1;
+  elements.quotes.classList.toggle("is-scrollable", scrollable);
+  if (scrollable) {
+    elements.quotes.tabIndex = 0;
+    elements.quotes.setAttribute("aria-label", "自选品种实时价格，可用方向键滚动");
+  } else {
+    elements.quotes.removeAttribute("tabindex");
+    elements.quotes.setAttribute("aria-label", "自选品种实时价格");
+  }
+}
+
+function updateResizeHandleVisibility(): void {
+  elements.resizeHandle.hidden = managementOpen || selectedProducts.length <= 4;
+}
+
+function scheduleMonitorHeight(): void {
+  if (resizeFrame !== null || resizeInFlight || pendingResizeHeight === null) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = null;
+    if (pendingResizeHeight === null) return;
+    const height = pendingResizeHeight!;
+    pendingResizeHeight = null;
+    resizeInFlight = true;
+    layoutQueue = layoutQueue
+      .then(() => tauriInvoke("resize_monitor_height", {
+        rowCount: selectedProducts.length,
+        requestedHeight: height,
+      }))
+      .catch(() => undefined)
+      .finally(() => {
+        resizeInFlight = false;
+        scheduleMonitorHeight();
+      });
+  });
+}
+
+function queueMonitorHeight(requestedHeight: number): void {
+  pendingResizeHeight = Math.max(0, Math.round(requestedHeight));
+  scheduleMonitorHeight();
+}
+
+function resizeHeightAt(clientY: number): number | null {
+  if (!resizeDrag) return null;
+  return resizeDrag.startHeight + clientY - resizeDrag.startClientY;
+}
+
+function clearResizeDrag(clearPending: boolean): void {
+  resizeDrag = null;
+  if (clearPending) pendingResizeHeight = null;
+  elements.monitor.classList.remove("is-resizing");
 }
 
 function setMonitorLayout(itemCount: number): void {
@@ -207,15 +286,8 @@ function rebuildQuoteRows(): void {
   });
 
   elements.quotes.appendChild(fragment);
-  const scrollable = selectedProducts.length > 4;
-  elements.quotes.classList.toggle("is-scrollable", scrollable);
-  if (scrollable) {
-    elements.quotes.tabIndex = 0;
-    elements.quotes.setAttribute("aria-label", "自选品种实时价格，可用方向键滚动");
-  } else {
-    elements.quotes.removeAttribute("tabindex");
-    elements.quotes.setAttribute("aria-label", "自选品种实时价格");
-  }
+  updateResizeHandleVisibility();
+  requestAnimationFrame(updateQuoteOverflow);
   if (latestState) render(latestState);
   if (!managementOpen) void setMonitorLayout(selectedProducts.length);
 }
@@ -579,9 +651,12 @@ async function ensureBackupSourceMappings(force: boolean): Promise<BackupSourceM
 }
 
 function openManager(): void {
+  clearResizeDrag(true);
   managementOpen = true;
+  updateResizeHandleVisibility();
   elements.quotes.hidden = true;
   elements.manager.hidden = false;
+  updateQuoteOverflow();
   elements.watchlistButton.classList.add("is-open");
   elements.watchlistButton.setAttribute("aria-expanded", "true");
   elements.watchlistButton.setAttribute("aria-label", "返回价格列表");
@@ -596,6 +671,7 @@ function openManager(): void {
 function closeManager(restoreFocus: boolean): void {
   if (!managementOpen) return;
   managementOpen = false;
+  updateResizeHandleVisibility();
   elements.manager.hidden = true;
   elements.quotes.hidden = false;
   elements.watchlistButton.classList.remove("is-open");
@@ -604,6 +680,7 @@ function closeManager(restoreFocus: boolean): void {
   elements.search.value = "";
   clearElement(elements.managerList);
   void setMonitorLayout(selectedProducts.length);
+  requestAnimationFrame(updateQuoteOverflow);
   if (restoreFocus) elements.watchlistButton.focus();
 }
 
@@ -686,6 +763,84 @@ elements.quotes.addEventListener("keydown", (event) => {
   event.preventDefault();
   elements.quotes.scrollTop += event.key === "ArrowDown" ? 33 : -33;
 });
+
+function beginResizeDrag(clientY: number, pointerId: number | null): void {
+  resizeDrag = {
+    startHeight: globalThis.innerHeight,
+    startClientY: clientY,
+    pointerId,
+  };
+  elements.monitor.classList.add("is-resizing");
+}
+
+if ("PointerEvent" in globalThis) {
+  elements.resizeHandle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !event.isPrimary || managementOpen || selectedProducts.length <= 4) {
+      return;
+    }
+    event.preventDefault();
+    beginResizeDrag(event.clientY, event.pointerId);
+    elements.resizeHandle.setPointerCapture(event.pointerId);
+  });
+
+  elements.resizeHandle.addEventListener("pointermove", (event) => {
+    if (!resizeDrag || resizeDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const height = resizeHeightAt(event.clientY);
+    if (height !== null) queueMonitorHeight(height);
+  });
+
+  elements.resizeHandle.addEventListener("pointerup", (event) => {
+    if (!resizeDrag || resizeDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const height = resizeHeightAt(event.clientY);
+    if (height !== null) queueMonitorHeight(height);
+    if (elements.resizeHandle.hasPointerCapture(event.pointerId)) {
+      elements.resizeHandle.releasePointerCapture(event.pointerId);
+    }
+    clearResizeDrag(false);
+  });
+
+  elements.resizeHandle.addEventListener("pointercancel", () => clearResizeDrag(false));
+  elements.resizeHandle.addEventListener("lostpointercapture", (event) => {
+    if (resizeDrag?.pointerId === event.pointerId) clearResizeDrag(false);
+  });
+} else {
+  elements.resizeHandle.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || managementOpen || selectedProducts.length <= 4) return;
+    event.preventDefault();
+    beginResizeDrag(event.clientY, null);
+  });
+
+  globalThis.addEventListener("mousemove", (event) => {
+    if (!resizeDrag) return;
+    if ((event.buttons & 1) === 0) {
+      clearResizeDrag(false);
+      return;
+    }
+    event.preventDefault();
+    const height = resizeHeightAt(event.clientY);
+    if (height !== null) queueMonitorHeight(height);
+  });
+
+  globalThis.addEventListener("mouseup", (event) => {
+    if (!resizeDrag || event.button !== 0) return;
+    event.preventDefault();
+    const height = resizeHeightAt(event.clientY);
+    if (height !== null) queueMonitorHeight(height);
+    clearResizeDrag(false);
+  });
+}
+
+elements.resizeHandle.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  queueMonitorHeight(globalThis.innerHeight + (event.key === "ArrowDown" ? 33 : -33));
+});
+
+globalThis.addEventListener("blur", () => clearResizeDrag(false));
+
+globalThis.addEventListener("resize", updateQuoteOverflow);
 
 elements.close.addEventListener("click", () => {
   closeManager(false);

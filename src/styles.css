@@ -32,6 +32,7 @@ button {
 }
 
 .monitor {
+  position: relative;
   width: 100vw;
   height: 100vh;
   display: grid;
@@ -42,6 +43,50 @@ button {
   box-shadow:
     0 10px 28px rgba(0, 0, 0, 0.38),
     inset 0 1px rgba(255, 255, 255, 0.025);
+}
+
+.resize-handle {
+  position: absolute;
+  z-index: 4;
+  bottom: 0;
+  left: 50%;
+  width: 38px;
+  height: 7px;
+  display: grid;
+  place-items: end center;
+  padding: 0 0 1px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #424c5b;
+  cursor: ns-resize;
+  touch-action: none;
+  transform: translateX(-50%);
+  -webkit-app-region: no-drag;
+}
+
+.resize-handle span {
+  width: 20px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  transition: color 120ms ease, width 120ms ease;
+}
+
+.resize-handle:hover,
+.resize-handle:focus-visible,
+.monitor.is-resizing .resize-handle {
+  color: #766cf0;
+}
+
+.resize-handle:focus-visible span,
+.monitor.is-resizing .resize-handle span {
+  width: 26px;
+  box-shadow: 0 0 5px rgba(118, 108, 240, 0.38);
+}
+
+.monitor.is-resizing {
+  cursor: ns-resize;
 }
 
 .titlebar {

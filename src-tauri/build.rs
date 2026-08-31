@@ -5,6 +5,7 @@ fn main() {
             "close_window",
             "ensure_always_on_top",
             "set_monitor_layout",
+            "resize_monitor_height",
         ]),
     ))
     .expect("failed to configure the Tauri build");

@@ -1,14 +1,23 @@
+use std::sync::Mutex;
+
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, LogicalSize, Manager, PhysicalPosition, RunEvent, WebviewWindow, WindowEvent,
+    AppHandle, LogicalSize, Manager, PhysicalPosition, RunEvent, State, WebviewWindow, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const ABOUT_WINDOW_LABEL: &str = "about";
 const MONITOR_WIDTH: u32 = 208;
 const MONITOR_MIN_HEIGHT: u32 = 92;
-const MONITOR_MAX_HEIGHT: u32 = 170;
+const MONITOR_MANAGEMENT_MAX_HEIGHT: u32 = 170;
+const MONITOR_QUOTE_MAX_HEIGHT: u32 = 290;
+
+#[derive(Debug, Default)]
+struct MonitorLayoutState {
+    management_open: bool,
+    quote_height: Option<u32>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TrayAction {
@@ -18,14 +27,39 @@ enum TrayAction {
     Quit,
 }
 
+fn quote_auto_height(row_count: u32) -> u32 {
+    let visible_rows = row_count.clamp(2, 4);
+    26 + 33 * visible_rows
+}
+
+fn quote_content_height(row_count: u32) -> u32 {
+    let visible_rows = row_count.clamp(2, 8);
+    (26 + 33 * visible_rows).min(MONITOR_QUOTE_MAX_HEIGHT)
+}
+
+fn quote_height(row_count: u32, requested_height: u32) -> u32 {
+    requested_height.clamp(
+        quote_auto_height(row_count),
+        quote_content_height(row_count),
+    )
+}
+
 fn monitor_height(row_count: u32, management_open: bool, item_count: u32) -> u32 {
     if management_open {
         let visible_items = item_count.clamp(1, 4);
-        (58 + 28 * visible_items).clamp(MONITOR_MIN_HEIGHT, MONITOR_MAX_HEIGHT)
+        (58 + 28 * visible_items).clamp(MONITOR_MIN_HEIGHT, MONITOR_MANAGEMENT_MAX_HEIGHT)
     } else {
-        let visible_rows = row_count.clamp(2, 4);
-        26 + 33 * visible_rows
+        quote_auto_height(row_count)
     }
+}
+
+fn set_monitor_size(window: &WebviewWindow, height: u32) -> Result<(), String> {
+    window
+        .set_size(LogicalSize::new(
+            f64::from(MONITOR_WIDTH),
+            f64::from(height),
+        ))
+        .map_err(|error| error.to_string())
 }
 
 fn apply_window_behavior(window: &WebviewWindow) -> Result<(), String> {
@@ -178,23 +212,65 @@ fn ensure_always_on_top(window: WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 fn set_monitor_layout(
     window: WebviewWindow,
+    layout_state: State<'_, Mutex<MonitorLayoutState>>,
     row_count: u32,
     management_open: bool,
     item_count: u32,
 ) -> Result<(), String> {
-    let height = monitor_height(row_count, management_open, item_count);
-    window
-        .set_size(LogicalSize::new(
-            f64::from(MONITOR_WIDTH),
-            f64::from(height),
-        ))
-        .map_err(|error| error.to_string())?;
+    let mut state = layout_state
+        .lock()
+        .map_err(|_| "monitor layout state is unavailable".to_owned())?;
+    let previous_management_open = state.management_open;
+    let previous_quote_height = state.quote_height;
+    let height = if management_open {
+        monitor_height(row_count, true, item_count)
+    } else {
+        let requested_height = state
+            .quote_height
+            .unwrap_or_else(|| quote_auto_height(row_count));
+        let height = quote_height(row_count, requested_height);
+        state.quote_height = Some(height);
+        height
+    };
+    state.management_open = management_open;
+    if let Err(error) = set_monitor_size(&window, height) {
+        state.management_open = previous_management_open;
+        state.quote_height = previous_quote_height;
+        return Err(error);
+    }
+    drop(state);
     apply_window_behavior(&window)
+}
+
+#[tauri::command]
+fn resize_monitor_height(
+    window: WebviewWindow,
+    layout_state: State<'_, Mutex<MonitorLayoutState>>,
+    row_count: u32,
+    requested_height: u32,
+) -> Result<u32, String> {
+    let mut state = layout_state
+        .lock()
+        .map_err(|_| "monitor layout state is unavailable".to_owned())?;
+    if state.management_open {
+        return Err("monitor height cannot be dragged while management is open".to_owned());
+    }
+
+    let previous_quote_height = state.quote_height;
+    let height = quote_height(row_count, requested_height);
+    state.quote_height = Some(height);
+    if let Err(error) = set_monitor_size(&window, height) {
+        state.quote_height = previous_quote_height;
+        return Err(error);
+    }
+    Ok(height)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .manage(Mutex::new(MonitorLayoutState::default()))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -224,7 +300,8 @@ pub fn run() {
             minimize_window,
             close_window,
             ensure_always_on_top,
-            set_monitor_layout
+            set_monitor_layout,
+            resize_monitor_height
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Crypto Top application");
@@ -241,8 +318,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        hides_on_close, monitor_height, tray_action, TrayAction, MONITOR_MAX_HEIGHT,
-        MONITOR_MIN_HEIGHT,
+        hides_on_close, monitor_height, quote_height, tray_action, TrayAction,
+        MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT, MONITOR_QUOTE_MAX_HEIGHT,
     };
 
     #[test]
@@ -257,14 +334,27 @@ mod tests {
     }
 
     #[test]
+    fn dragged_quote_height_is_clamped_to_auto_and_content_bounds() {
+        assert_eq!(quote_height(4, MONITOR_MIN_HEIGHT), 158);
+        assert_eq!(quote_height(5, MONITOR_MIN_HEIGHT), 158);
+        assert_eq!(quote_height(5, 170), 170);
+        assert_eq!(quote_height(5, u32::MAX), 191);
+        assert_eq!(quote_height(8, u32::MAX), MONITOR_QUOTE_MAX_HEIGHT);
+        assert_eq!(quote_height(u32::MAX, u32::MAX), MONITOR_QUOTE_MAX_HEIGHT);
+    }
+
+    #[test]
     fn management_layout_height_is_clamped_to_one_through_four_items() {
         assert_eq!(monitor_height(0, true, 0), MONITOR_MIN_HEIGHT);
         assert_eq!(monitor_height(0, true, 1), MONITOR_MIN_HEIGHT);
         assert_eq!(monitor_height(0, true, 2), 114);
         assert_eq!(monitor_height(0, true, 3), 142);
-        assert_eq!(monitor_height(0, true, 4), MONITOR_MAX_HEIGHT);
-        assert_eq!(monitor_height(0, true, 5), MONITOR_MAX_HEIGHT);
-        assert_eq!(monitor_height(0, true, u32::MAX), MONITOR_MAX_HEIGHT);
+        assert_eq!(monitor_height(0, true, 4), MONITOR_MANAGEMENT_MAX_HEIGHT);
+        assert_eq!(monitor_height(0, true, 5), MONITOR_MANAGEMENT_MAX_HEIGHT);
+        assert_eq!(
+            monitor_height(0, true, u32::MAX),
+            MONITOR_MANAGEMENT_MAX_HEIGHT
+        );
     }
 
     #[test]
