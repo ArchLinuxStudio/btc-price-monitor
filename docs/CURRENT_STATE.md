@@ -4,16 +4,17 @@ Checkpoint date: 2026-08-31 (Asia/Shanghai)
 
 ## Current Objective
 
-Prepare the completed compact About redesign and bounded quote-height resizing as synchronized version `1.5.0`, run the release-grade local checks, commit the source, and build a new unsigned Windows NSIS installer without publishing or installing it.
+Prepare the completed watchlist search-state deletion fix as patch version `1.5.1`, run release-grade local verification, commit the source, and build a new unsigned Windows NSIS Release package without publishing or installing it.
 
 ## Current Status
 
 - Branch/upstream: `main` tracking `origin/main`.
 - The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
 - The completed compact About redesign/exact repository opener, bounded quote-height resizing, version bump, tests, and preserved handoff-document changes are included in one authorized local `1.5.0` commit. After that commit, `main` is one commit ahead of `origin/main`; it has not been pushed.
-- All six source/lock/config version fields are synchronized at `1.5.0`.
-- The user authorized committing the current work and building a new local installer. Push, tag, GitHub Release publication, installer execution, and installation remain unauthorized.
-- Full source verification and unsigned Windows NSIS packaging against exact version `1.5.0` are complete; no implementation blocker is known. Generated `dist/` and `src-tauri/target/` outputs remain ignored.
+- The watchlist search-state deletion fix, regression coverage, synchronized `1.5.1` version, and this final package record are included in a second authorized local commit. After that commit, `main` is two commits ahead of `origin/main`; neither commit has been pushed.
+- All six source/lock/config version fields are synchronized at `1.5.1`.
+- The user authorized committing the bugfix/version work and building a new local Release package. Push, tag, GitHub Release publication, installer execution, and installation remain unauthorized.
+- Full source verification and unsigned Windows NSIS packaging against exact version `1.5.1` are complete; no implementation blocker is known. Generated `dist/` and `src-tauri/target/` outputs remain ignored. The earlier local `1.5.0` package is historical and is superseded for current source.
 - The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
 
 ## Completed
@@ -27,10 +28,13 @@ Prepare the completed compact About redesign and bounded quote-height resizing a
 - Added a single-flight/latest-value resize request path so fast movement cannot accumulate stale native calls. Scrolling, focusability, and its accessible label now follow real `scrollHeight > clientHeight` overflow rather than product count alone.
 - Added a main-window-only `resize_monitor_height` command. Rust fixes width at `208px`, clamps requested height between the automatic four-row minimum and current content, keeps the session quote height across management mode, and leaves management at its existing `170px` maximum. No general set-size/native-resize permission was granted and `resizable` remains false.
 - Amended the compact-layout and native-sizing decisions plus architecture/README/agent constraints for the explicit bounded-resize requirement.
+- Reproduced the removal bug specifically with a non-empty search: an already selected product was rendered as a disabled `✓` search result even though clearing the search exposed a working `×` removal button. The persistence/filter path itself was correct.
+- Changed selected search results to reuse the normal selected-product row. Custom products now expose the same accessible `×` removal action in both filtered and unfiltered management views; fixed BTC/ETH remain non-removable, and unselected results remain disabled when the eight-product cap is full.
+- Added regression coverage for the selected-search rendering branch and for saving, filtering, and reloading a removed custom product.
 
 ## In Progress
 
-None. The requested implementation, synchronized `1.5.0` version, local source commit, and unsigned Windows installer build are complete.
+None. The deletion fix, synchronized `1.5.1` patch version, release-grade verification, local source commit, and unsigned Windows Release package are complete.
 
 ## Relevant Files
 
@@ -45,7 +49,7 @@ None. The requested implementation, synchronized `1.5.0` version, local source c
 | `src-tauri/build.rs` / `src-tauri/permissions/window-controls.toml` | Narrow custom-command manifest and main-window command allowlist |
 | `LICENSE` | Complete GNU GPL v3 text for the `GPL-3.0-only` grant |
 | `package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` | Version/license metadata and locked opener dependency |
-| `tests/ui.test.ts` / `src-tauri/src/lib.rs` tests | Bounded sizing, fixed width, permission negatives, compact About, native routing, and lifecycle coverage |
+| `tests/ui.test.ts` / `tests/watchlist.test.ts` / `src-tauri/src/lib.rs` tests | Search-state deletion/persistence, bounded sizing, fixed width, permission negatives, compact About, native routing, and lifecycle coverage |
 | `docs/DECISIONS.md` | Stable compact-layout, native-sizing, GPL/About choices, and rejected alternatives |
 | `docs/RELEASE.md` | Packaging/release procedure and safe installer-license verification |
 
@@ -74,6 +78,22 @@ The established real-USD crypto spot and explicitly labeled stock-related USDT p
 
 ## Verification State
 
+Verified on Windows, 2026-08-31, against the exact synchronized `1.5.1` search-state removal patch:
+
+- `node --import=tsx --test tests/watchlist.test.ts tests/ui.test.ts`: passed, 24/24 focused tests.
+- `npm.cmd run check`: passed; strict application/test TypeScript checks, 70/70 Node tests, and clean ES2019 frontend emit.
+- Local browser reproduction before the fix showed selected `ADA` as a disabled `✓` result with no delete action while the query remained active. After rebuilding, the same filtered view exposed a visible, enabled `删除 ADA` button; no BTC/ETH delete button existed. The temporary test tab/server were closed.
+- The persistence regression confirms that filtering a custom product out, saving, and reloading leaves only the fixed defaults.
+- `npm.cmd ci`: passed; nine audited packages, zero reported vulnerabilities.
+- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
+- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 5/5 Rust tests; only the documented benign MSVC import-library message appeared.
+- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
+- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
+- `npm.cmd run build:windows`: passed without running the installer. The ignored unsigned release executable is 3,298,304 bytes, SHA-256 `80198FC5C757CD45FE6FFC9EBC837503E9158E83B16B867C82A3B35C042C67F8`. The ignored `Crypto Top_1.5.1_x64-setup.exe` NSIS installer is 1,209,130 bytes, SHA-256 `4FEE73C687C576AC49775E4DCFA218BBE1F496FB5DD9BD869FF78D9A9EDC1DC2`.
+- Generated `dist/about.html` contains version `1.5.1` with no unresolved version token. `dist/LICENSE.txt` remains byte-identical to root `LICENSE`, both with SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`.
+- Generated NSIS `license_file` contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
+- `git diff --check`: passed with only the expected Windows LF-to-CRLF notices.
+
 Verified on Windows, 2026-08-31, against the exact synchronized `1.5.0` compact About and bounded-resize source:
 
 - `npm.cmd ci`: passed; lockfile dependencies installed cleanly.
@@ -91,17 +111,17 @@ Verified on Windows, 2026-08-31, against the exact synchronized `1.5.0` compact 
 - Generated NSIS `license_file` still contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
 - `git diff --check` passed with only the expected Windows LF-to-CRLF notices. A read-only pre-commit audit found no credentials, temporary files, generated artifacts, unrelated changes, or missing required source files.
 
-Not verified: real macOS/Linux compact About/opener/resize behavior, signing, notarization, or a five-asset `v1.5.0` formal release. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
+Not verified: real macOS/Linux compact About/opener/resize behavior, signing, notarization, or a five-asset `v1.5.1` formal release. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
 
 ## Next Recommended Action
 
-1. No further work is authorized or required for this local `1.5.0` checkpoint. Preserve the commit and ignored local installer; do not push, tag, publish a GitHub Release, or run the installer without explicit authorization.
-2. If resizing changes again, keep `208px` width, the `92/125/158px` automatic heights, current-content clamp (`290px` maximum), real-overflow accessibility, and `170px` management cap synchronized across frontend, Rust, config, tests, and documentation.
+1. Preserve both local commits and the ignored `Crypto Top_1.5.1_x64-setup.exe` package. Do not push, tag, publish a GitHub Release, or run the installer without explicit authorization.
+2. If watchlist removal changes again, keep BTC/ETH fixed, allow every custom selected product to be removed in filtered and unfiltered manager views even when the list is full, persist the removal, and rebuild the feed without the removed product.
 3. Real macOS/Linux resize and About/opener smoke remain release-candidate tasks. A future formal release requires explicit authorization and the complete procedure in [`RELEASE.md`](RELEASE.md).
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`. Immediately after this checkpoint, the worktree should be clean and `main` should be one local commit ahead of `origin/main`; investigate before changing anything if that is not true.
-3. For the active resize work inspect `src/main.ts`, `src/index.html`, `src/styles.css`, `src-tauri/src/lib.rs`, `src-tauri/tauri.conf.json`, the window-control permission/manifest, and the UI/Rust tests. Inspect the About files only if that feature changes.
-4. Continue from `Next Recommended Action`; no push, tag, Release, installer execution, new implementation, or general resize permission is authorized.
+2. Run `git status --short --branch`. Immediately after this checkpoint, the worktree should be clean and `main` should be two local commits ahead of `origin/main`; investigate before changing anything if that is not true.
+3. For the active deletion fix inspect `renderSelectedProduct`, `renderSearchProduct`, and `removeProduct` in `src/main.ts`, plus the focused UI/persistence tests. The confirmed root cause was the selected result's old disabled search-only presentation, not `saveWatchlist`.
+4. Continue from `Next Recommended Action`; no push, tag, Release publication, installer execution, new implementation, or general resize permission is authorized.

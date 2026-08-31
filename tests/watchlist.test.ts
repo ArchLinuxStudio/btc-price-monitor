@@ -140,6 +140,19 @@ test("save and load keep fixed defaults first, deduplicate, and cap custom produ
   assert.deepEqual(loadWatchlist(storage), saved);
 });
 
+test("saving a filtered watchlist permanently removes a custom product", () => {
+  const storage = memoryStorage();
+  const added = saveWatchlist([{ id: "SOL-USD", name: "Solana" }], storage);
+  assert.deepEqual(added.map((entry) => entry.id), ["BTC-USD", "ETH-USD", "SOL-USD"]);
+
+  const removed = saveWatchlist(
+    added.filter((entry) => entry.id !== "SOL-USD"),
+    storage,
+  );
+  assert.deepEqual(removed, DEFAULT_PRODUCTS);
+  assert.deepEqual(loadWatchlist(storage), DEFAULT_PRODUCTS);
+});
+
 test("stored text is cleaned while exchange mappings are validated", () => {
   const storage = memoryStorage();
   const saved = saveWatchlist([{

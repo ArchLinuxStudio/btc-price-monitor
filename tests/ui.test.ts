@@ -77,6 +77,15 @@ test("keeps the compact manager and exposes only bounded vertical quote resizing
   assert.doesNotMatch(html, /id="minimize-button"/);
   assert.doesNotMatch(typescript, /\.innerHTML\s*=/);
   assert.match(typescript, /feed\.setProducts\(selectedProducts\)/);
+  assert.match(
+    typescript,
+    /const selectedIndex = selectedProducts\.findIndex[\s\S]*?renderSelectedProduct\(selectedProducts\[selectedIndex\], selectedIndex\);[\s\S]*?row\.disabled = full;/,
+  );
+  assert.doesNotMatch(typescript, /row\.disabled = selected \|\| full/);
+  assert.match(
+    typescript,
+    /remove\.addEventListener\("click", \(\) => removeProduct\(product\.id, index\)\)/,
+  );
   assert.match(typescript, /USD\/USDT/);
   assert.match(typescript, /scrollHeight > elements\.quotes\.clientHeight/);
   assert.match(typescript, /tauriInvoke\("resize_monitor_height"/);

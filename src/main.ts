@@ -443,27 +443,30 @@ function renderSelectedProduct(product: Product, index: number): void {
 }
 
 function renderSearchProduct(product: Product): void {
-  const selected = selectedProducts.some((entry) => entry.id === product.id);
+  const selectedIndex = selectedProducts.findIndex((entry) => entry.id === product.id);
+  if (selectedIndex >= 0) {
+    renderSelectedProduct(selectedProducts[selectedIndex], selectedIndex);
+    return;
+  }
+
   const full = selectedProducts.length >= MAX_PRODUCTS;
   const row = document.createElement("button");
   row.type = "button";
   row.className = "manager-row";
-  row.disabled = selected || full;
-  row.setAttribute("aria-label", selected
-    ? `${product.name} 已添加`
-    : full
-      ? `自选已满，无法添加 ${product.name}`
-      : `添加 ${product.name} ${product.symbol}`);
+  row.disabled = full;
+  row.setAttribute("aria-label", full
+    ? `自选已满，无法添加 ${product.name}`
+    : `添加 ${product.name} ${product.symbol}`);
   row.appendChild(managerCell("manager-symbol", product.symbol));
   row.appendChild(managerCell("manager-name", product.name));
 
   const action = managerCell(
-    `manager-action${selected ? " is-added" : ""}${full && !selected ? " is-full" : ""}`,
-    selected ? "✓" : full ? "满" : "+",
+    `manager-action${full ? " is-full" : ""}`,
+    full ? "满" : "+",
   );
   action.setAttribute("aria-hidden", "true");
   row.appendChild(action);
-  if (!selected && !full) row.addEventListener("click", () => addProduct(product));
+  if (!full) row.addEventListener("click", () => addProduct(product));
   elements.managerList.appendChild(row);
 }
 
