@@ -4,21 +4,19 @@ Checkpoint date: 2026-09-01 (Asia/Shanghai)
 
 ## Current Objective
 
-Commit the completed `1.6.0` watchlist/window/UI/platform-baseline work, build a fresh local Windows package, push `main`, and publish formal `v1.6.0` release assets for all five supported platform/package combinations.
+Repair the two release-only failures exposed by the immutable `v1.6.0` tag, advance all version sources to `1.6.1`, and publish a successful five-asset `v1.6.1` release without moving or overwriting the failed tag.
 
 ## Current Status
 
 - Branch/upstream: `main` tracking `origin/main`.
-- The user explicitly authorized committing, building, pushing, tagging, and publishing the next release. Remote refresh on 2026-09-01 confirmed `origin/main` is unchanged, the latest published release is `v1.3.0`, and no remote `v1.6.0` tag or Release exists; the six synchronized `1.6.0` version fields therefore remain the intended next formal version.
+- The user explicitly authorized committing, building, pushing, tagging, and publishing the next release. `main` and `origin/main` now both point to release-preparation commit `2bb92ade0f5769893414502e1b90c2bf02640eff`.
 - The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
-- The completed compact About redesign/exact repository opener, bounded quote-height resizing, version bump, tests, and preserved handoff-document changes are included in one authorized local `1.5.0` commit. After that commit, `main` is one commit ahead of `origin/main`; it has not been pushed.
-- The watchlist search-state deletion fix, regression coverage, synchronized `1.5.1` version, and this final package record are included in a second authorized local commit. After that commit, `main` is two commits ahead of `origin/main`; neither commit has been pushed.
-- All six source/lock/config version fields are synchronized at `1.6.0` for the explicitly requested local test package.
-- The uncapped-watchlist, screen-bounded manual-height, six-character typography, quote-row ordering, and `1.6.0` version changes remain complete in the working tree but are not staged or committed. The new ES/macOS baseline work is layered on top without overwriting those changes.
+- The earlier compact About/resize and filtered-removal commits plus `2bb92ad` containing the uncapped watchlist, screen-bounded height, six-character typography, quote ordering, ES2025/macOS 12 baseline, tests, workflow gate, and documentation have all been pushed to `main`.
+- Immutable annotated tag `v1.6.0` points to `2bb92ad`. Its workflow run `33448938555` failed before publication: Linux succeeded; Windows exposed an LF-only static-test regex under CRLF checkout; both macOS bundles built, but Tauri cleaned their temporary `.app` directories before the post-build gate looked there. The dependent Release job was skipped, so no `v1.6.0` Release/assets were published.
+- Repository rules prohibit moving the public failed tag. All six source/lock/config version fields are now synchronized at `1.6.1`; the working tree contains only the CRLF regression fix, final-DMG metadata-gate repair, version bump, and updated handoff/release records.
 - The root shared TypeScript config now fixes `target` and ECMAScript library declarations at `ES2025`; `module: ES2022` remains unchanged for browser-native modules. The Tauri macOS overlay now sets `minimumSystemVersion: 12.0`, which Tauri uses for bundle metadata and the macOS deployment target.
-- The release workflow now verifies `LSMinimumSystemVersion` and the Mach-O deployment target are both exactly 12.0 for each macOS architecture after bundling; either mismatch fails its build job and prevents the dependent Release job from publishing assets.
-- Static regressions lock the compiler/platform baselines and the macOS release gate. Clean dependency installation, TypeScript/application tests, clean frontend emit, Rust formatting/tests/check/Clippy, workflow YAML validation, and diff whitespace validation pass for the current worktree.
-- A fresh ignored unsigned `Crypto Top_1.6.0_x64-setup.exe` was rebuilt from the current source after the ES2025/macOS 12 change and inspected without running or installing it. The release executable completed an isolated five-second startup smoke and the exact test process/data directory were removed.
+- The repaired workflow mounts each final DMG read-only and verifies the shipped app's `LSMinimumSystemVersion` and Mach-O deployment target are both exactly 12.0; either mismatch fails its build job and prevents publication. Static coverage also normalizes the inspected source to CRLF so Windows checkout behavior remains tested locally.
+- Fresh `1.6.1` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification now passes. The rebuilt installer was inspected but not run or installed.
 - The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
 
 ## Completed
@@ -46,11 +44,13 @@ Commit the completed `1.6.0` watchlist/window/UI/platform-baseline work, build a
 - Synchronized all six version sources at `1.6.0`, ran the release verification commands, and built and inspected the local Windows x64 NSIS test installer without running it.
 - Raised the shared TypeScript language and library target from `ES2019` to the pinned compiler's newest concrete standard, `ES2025`, while retaining `ES2022` native-module output rather than adopting floating `ESNext`.
 - Raised Tauri's declared macOS minimum from 10.15 to 12.0. Added a regression for both baselines and synchronized architecture, decision, user-facing, release, known-issue, and handoff documentation.
-- Added a tag-build gate that reads each generated macOS app's `LSMinimumSystemVersion` and declared executable, then rejects the build unless its Mach-O deployment target and bundle minimum are both exactly 12.0. The dependent publication job therefore cannot release mismatched macOS assets.
+- Confirmed through the failed tag run that `release.needs: build` prevents publication when any platform job fails; no partial `v1.6.0` Release was created.
+- Made the source-inspection regression explicitly exercise CRLF text as well as LF. Replaced the temporary-app macOS gate with a read-only mount of the final DMG, status-preserving detach cleanup, and an all-slices deployment-target check.
+- Documented immutable failed-tag recovery, final-DMG validation, and cross-platform newline requirements in the release runbook.
 
 ## In Progress
 
-Formal `v1.6.0` release preparation is active. The source, release audit, clean dependency/full verification pass, fresh Windows package inspection, and isolated executable startup smoke are complete; remaining work is commit/push, the tag-driven four-runner workflow, five-asset verification, and a post-release handoff checkpoint.
+Formal `v1.6.1` recovery is active. The two failure causes are patched and the complete local verification/package pass is successful. Remaining work is final diff review, commit/push, a new immutable tag, successful four-runner gates, five-asset verification, and a post-release handoff checkpoint.
 
 ## Relevant Files
 
@@ -105,7 +105,21 @@ The established real-USD crypto spot and explicitly labeled stock-related USDT p
 
 ## Verification State
 
-Verified on Windows, 2026-09-01, against the current uncommitted `1.6.0` ES2025/macOS 12 plus reorder/uncapped-watchlist/screen-bounded-height worktree:
+Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.1` recovery worktree:
+
+- `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
+- `npm.cmd run check`: passed; strict application/test TypeScript checks, 75/75 Node tests (including an explicit CRLF source copy), and clean ES2025 frontend emit.
+- `NODE_USE_SYSTEM_CA=1 npx.cmd --yes yaml-lint .github\workflows\build-desktop.yml`: passed. The system-CA override was process-local.
+- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
+- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 6/6 Rust tests; only the documented benign MSVC import-library message appeared.
+- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
+- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
+- `npm.cmd run build:windows`: passed. The fresh unsigned release executable is 3,300,352 bytes with SHA-256 `DC731F354FB6089F4D2AD4D4791CC4567A9B2C794F3D5487AE7E32C7534A1EB8`; the fresh unsigned `Crypto Top_1.6.1_x64-setup.exe` is 1,210,280 bytes with SHA-256 `E4F6BBABC66B5C7C3D25EF4A39C8A53488A38CC619210AD3F7940850ED86A158`. Both report file/product version `1.6.1`; the installer was not run or installed.
+- The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
+- Generated `dist/about.html` contains `1.6.1` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
+- macOS final-DMG validation cannot run on this Windows host; the repaired gate still requires its first real proof from both GitHub macOS jobs before publication.
+
+Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.0` candidate at `2bb92ad` before the release-only fixes:
 
 - `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
 - `node --import=tsx --test tests/ui.test.ts`: passed, 6/6 focused tests, including the `ES2025`/macOS 12.0 configuration regression and tag-build metadata gate.
@@ -123,6 +137,8 @@ Verified on Windows, 2026-09-01, against the current uncommitted `1.6.0` ES2025/
 - The release executable reports file/product version `1.6.0` and remained alive with a native window handle during an isolated five-second startup smoke. Only that launched PID was terminated; its dedicated WebView test-data directory was removed, and no pre-existing application process was touched.
 - Generated `dist/about.html` contains `1.6.0` with no unresolved version token and `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`. The generated 35,152-byte NSIS `license_file` contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`.
 - `git diff --check`: passed with only the expected Windows LF-to-CRLF notices.
+- GitHub Actions run `33448938555`: failed without publishing a Release. Linux x64 completed successfully. Windows stopped in the static UI suite because the `reorderSelectedProduct` extractor required LF-only blank lines on a CRLF checkout. Both macOS architectures completed DMG construction and artifact upload, then the metadata gate found zero temporary `.app` directories because Tauri's DMG builder had already cleaned them. `Publish release assets` was skipped.
+- Reproduction after log inspection: all 75 tests, both TypeScript checks, and frontend emit passed under an explicit local Node 20.20.2 runtime, confirming the Windows failure was newline-dependent rather than an ES2025/Node 20 runtime failure.
 - Not verified for this worktree: macOS 12 bundle/deployment metadata and runtime compatibility, representative Linux WebKitGTK compatibility with the higher language target, real Tauri mouse row dragging/edge scrolling, a real native height drag beyond eight rows, switching monitors with different scaling/work areas, or installation.
 
 Previously verified on Windows, 2026-08-31, against the exact committed `1.5.1` search-state removal patch:
@@ -162,13 +178,13 @@ Not verified: macOS 12 packaging/startup and actual system-WebView execution of 
 
 ## Next Recommended Action
 
-1. Perform the final diff/credential/version review, commit the complete intended work, and push `main`.
-2. Create/push immutable annotated tag `v1.6.0` and wait for every build and release job rather than reporting success early.
-3. Verify the resulting Release has exactly the five named assets, valid downloads/digests, readable release text, and successful macOS 12.0 bundle/deployment gates. Record the remaining lack of a real macOS 12 runtime smoke honestly.
+1. Complete the final diff/credential/version review, commit and push the recovery, then create immutable annotated tag `v1.6.1` without rerunning or moving `v1.6.0`.
+2. Wait for every build and release job rather than reporting success early.
+3. Verify the resulting `v1.6.1` Release has exactly the five named assets, valid downloads/digests, readable release text, and successful final-DMG macOS 12.0 gates. Record the remaining lack of a real macOS 12 runtime smoke honestly.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`. At this checkpoint `main` is two local commits ahead of `origin/main`; the listed unstaged files contain intentional feature/version work plus the ES2025/macOS 12 baseline, and there should be no staged changes.
+2. Run `git status --short --branch`. At this checkpoint `main` and `origin/main` are at `2bb92ad`; public failed tag `v1.6.0` must not move, and the unstaged recovery files are the intentional `1.6.1` work.
 3. Inspect `tsconfig.json`, `src-tauri/tauri.macos.conf.json`, the corresponding UI regression, and the compatibility decision before changing language/runtime support. For quote UI work, inspect `normalizeWatchlist`/`reorderWatchlist`, delegated quote events, reorder styles/ARIA, native size clamps, and their focused tests.
-4. Continue from `Next Recommended Action`; formal `v1.6.0` commit/build/push/tag/Release publication is explicitly authorized. Installer execution/installation and unrelated product changes remain out of scope.
+4. Continue from `Next Recommended Action`; formal `v1.6.1` recovery commit/build/push/tag/Release publication is explicitly authorized. Installer execution/installation, moving `v1.6.0`, and unrelated product changes remain out of scope.

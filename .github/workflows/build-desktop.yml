@@ -75,12 +75,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          bundle_root="src-tauri/target/${{ matrix.rust-targets }}/release/bundle/macos"
+          dmg_root="src-tauri/target/${{ matrix.rust-targets }}/release/bundle/dmg"
           shopt -s nullglob
-          app_bundles=("${bundle_root}"/*.app)
+          dmg_files=("${dmg_root}"/*.dmg)
+
+          if [[ "${#dmg_files[@]}" -ne 1 ]]; then
+            echo "Expected exactly one macOS disk image in ${dmg_root}, found ${#dmg_files[@]}" >&2
+            exit 1
+          fi
+
+          mount_point="$(mktemp -d)"
+          cleanup() {
+            status=$?
+            trap - EXIT
+            hdiutil detach "${mount_point}" >/dev/null 2>&1 ||
+              hdiutil detach -force "${mount_point}" >/dev/null 2>&1 ||
+              true
+            rmdir "${mount_point}" >/dev/null 2>&1 || true
+            exit "${status}"
+          }
+          trap cleanup EXIT
+
+          hdiutil attach -readonly -nobrowse -mountpoint "${mount_point}" "${dmg_files[0]}" >/dev/null
+          app_bundles=("${mount_point}"/*.app)
 
           if [[ "${#app_bundles[@]}" -ne 1 ]]; then
-            echo "Expected exactly one macOS app bundle in ${bundle_root}, found ${#app_bundles[@]}" >&2
+            echo "Expected exactly one app bundle in ${dmg_files[0]}, found ${#app_bundles[@]}" >&2
             exit 1
           fi
 
@@ -101,11 +121,13 @@ jobs:
           fi
 
           deployment_target="$(
-            otool -l "${executable}" | awk '
-              $1 == "cmd" { command = $2 }
-              command == "LC_BUILD_VERSION" && $1 == "minos" { print $2; exit }
-              command == "LC_VERSION_MIN_MACOSX" && $1 == "version" { print $2; exit }
-            '
+            otool -l "${executable}" |
+              awk '
+                $1 == "cmd" { load_command = $2; next }
+                load_command == "LC_BUILD_VERSION" && $1 == "minos" { print $2 }
+                load_command == "LC_VERSION_MIN_MACOSX" && $1 == "version" { print $2 }
+              ' |
+              sort -u
           )"
 
           if [[ "${deployment_target}" != "12.0" ]]; then

@@ -73,15 +73,18 @@ The Windows dot after `Crypto` is intentional compatibility with v1.1.0+ assets 
 6. Create and push a strict `vMAJOR.MINOR.PATCH` tag matching the package version.
 7. Wait for every matrix build and the release job; do not report success while jobs are incomplete.
 8. Verify the Release has exactly the five expected platform assets, correct names/sizes/digests, working downloads, and readable UTF-8 Chinese text.
-9. Confirm the `Verify macOS 12 deployment floor` step passed for both macOS build jobs before publication; it reads each app's `LSMinimumSystemVersion` and Mach-O deployment target and requires both to equal `12.0`. Independently inspect downloaded bundles when tooling is available.
+9. Confirm the `Verify macOS 12 deployment floor` step passed for both macOS build jobs before publication; it mounts the final generated DMG read-only, then reads the shipped app's `LSMinimumSystemVersion` and every reported Mach-O deployment target and requires all values to equal `12.0`. Independently inspect downloaded bundles when tooling is available.
 10. When possible, smoke-test the actual artifacts on real Windows, macOS 12.x at the supported floor (both architectures as available), and a mainstream Linux desktop/Wayland environment.
 
 ## Failure and safety notes
 
-- If a release attempt fails, rerun the complete workflow. Rerunning only the release job can lose access to artifacts from a previous attempt.
+- If a release attempt fails for a transient runner/service reason and its tag source is unchanged, rerun the complete workflow. Rerunning only the release job can lose access to artifacts from a previous attempt.
+- If recovery changes source or workflow code after a public tag was pushed, preserve that failed tag and increment the patch version for a new commit/tag. Never move, delete, or overwrite the public tag to make it contain the repair.
 - `gh release upload --clobber` deletes/replaces a same-name asset and is not atomic. A mid-upload failure requires a full verification/recovery pass.
 - An existing Release keeps its title/body; the workflow clobbers binary assets. A new Release uses generated notes.
 - Old tag runs do not gain newer workflow logic. Historical missing assets were repaired manually; GitHub Actions artifacts may expire and are not a permanent archive.
+- Tauri's DMG builder may remove the temporary `bundle/macos/*.app` after producing the disk image. Post-build macOS metadata validation must therefore mount and inspect the final DMG rather than rely on that temporary path.
+- Static tests that inspect repository text must accept both LF and CRLF checkout line endings so Windows CI does not reject valid source solely because of Git newline conversion.
 - Release text once became `????` through a Windows encoding path. Use UTF-8 input/bytes and verify the resulting GitHub page/API response after writing Chinese text.
 - `bundle.licenseFile` generates `src-tauri/target/release/nsis/x64/license_file` and a non-empty `!define LICENSE` in the generated `installer.nsi`. Inspect those files to verify the NSIS license page without changing the user's installation. Do not automate through the live installer's `Next`/`I Agree` controls unless replacing the installed application is explicitly authorized: NSIS can reuse the same dialog control while advancing, and an automation invocation advanced into installation during the 2026-08-30 About/GPL checkpoint before cancellation took effect.
 - Use existing Git Credential Manager/GitHub runner credentials without printing or copying tokens. Never write credentials into repository files.

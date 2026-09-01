@@ -75,8 +75,15 @@ test("blocks a release when either macOS bundle misses the 12.0 deployment floor
 
   assert.match(workflow, /name: Verify macOS 12 deployment floor/);
   assert.match(workflow, /if: startsWith\(matrix\.platform, 'macos-'\)/);
+  assert.match(workflow, /dmg_files=\("\$\{dmg_root\}"\/\*\.dmg\)/);
+  assert.match(workflow, /hdiutil attach -readonly -nobrowse/);
+  assert.match(workflow, /trap cleanup EXIT/);
+  assert.match(workflow, /status=\$\?/);
+  assert.match(workflow, /hdiutil detach -force/);
+  assert.match(workflow, /exit "\$\{status\}"/);
   assert.match(workflow, /Print :LSMinimumSystemVersion/);
   assert.match(workflow, /Print :CFBundleExecutable/);
+  assert.match(workflow, /sort -u/);
   assert.match(workflow, /minimum_system_version[\s\S]*?!= "12\.0"/);
   assert.match(workflow, /otool -l/);
   assert.match(workflow, /LC_BUILD_VERSION/);
@@ -155,10 +162,14 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.match(typescript, /event\.altKey[\s\S]*?event\.key === "ArrowDown"[\s\S]*?event\.key === "ArrowUp"/);
   assert.match(typescript, /requestAnimationFrame\(\(\) => quoteViews\.get\(movingProductId\)\?\.row\.focus\(\)\)/);
   assert.match(typescript, /document\.addEventListener\("drop"[\s\S]*?event\.preventDefault\(\)/);
-  const reorderFunction = typescript.match(
-    /function reorderSelectedProduct[\s\S]*?\n}\n\nfunction moveSelectedProductBy/,
-  )?.[0];
+  const reorderFunctionPattern =
+    /function reorderSelectedProduct[\s\S]*?\r?\n}\r?\n\r?\nfunction moveSelectedProductBy/;
+  const reorderFunction = typescript.match(reorderFunctionPattern)?.[0];
+  const crlfReorderFunction = typescript
+    .replace(/\r?\n/g, "\r\n")
+    .match(reorderFunctionPattern)?.[0];
   assert.ok(reorderFunction);
+  assert.ok(crlfReorderFunction);
   assert.match(reorderFunction, /selectedProducts = saveWatchlist\(reordered\)/);
   assert.doesNotMatch(reorderFunction, /feed\.setProducts/);
   assert.match(typescript, /USD\/USDT/);
