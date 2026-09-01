@@ -76,7 +76,7 @@ test("blocks a release when either macOS bundle misses the 12.0 deployment floor
   assert.match(workflow, /name: Verify macOS 12 deployment floor/);
   assert.match(workflow, /if: startsWith\(matrix\.platform, 'macos-'\)/);
   assert.match(workflow, /dmg_files=\("\$\{dmg_root\}"\/\*\.dmg\)/);
-  assert.match(workflow, /hdiutil attach -readonly -nobrowse/);
+  assert.match(workflow, /printf 'Y\\n' \|[\s\S]*?PAGER=cat hdiutil attach -readonly -nobrowse/);
   assert.match(workflow, /trap cleanup EXIT/);
   assert.match(workflow, /status=\$\?/);
   assert.match(workflow, /hdiutil detach -force/);

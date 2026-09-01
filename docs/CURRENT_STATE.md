@@ -4,19 +4,20 @@ Checkpoint date: 2026-09-01 (Asia/Shanghai)
 
 ## Current Objective
 
-Repair the two release-only failures exposed by the immutable `v1.6.0` tag, advance all version sources to `1.6.1`, and publish a successful five-asset `v1.6.1` release without moving or overwriting the failed tag.
+Repair the unattended licensed-DMG mount failure exposed by the immutable `v1.6.1` tag, advance all version sources to `1.6.2`, and publish a successful five-asset `v1.6.2` release without moving or overwriting either failed tag.
 
 ## Current Status
 
 - Branch/upstream: `main` tracking `origin/main`.
-- The user explicitly authorized committing, building, pushing, tagging, and publishing the next release. `main` and `origin/main` now both point to release-preparation commit `2bb92ade0f5769893414502e1b90c2bf02640eff`.
+- The user explicitly authorized committing, building, pushing, tagging, and publishing the next release. `main` and `origin/main` now both point to recovery commit `c3e42a3500a7cebcc83268cbd63e1fe269b3c168`.
 - The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
 - The earlier compact About/resize and filtered-removal commits plus `2bb92ad` containing the uncapped watchlist, screen-bounded height, six-character typography, quote ordering, ES2025/macOS 12 baseline, tests, workflow gate, and documentation have all been pushed to `main`.
 - Immutable annotated tag `v1.6.0` points to `2bb92ad`. Its workflow run `33448938555` failed before publication: Linux succeeded; Windows exposed an LF-only static-test regex under CRLF checkout; both macOS bundles built, but Tauri cleaned their temporary `.app` directories before the post-build gate looked there. The dependent Release job was skipped, so no `v1.6.0` Release/assets were published.
-- Repository rules prohibit moving the public failed tag. All six source/lock/config version fields are now synchronized at `1.6.1`; the working tree contains only the CRLF regression fix, final-DMG metadata-gate repair, version bump, and updated handoff/release records.
+- Immutable annotated tag `v1.6.1` points to `c3e42a3`. Its workflow run `33467295096` proved the Windows CRLF repair and completed both macOS bundle builds, but both final-DMG gates stopped at `hdiutil: attach canceled`: `bundle.licenseFile` embeds a license agreement, and unattended mounting requires explicit acceptance on standard input. No `v1.6.1` Release/assets were published.
+- Repository rules prohibit moving either public failed tag. All six source/lock/config version fields are now synchronized at `1.6.2`; the working tree contains only the licensed-DMG mount repair, regression/runbook changes, version bump, and updated handoff state.
 - The root shared TypeScript config now fixes `target` and ECMAScript library declarations at `ES2025`; `module: ES2022` remains unchanged for browser-native modules. The Tauri macOS overlay now sets `minimumSystemVersion: 12.0`, which Tauri uses for bundle metadata and the macOS deployment target.
-- The repaired workflow mounts each final DMG read-only and verifies the shipped app's `LSMinimumSystemVersion` and Mach-O deployment target are both exactly 12.0; either mismatch fails its build job and prevents publication. Static coverage also normalizes the inspected source to CRLF so Windows checkout behavior remains tested locally.
-- Fresh `1.6.1` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification now passes. The rebuilt installer was inspected but not run or installed.
+- The repaired workflow disables interactive paging and pipes a single `Y` response into each read-only final-DMG mount, then verifies the shipped app's `LSMinimumSystemVersion` and Mach-O deployment target are both exactly 12.0; either mismatch fails its build job and prevents publication. Static coverage also normalizes the inspected source to CRLF so Windows checkout behavior remains tested locally.
+- Fresh `1.6.2` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification passes. The rebuilt installer was inspected but not run or installed.
 - The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
 
 ## Completed
@@ -47,10 +48,11 @@ Repair the two release-only failures exposed by the immutable `v1.6.0` tag, adva
 - Confirmed through the failed tag run that `release.needs: build` prevents publication when any platform job fails; no partial `v1.6.0` Release was created.
 - Made the source-inspection regression explicitly exercise CRLF text as well as LF. Replaced the temporary-app macOS gate with a read-only mount of the final DMG, status-preserving detach cleanup, and an all-slices deployment-target check.
 - Documented immutable failed-tag recovery, final-DMG validation, and cross-platform newline requirements in the release runbook.
+- Diagnosed `v1.6.1` directly from the completed macOS job logs: Tauri produced/uploaded each DMG, then `hdiutil attach` canceled before any plist or Mach-O read because the image carries the configured license agreement. Added a single `Y` response on the command's standard input and locked the noninteractive acceptance path with a static regression.
 
 ## In Progress
 
-Formal `v1.6.1` recovery is active. The two failure causes are patched and the complete local verification/package pass is successful. Remaining work is final diff review, commit/push, a new immutable tag, successful four-runner gates, five-asset verification, and a post-release handoff checkpoint.
+Formal `v1.6.2` recovery is active. The licensed-DMG mount cause is patched and the complete local verification/package pass is successful. Remaining work is final diff review, commit/push, a new immutable tag, successful four-runner gates, five-asset verification, and a post-release handoff checkpoint.
 
 ## Relevant Files
 
@@ -105,7 +107,21 @@ The established real-USD crypto spot and explicitly labeled stock-related USDT p
 
 ## Verification State
 
-Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.1` recovery worktree:
+Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.2` licensed-DMG recovery worktree:
+
+- `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
+- `npm.cmd run check`: passed after the final pager-safe mount change; strict application/test TypeScript checks, 75/75 Node tests, and clean ES2025 frontend emit.
+- `NODE_USE_SYSTEM_CA=1 npx.cmd --yes yaml-lint .github\workflows\build-desktop.yml`: passed after the final workflow change. The system-CA override was process-local.
+- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
+- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 6/6 Rust tests; only the documented benign MSVC import-library message appeared.
+- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
+- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
+- `npm.cmd run build:windows`: passed. The fresh unsigned release executable is 3,300,352 bytes with SHA-256 `017E3A099C6EDE6F9B0A9C62597BBC6F2EDD9F07F0207F507360A35084FE77A6`; the fresh unsigned `Crypto Top_1.6.2_x64-setup.exe` is 1,210,329 bytes with SHA-256 `BAB0F1C23B54044A24517E5032F033EE32E2D9C623653617BB57F3CE6B3A6165`. Both report file/product version `1.6.2`; the installer was not run or installed.
+- The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
+- Generated `dist/about.html` contains `1.6.2` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
+- The pager-safe licensed-DMG mount cannot run on this Windows host; both GitHub macOS jobs must still prove the final-DMG metadata path before publication.
+
+Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.1` recovery candidate at `c3e42a3` before the licensed-DMG mount fix:
 
 - `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
 - `npm.cmd run check`: passed; strict application/test TypeScript checks, 75/75 Node tests (including an explicit CRLF source copy), and clean ES2025 frontend emit.
@@ -118,6 +134,7 @@ Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.1` recove
 - The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
 - Generated `dist/about.html` contains `1.6.1` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
 - macOS final-DMG validation cannot run on this Windows host; the repaired gate still requires its first real proof from both GitHub macOS jobs before publication.
+- GitHub Actions run `33467295096`: the Windows CRLF regression stayed fixed and both macOS architectures built/uploaded their DMGs, but their metadata steps failed immediately with `hdiutil: attach canceled`. The images embed the configured bundle license, so noninteractive inspection requires an affirmative response on standard input; no plist/Mach-O mismatch was reported and no Release was published.
 
 Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.0` candidate at `2bb92ad` before the release-only fixes:
 
@@ -178,13 +195,13 @@ Not verified: macOS 12 packaging/startup and actual system-WebView execution of 
 
 ## Next Recommended Action
 
-1. Complete the final diff/credential/version review, commit and push the recovery, then create immutable annotated tag `v1.6.1` without rerunning or moving `v1.6.0`.
+1. Complete the final diff/credential/version review, commit and push the recovery, then create immutable annotated tag `v1.6.2` without rerunning or moving `v1.6.0`/`v1.6.1`.
 2. Wait for every build and release job rather than reporting success early.
-3. Verify the resulting `v1.6.1` Release has exactly the five named assets, valid downloads/digests, readable release text, and successful final-DMG macOS 12.0 gates. Record the remaining lack of a real macOS 12 runtime smoke honestly.
+3. Verify the resulting `v1.6.2` Release has exactly the five named assets, valid downloads/digests, readable release text, and successful licensed-final-DMG macOS 12.0 gates. Record the remaining lack of a real macOS 12 runtime smoke honestly.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`. At this checkpoint `main` and `origin/main` are at `2bb92ad`; public failed tag `v1.6.0` must not move, and the unstaged recovery files are the intentional `1.6.1` work.
+2. Run `git status --short --branch`. At this checkpoint `main` and `origin/main` are at `c3e42a3`; public failed tags `v1.6.0` and `v1.6.1` must not move, and the unstaged recovery files are the intentional `1.6.2` work.
 3. Inspect `tsconfig.json`, `src-tauri/tauri.macos.conf.json`, the corresponding UI regression, and the compatibility decision before changing language/runtime support. For quote UI work, inspect `normalizeWatchlist`/`reorderWatchlist`, delegated quote events, reorder styles/ARIA, native size clamps, and their focused tests.
-4. Continue from `Next Recommended Action`; formal `v1.6.1` recovery commit/build/push/tag/Release publication is explicitly authorized. Installer execution/installation, moving `v1.6.0`, and unrelated product changes remain out of scope.
+4. Continue from `Next Recommended Action`; formal `v1.6.2` recovery commit/build/push/tag/Release publication is explicitly authorized. Installer execution/installation, moving either failed tag, and unrelated product changes remain out of scope.

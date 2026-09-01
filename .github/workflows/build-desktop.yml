@@ -96,7 +96,8 @@ jobs:
           }
           trap cleanup EXIT
 
-          hdiutil attach -readonly -nobrowse -mountpoint "${mount_point}" "${dmg_files[0]}" >/dev/null
+          printf 'Y\n' |
+            PAGER=cat hdiutil attach -readonly -nobrowse -mountpoint "${mount_point}" "${dmg_files[0]}" >/dev/null
           app_bundles=("${mount_point}"/*.app)
 
           if [[ "${#app_bundles[@]}" -ne 1 ]]; then
