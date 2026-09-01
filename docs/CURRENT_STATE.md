@@ -4,20 +4,21 @@ Checkpoint date: 2026-09-01 (Asia/Shanghai)
 
 ## Current Objective
 
-Repair the unattended licensed-DMG mount failure exposed by the immutable `v1.6.1` tag, advance all version sources to `1.6.2`, and publish a successful five-asset `v1.6.2` release without moving or overwriting either failed tag.
+Preserve the completed five-asset `v1.6.2` formal release and its verification evidence as the repository's post-release recovery point.
 
 ## Current Status
 
 - Branch/upstream: `main` tracking `origin/main`.
-- The user explicitly authorized committing, building, pushing, tagging, and publishing the next release. `main` and `origin/main` now both point to recovery commit `c3e42a3500a7cebcc83268cbd63e1fe269b3c168`.
+- The user's authorization to commit, build, push, tag, and publish has been fulfilled. Immutable annotated tag `v1.6.2` points to release source commit `894dffbdfbcdb2c154976ebb65555cff5b0e49ef`; `main` preserves that source plus this post-release handoff checkpoint.
 - The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
 - The earlier compact About/resize and filtered-removal commits plus `2bb92ad` containing the uncapped watchlist, screen-bounded height, six-character typography, quote ordering, ES2025/macOS 12 baseline, tests, workflow gate, and documentation have all been pushed to `main`.
 - Immutable annotated tag `v1.6.0` points to `2bb92ad`. Its workflow run `33448938555` failed before publication: Linux succeeded; Windows exposed an LF-only static-test regex under CRLF checkout; both macOS bundles built, but Tauri cleaned their temporary `.app` directories before the post-build gate looked there. The dependent Release job was skipped, so no `v1.6.0` Release/assets were published.
 - Immutable annotated tag `v1.6.1` points to `c3e42a3`. Its workflow run `33467295096` proved the Windows CRLF repair and completed both macOS bundle builds, but both final-DMG gates stopped at `hdiutil: attach canceled`: `bundle.licenseFile` embeds a license agreement, and unattended mounting requires explicit acceptance on standard input. No `v1.6.1` Release/assets were published.
-- Repository rules prohibit moving either public failed tag. All six source/lock/config version fields are now synchronized at `1.6.2`; the working tree contains only the licensed-DMG mount repair, regression/runbook changes, version bump, and updated handoff state.
+- Annotated tag `v1.6.2` triggered successful workflow run `33468480211`: Windows x64, Linux x64, macOS Intel, macOS Apple Silicon, both final-DMG macOS 12 gates, and the Release job all passed. The published Release is <https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.6.2> and has exactly the five required assets.
+- Repository rules prohibit moving any published tag. All six source/lock/config version fields remain synchronized at `1.6.2`; failed tags `v1.6.0` and `v1.6.1` remain intact as release-attempt history and have no GitHub Release.
 - The root shared TypeScript config now fixes `target` and ECMAScript library declarations at `ES2025`; `module: ES2022` remains unchanged for browser-native modules. The Tauri macOS overlay now sets `minimumSystemVersion: 12.0`, which Tauri uses for bundle metadata and the macOS deployment target.
 - The repaired workflow disables interactive paging and pipes a single `Y` response into each read-only final-DMG mount, then verifies the shipped app's `LSMinimumSystemVersion` and Mach-O deployment target are both exactly 12.0; either mismatch fails its build job and prevents publication. Static coverage also normalizes the inspected source to CRLF so Windows checkout behavior remains tested locally.
-- Fresh `1.6.2` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification passes. The rebuilt installer was inspected but not run or installed.
+- Local `1.6.2` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification passes. All five published assets were independently downloaded and matched their GitHub SHA-256 digests; the downloaded Windows installer was inspected but not run or installed.
 - The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
 
 ## Completed
@@ -49,10 +50,12 @@ Repair the unattended licensed-DMG mount failure exposed by the immutable `v1.6.
 - Made the source-inspection regression explicitly exercise CRLF text as well as LF. Replaced the temporary-app macOS gate with a read-only mount of the final DMG, status-preserving detach cleanup, and an all-slices deployment-target check.
 - Documented immutable failed-tag recovery, final-DMG validation, and cross-platform newline requirements in the release runbook.
 - Diagnosed `v1.6.1` directly from the completed macOS job logs: Tauri produced/uploaded each DMG, then `hdiutil attach` canceled before any plist or Mach-O read because the image carries the configured license agreement. Added a single `Y` response on the command's standard input and locked the noninteractive acceptance path with a static regression.
+- Published `v1.6.2` from immutable tag `v1.6.2` with the required Windows, AppImage, deb, Apple Silicon DMG, and Intel DMG assets. Both final-DMG gates reported `LSMinimumSystemVersion=12.0, minos=12.0`.
+- Replaced generated notes with a verified UTF-8 Chinese release summary listing the exact five filenames, major user-visible changes, market semantics, macOS baseline, and unsigned-package caveat.
 
 ## In Progress
 
-Formal `v1.6.2` recovery is active. The licensed-DMG mount cause is patched and the complete local verification/package pass is successful. Remaining work is final diff review, commit/push, a new immutable tag, successful four-runner gates, five-asset verification, and a post-release handoff checkpoint.
+No implementation or release work remains for the current objective. This post-release documentation checkpoint is the final repository update for the completed `v1.6.2` request.
 
 ## Relevant Files
 
@@ -97,7 +100,7 @@ The established real-USD crypto spot and explicitly labeled stock-related USDT p
 ## Current Problems
 
 - No known blocking product bug and no known flaky test.
-- A real macOS bundle was not produced on this Windows host, so `LSMinimumSystemVersion = 12.0`, Mach-O `minos 12.0`, startup on macOS 12.x, and the current ES2025 output in that system WKWebView remain unverified. Linux WebKitGTK compatibility with future ES2025-era syntax/APIs likewise requires review.
+- Both shipped macOS DMGs passed bundle/deployment metadata validation at exactly 12.0 in GitHub Actions. Startup on a real macOS 12.x system and the current ES2025 output in that system WKWebView remain unverified. Linux WebKitGTK runtime compatibility with future ES2025-era syntax/APIs likewise requires review.
 - Keyboard ordering and persistence were exercised in the local browser, but its coordinate-drag automation did not synthesize a native HTML5 drag. Real mouse drag ordering in a Windows Tauri WebView, long-list edge scrolling, and macOS/Linux behavior remain runtime-verification gaps.
 - The former eight-row resize behavior had a real Windows smoke test, but the new beyond-eight/work-area clamp has automated coverage only; real Windows, macOS, and Linux runtime verification of the clarified behavior remains outstanding.
 - Real compact-About and repository-opener verification remains incomplete on macOS and Linux/Wayland.
@@ -107,7 +110,7 @@ The established real-USD crypto spot and explicitly labeled stock-related USDT p
 
 ## Verification State
 
-Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.2` licensed-DMG recovery worktree:
+Verified on Windows and GitHub-hosted runners, 2026-09-01, against exact tagged release candidate `v1.6.2` at `894dffb`:
 
 - `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
 - `npm.cmd run check`: passed after the final pager-safe mount change; strict application/test TypeScript checks, 75/75 Node tests, and clean ES2025 frontend emit.
@@ -119,7 +122,17 @@ Verified on Windows, 2026-09-01, against the current uncommitted `v1.6.2` licens
 - `npm.cmd run build:windows`: passed. The fresh unsigned release executable is 3,300,352 bytes with SHA-256 `017E3A099C6EDE6F9B0A9C62597BBC6F2EDD9F07F0207F507360A35084FE77A6`; the fresh unsigned `Crypto Top_1.6.2_x64-setup.exe` is 1,210,329 bytes with SHA-256 `BAB0F1C23B54044A24517E5032F033EE32E2D9C623653617BB57F3CE6B3A6165`. Both report file/product version `1.6.2`; the installer was not run or installed.
 - The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
 - Generated `dist/about.html` contains `1.6.2` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
-- The pager-safe licensed-DMG mount cannot run on this Windows host; both GitHub macOS jobs must still prove the final-DMG metadata path before publication.
+- GitHub Actions run `33468480211`: passed. Windows x64, Linux x64, macOS Intel, macOS Apple Silicon, and `Publish release assets` all completed successfully. The macOS Intel and Apple Silicon final-DMG gates each logged `LSMinimumSystemVersion=12.0, minos=12.0`.
+- Published Release `Crypto Top v1.6.2 · 无限自选与拖拽排序` is neither a draft nor a prerelease. Its 1,183-character Chinese body round-tripped through the GitHub API as UTF-8 without replacement question marks and lists all five exact filenames.
+- All five Release assets were downloaded into a dedicated temporary directory, matched the API byte counts and SHA-256 digests below, and the directory was removed afterward. The downloaded Windows installer reports file/product version `1.6.2` and remains unsigned.
+
+| Published asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Crypto.Top_1.6.2_x64-setup.exe` | 1,210,900 | `7234adb7f23b16645727d74ac171d887852e89a90184c3f168459b4fa3f36d7d` |
+| `Crypto-Top_1.6.2_linux-amd64.AppImage` | 79,837,688 | `58f6db789874a956d726167542b3436ba4e93870119fe62b73f267684e91e674` |
+| `Crypto-Top_1.6.2_linux-amd64.deb` | 1,982,678 | `6d8ef6361c5ec6f688a21ac6805f4fbc855307066893c8e30d40176094b7e6a6` |
+| `Crypto-Top_1.6.2_macos-aarch64.dmg` | 1,828,573 | `b647425df7a663832c6f45266e7444dd8a421a8d54b1cc85ebd8eca332942a3d` |
+| `Crypto-Top_1.6.2_macos-x64.dmg` | 1,927,577 | `bc25213b374f72ae221110a8515fbd64e0d53b0529f35b37f5ea534f8101e8ce` |
 
 Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.1` recovery candidate at `c3e42a3` before the licensed-DMG mount fix:
 
@@ -191,17 +204,15 @@ Previously verified on Windows, 2026-08-31, against the exact committed `1.5.0` 
 - Generated NSIS `license_file` still contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
 - `git diff --check` passed with only the expected Windows LF-to-CRLF notices. A read-only pre-commit audit found no credentials, temporary files, generated artifacts, unrelated changes, or missing required source files.
 
-Not verified: macOS 12 packaging/startup and actual system-WebView execution of the current output, representative Linux WebKitGTK compatibility with the higher target, real native quote-row mouse dragging and beyond-eight/work-area height dragging, real macOS/Linux compact About/opener/resize behavior, signing, notarization, or a five-asset formal release containing the current changes. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
+Not verified: macOS 12 startup and actual system-WebView execution of the current output, representative Linux WebKitGTK runtime compatibility with the higher target, real native quote-row mouse dragging and beyond-eight/work-area height dragging, real macOS/Linux compact About/opener/resize behavior, signing, or notarization. Packaging and the five-asset formal Release are verified. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
 
 ## Next Recommended Action
 
-1. Complete the final diff/credential/version review, commit and push the recovery, then create immutable annotated tag `v1.6.2` without rerunning or moving `v1.6.0`/`v1.6.1`.
-2. Wait for every build and release job rather than reporting success early.
-3. Verify the resulting `v1.6.2` Release has exactly the five named assets, valid downloads/digests, readable release text, and successful licensed-final-DMG macOS 12.0 gates. Record the remaining lack of a real macOS 12 runtime smoke honestly.
+No further action is required for the completed release request. For future confidence work, continue the existing `TODO.md` item for real macOS 12.x and representative Linux runtime smoke tests; do not move or reuse `v1.6.0`, `v1.6.1`, or `v1.6.2`.
 
 ## New Thread Bootstrap
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`. At this checkpoint `main` and `origin/main` are at `c3e42a3`; public failed tags `v1.6.0` and `v1.6.1` must not move, and the unstaged recovery files are the intentional `1.6.2` work.
+2. Run `git status --short --branch`. At this checkpoint `main`/`origin/main` include the post-release handoff; immutable release tag `v1.6.2` points to `894dffb`, and failed attempt tags `v1.6.0`/`v1.6.1` remain intact without Releases.
 3. Inspect `tsconfig.json`, `src-tauri/tauri.macos.conf.json`, the corresponding UI regression, and the compatibility decision before changing language/runtime support. For quote UI work, inspect `normalizeWatchlist`/`reorderWatchlist`, delegated quote events, reorder styles/ARIA, native size clamps, and their focused tests.
-4. Continue from `Next Recommended Action`; formal `v1.6.2` recovery commit/build/push/tag/Release publication is explicitly authorized. Installer execution/installation, moving either failed tag, and unrelated product changes remain out of scope.
+4. The formal `v1.6.2` request is complete. Begin only the next explicitly requested product task; installer execution/installation, moving published tags, and unrelated changes remain out of scope.

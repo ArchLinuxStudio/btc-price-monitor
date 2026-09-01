@@ -28,9 +28,6 @@ None. No implementation task is active, and quote-row ordering, the uncapped wat
 - [ ] Remove or deliberately restore the unused `minimize_window` IPC command.
   - Done when `src-tauri/src/lib.rs`, `src-tauri/build.rs`, permissions, architecture docs, and tests agree on the reduced command surface; closing must still hide to tray.
 
-- [ ] Improve generated Release notes if the user requests a uniform Chinese download table/digest presentation.
-  - Done when new Release text lists all five asset types, matches exact filenames, uses UTF-8, and is verified on GitHub.
-
 ## Optional / Revisit only with a product request
 
 - [ ] Add a sanitized real sparse-market Bitstamp OHLC fixture if provider behavior is being changed or investigated.
