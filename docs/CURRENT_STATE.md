@@ -4,61 +4,21 @@ Checkpoint date: 2026-09-08 (Asia/Shanghai)
 
 ## Current Objective
 
-The user explicitly authorized pushing the code on 2026-09-08. Prepare and push the complete documented chart feature, including the corrected zoom, crosshair/axis markers, and paced history prefetch, to the existing `origin/main`. The source has passed the full frontend check and deterministic browser interaction tests and is included in the latest local Windows test installer; fresh Rust checks also passed before committing. This is a source push; version changes, tags, published packages, and the separate Bybit selection-mapping fix are not part of the request.
+The user-authorized source push is complete. The complete chart feature, corrected zoom, crosshair/axis markers, and paced history prefetch were committed as `625ac40e448e4f663f9d0c3e93993264c43c3c1e` and pushed to the existing `origin/main` on 2026-09-08; the live remote hash was verified. Frontend/browser, fresh Rust checks, and the local Windows test package are complete. Await user feedback or a new explicit task; a formal release and the separate Bybit selection-mapping fix remain outside this request.
 
 ## Current Status
 
-- `main` tracks `origin/main`; both point to `d68af6dd423b66f00d97a9b62e6a598fa367794f` with no ahead/behind commits.
-- The complete row-activation, chart-window, exact-source candle-history, and zoom/pan slice exists only in the dirty working tree. It has not been committed, pushed, tagged, or published.
+- `main` tracks `origin/main`. Chart source commit `625ac40e448e4f663f9d0c3e93993264c43c3c1e` (`feat: add interactive candlestick charts and history prefetch`) was pushed and verified on the live remote. This subsequent documentation checkpoint records that delivery; use Git for the current exact tip.
+- All 30 feature/documentation/test files from the previous dirty checkpoint are now committed. The chart code is available on remote `main`; it has not been tagged or released as a new binary version.
 - All source/package version fields remain `1.6.2`. Published tag `v1.6.2` points to older release source `894dffb` and therefore does **not** contain the chart work. Failed tags `v1.6.0`/`v1.6.1` and published `v1.6.2` are immutable.
 - The local unsigned installer at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` was rebuilt on 2026-09-08 at 13:08 (Asia/Shanghai) with zoom, crosshair, and paced prefetch. Its identical test copy is `artifacts/local-test-2026-09-08-131009/Crypto.Top_1.6.2_crosshair-prefetch-test_x64-setup.exe`. The older named zoom-test copy at `artifacts/local-test-2026-09-08-081230/` was preserved. These are local dirty-tree builds, not the published `v1.6.2` Windows asset. The new installer was not executed. The debug executable/native evidence below predates the crosshair/prefetch improvements.
-- No unrelated user edit could be safely isolated from the existing feature/checkpoint changes. Preserve the entire worktree unless the user explicitly authorizes a commit, cleanup, or release operation.
+- The complete reviewed feature was committed together without discarding any existing work. Preserve any newly appearing edits and inspect live Git state before another change.
 
 ## Git Worktree Snapshot
 
-Captured on 2026-09-08 after the crosshair/prefetch correction. `git status --short --branch` reported no staged changes.
+After the source push on 2026-09-08, `git status --short --branch` reported `## main...origin/main` with no modified, staged, or untracked files. The former 16 modified and 14 untracked feature files are recorded by `git show --stat 625ac40`; the previous dirty-file list is no longer current. This documentation checkpoint follows that clean source-delivery snapshot.
 
-Modified tracked files (16):
-
-```text
-README.md
-docs/ARCHITECTURE.md
-docs/CURRENT_STATE.md
-docs/DECISIONS.md
-docs/KNOWN_ISSUES.md
-docs/MARKET_DATA.md
-docs/TODO.md
-package.json
-scripts/frontend.ts
-src-tauri/build.rs
-src-tauri/capabilities/main.json
-src-tauri/src/lib.rs
-src-tauri/tauri.conf.json
-src/index.html
-src/main.ts
-tests/ui.test.ts
-```
-
-Untracked files (14):
-
-```text
-src-tauri/capabilities/chart.json
-src/candle-history.ts
-src/chart-crosshair.ts
-src/chart-navigation.ts
-src/chart-selection.ts
-src/chart-viewport.ts
-src/chart.css
-src/chart.html
-src/chart.ts
-tests/candle-history.test.ts
-tests/chart-crosshair.test.ts
-tests/chart-navigation.test.ts
-tests/chart-selection.test.ts
-tests/chart-viewport.test.ts
-```
-
-These files together form the unreleased chart feature and its documentation/tests. Git cannot independently prove their human provenance, so do not split, overwrite, reset, delete, or stage only a guessed subset before reviewing the complete diff.
+Local `artifacts/`, `dist/`, and `src-tauri/target/` remain ignored. The installer copies and verification evidence there were not committed or uploaded. Check actual Git state before starting new work; do not assume a later working tree is still clean.
 
 ## Completed
 
@@ -74,7 +34,7 @@ These files together form the unreleased chart feature and its documentation/tes
 
 ## In Progress
 
-- Reviewing and committing the complete documented feature, refreshing native checks, and pushing to the existing `origin/main` under the user's explicit authorization. No staged files existed at the start; the live remote `main` still matched `d68af6d` before the push.
+- None. The requested source commit/push is complete; the local test installer remains available for user feedback.
 - Current crosshair/prefetch native/installer runtime acceptance and macOS/Linux runtime coverage remain unverified. The user accepted the preceding basic zoom logic; this does not establish full packaged or cross-platform acceptance.
 
 ## Relevant Files
@@ -100,7 +60,7 @@ These files together form the unreleased chart feature and its documentation/tes
 
 ## Current Implementation
 
-The stable monitor, watchlist, About, sizing, tray, and market-feed design remains as documented in [`ARCHITECTURE.md`](ARCHITECTURE.md); the current uncommitted slice adds the chart path without changing those contracts.
+The stable monitor, watchlist, About, sizing, tray, and market-feed design remains as documented in [`ARCHITECTURE.md`](ARCHITECTURE.md); the committed chart feature adds its own path without changing those contracts.
 
 `src/main.ts` serializes a strict version-1 product/current-`DisplayQuote.marketSource` envelope and invokes only `show_chart_window`. Rust validates the opaque payload against a 4096-byte limit, stores one selection, shows/maximizes the pre-created chart window on the main monitor's work area, and emits `chart-selection-changed`. The main monitor is not hidden. Closing the chart hides it and restores the main window.
 
@@ -127,6 +87,7 @@ The crosshair is a separate, animation-frame-coalesced transparent canvas plus n
 
 Source-push preflight on 2026-09-08:
 
+- Delivery completed: `git push origin main:main` advanced the remote from `d68af6d` to `625ac40`. A subsequent live `git ls-remote --heads origin refs/heads/main` returned the complete source commit hash above, matching local `HEAD`; the worktree was clean after that source push. No force push, version change, tag, release, or binary upload was performed.
 - Reviewed the complete documented 30-file feature scope and staged it explicitly; installers/logs remain ignored. No unrelated changes or credential-pattern matches were found. The existing remote is `https://github.com/ArchLinuxStudio/btc-price-monitor.git`, and live `refs/heads/main` matched local `d68af6d` before the source commit.
 - Fresh `cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check`, `cargo test --locked --manifest-path src-tauri/Cargo.toml` (7/7), `cargo check --locked --manifest-path src-tauri/Cargo.toml`, and `cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings`: passed. Only the documented benign MSVC import-library message appeared during test compilation; Clippy emitted no warnings.
 - The same-turn 152-test frontend check, browser regression, and local NSIS build evidence below remain applicable; no product source changed afterward. Staged `git diff --check` passed with no unstaged work.
@@ -187,13 +148,13 @@ Not verified for this unreleased slice: installer execution; a packaged-Windows 
 
 ## Next Recommended Action
 
-Finish the authorized source commit/push after review and checks, verify the remote `main` hash against the local revision, then update this checkpoint with the actual commit and delivery evidence. Preserve all documented chart files as one coherent feature; ignored installers/logs must remain local. Do not publish, change versions, or take on the unrelated Bybit mapping defect. A formal release still requires explicit authorization, a new version/tag, and `RELEASE.md`.
+Await user feedback or the next explicit scope. The chart source is already on remote `main`, and the newest local test package is `artifacts/local-test-2026-09-08-131009/Crypto.Top_1.6.2_crosshair-prefetch-test_x64-setup.exe`. Do not repeat the completed feature commit, rebuild without a reason, publish, change versions, or take on the unrelated Bybit mapping defect. A formal release still requires explicit authorization, a new version/tag, and `RELEASE.md`.
 
 If the next request is to validate this slice, first run a manual packaged-Windows click-through of main/chart coexistence, live exact-source history, zoom/pan/reset, and chart close-to-hide behavior. If the next request is to release it, obtain explicit authorization, choose a new SemVer version, and follow `docs/RELEASE.md`; never reuse or move an existing tag.
 
 ## New Thread Bootstrap
 
-1. Read `AGENTS.md`, `docs/INDEX.md`, and this file; then run `git status --short --branch` and compare it with the exact snapshot above.
-2. Preserve the complete dirty diff. Chart, corrected zoom, crosshair, and paced prefetch are implemented and verified but uncommitted; the newest test installer path is recorded above.
-3. Complete the explicitly authorized source push if it remains pending, using actual Git state to avoid repeating a completed push. Do not independently pick a TODO, discard changes, change versions, tag, publish, install, or release.
+1. Read `AGENTS.md`, `docs/INDEX.md`, and this file; then inspect current `git status --short --branch` and recent commits instead of reusing the retired dirty-file list.
+2. Chart, corrected zoom, crosshair, and paced prefetch are implemented, verified, and committed/pushed in `625ac40`. Preserve any subsequent user changes; the newest local test installer path is recorded above.
+3. Await feedback or the next explicit scope. Do not independently pick a TODO, discard changes, repeat a completed commit/push, change versions, tag, publish, install, or release.
 4. Once work is authorized, read only the directly relevant decisions/domain docs and source files, then run the smallest relevant baseline verification before changing code.
