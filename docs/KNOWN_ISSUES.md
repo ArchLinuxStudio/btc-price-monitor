@@ -1,6 +1,6 @@
 # Known Issues and Limitations
 
-There is no known blocking business bug and no known flaky test at this checkpoint. This document records real limitations and technical debt; actionable work is linked to [`TODO.md`](TODO.md).
+One chart-selection defect is confirmed below; there is no known flaky test at this checkpoint. This document records real limitations and technical debt; actionable work is linked to [`TODO.md`](TODO.md).
 
 ## No normal main/PR CI and incomplete CI checks
 
@@ -28,9 +28,43 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
-**Not fully verified:** The fixed ES2025 output and runtime API surface on the minimum supported macOS 12.x system WKWebView and representative Linux WebKitGTK versions; Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit; Bybit/Gate public WebSockets; the stock-perpetual search/add/display flow; the compact tray-opened About window and its exact-URL repository opener; quote-row mouse drag ordering in a real Tauri WebView on each platform; the pointer-captured screen/work-area-bounded quote-height drag under macOS/Linux window managers; and all Wayland tray/always-on-top combinations on those platforms. The two shipped `v1.6.2` DMGs did pass bundle and Mach-O deployment metadata checks at exactly 12.0.
+**Not fully verified:** The fixed ES2025 output and runtime API surface on the minimum supported macOS 12.x system WKWebView and representative Linux WebKitGTK versions; Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit; Bybit/Gate public WebSockets and historical K-line requests; the stock-perpetual search/add/display flow; the compact tray-opened About window and its exact-URL repository opener; quote-row mouse drag ordering in a real Tauri WebView on each platform; the pointer-captured screen/work-area-bounded quote-height drag under macOS/Linux window managers; the new chart/main dual-window placement, maximize, always-on-top, close-to-hide, wheel/keyboard zoom, and pointer-captured candle pan interaction in a packaged Tauri runtime outside Windows; and all Wayland tray/always-on-top combinations on those platforms. The two shipped `v1.6.2` DMGs did pass bundle and Mach-O deployment metadata checks at exactly 12.0, but they predate the chart feature.
 
 **Next direction:** Use real target systems, including macOS 12.x, for the next release candidate; do not “fix” a platform by widening CSP or claiming TypeScript `target` supplies runtime polyfills.
+
+## Chart selection rejects valid Bybit mappings that differ from the ticker
+
+**Symptom:** A valid catalog product whose Bybit symbol differs from `${ticker}USDT` cannot open its chart. `createChartSelection` throws `TypeError: Invalid chart product` before the native show command; `parseChartSelection` also rejects the envelope.
+
+**Cause:** `src/chart-selection.ts` reconstructs the expected Bybit symbol in `normalizePerpetualProduct`. This contradicts the accepted exact-symbol contract in [`MARKET_DATA.md`](MARKET_DATA.md): Bybit's official `symbol` may differ from `underlyingTicker`, and `src/watchlist.ts` preserves it.
+
+**Evidence:** On 2026-09-07, an offline probe reused the existing AMD / `AMDSTOCKUSDT` fixture from the `US-stock perpetual directories require exact official metadata and mappings` test in `tests/watchlist.test.ts`. `parseBybitStockCatalog` accepts it, but chart selection creation throws and envelope parsing returns `null`. Adding a valid `AMD_USDT` Gate mapping and selecting Gate reproduces the rejection because the entire product is validated. These are repository fixture values, not a claim about the current online catalog.
+
+**Impact:** Chart activation fails for this permitted product shape; main quotes and the watchlist remain usable. The current chart-selection tests cover only Bybit symbols equal to ticker plus `USDT`, so the 33 focused chart/UI tests still pass.
+
+**Current action:** Recorded during takeover; the active crosshair/prefetch task does not include this separate selection-mapping fix.
+
+**Next direction:** In a scoped correctness change, reuse the catalog/persistence Bybit symbol validation contract, retain the exact stored symbol, and add catalog-to-selection round-trip and exact-history-request regressions. Preserve Gate's canonical mapping rule, strict envelope/class validation, and unsupported-source rejection.
+
+## Basic chart history supports three active sources
+
+**Symptom:** The chart loads history only when the clicked quote currently comes from Coinbase, Bybit, or Gate. A row temporarily displayed from Kraken, Bitstamp, Bitfinex, or with no current source shows an explicit unsupported/unavailable message.
+
+**Impact:** BTC/ETH can temporarily have no chart while a backup USD exchange is the active displayed source, even though the main live price remains available.
+
+**Reason:** This first requested slice preserves exact-source truth and uses only already allowlisted browser-safe candle endpoints. Falling back to Coinbase would make the chart describe a different exchange than the clicked quote; Bitfinex REST is already rejected for missing WebView CORS.
+
+**Next direction:** Add a provider only with a product request, current official exact-symbol/history semantics, target-WebView CORS evidence or a narrowly allowlisted native proxy, and parser/security tests. Never “solve” this limitation with cross-source substitution, a guessed symbol, or wildcard CSP.
+
+## Chart history is intentionally bounded per viewing session
+
+**Current behavior:** Zoom-out and older-direction pan request same-source history in pages of at most 240 time buckets. A batch scans at most four pages, with one request in flight, and the chart caches at most 4,800 candles. At the cache limit the chart displays that limit; it does not claim to contain every candle the exchange has.
+
+**Sparse history:** An empty page advances the scanned time range without manufacturing candles or declaring the entire instrument exhausted. If four pages are insufficient, the user can continue loading. Network failures retain the existing chart and allow retry.
+
+**Advance buffer:** The selected chart targets a 480-candle left buffer, refilling by whole pages (usually 720 total at the initial latest-120 view, with 600 candles before that view), with a one-second delay between speculative pages. Empty/nonadvancing/error responses or four insufficient sparse pages pause prefetch; successful demand can resume it. HTTP 429/403 pause older requests for 60 seconds/10 minutes in the current navigation instance. This is not a provider-wide limiter across deliberate chart reloads, main feeds, or other applications. Sparse history and fast navigation beyond the buffer can still require a visible load; the chart does not promise an offline copy of all exchange history.
+
+**Verification:** Initial zoom-out, progressive older-history loading, proportional spacing, and request cancellation are covered by the 2026-09-08 tests/browser/native evidence in `CURRENT_STATE.md`. The earlier all-240 initial viewport and fixed 12px body-width behavior have been replaced; do not restore them as a workaround.
 
 ## Stock-related products are exchange derivatives, not shares
 
@@ -64,13 +98,13 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 ## Isolated CSS parse token
 
-**Symptom:** `src/styles.css:277` contains an unmatched extra `}` after the marker-color rules.
+**Symptom:** `src/styles.css:349` contains an unmatched extra `}` after the marker-color rules.
 
 **Impact:** Current browsers ignore the stray token and the native layout smoke passed, but no CSS linter guards syntax and future parser/context changes could expose a styling issue.
 
-**Reproduction:** Inspect lines 269–279. This is stable by source inspection.
+**Reproduction:** Inspect lines 341–349. This is stable by source inspection.
 
-**Current action:** None in this checkpoint; the user explicitly prohibited fixing newly found issues.
+**Current action:** None in this documentation-only checkpoint; CSS maintenance was not requested.
 
 **Next direction:** Remove it in a separately authorized maintenance change and rerun UI/native layout checks.
 
@@ -90,7 +124,7 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Symptom:** Node/CLI WebSocket calls can time out or report certificate-chain errors while the Tauri WebView works.
 
-**Cause:** Windows WebView2 follows system Internet Settings proxy behavior; Node/CLI behavior and CA configuration can differ. The current machine had a system proxy enabled at checkpoint time, but that address is not application configuration.
+**Cause:** Windows WebView2 follows system Internet Settings proxy behavior; Node/CLI behavior and CA configuration can differ. At an earlier Windows checkpoint, a system proxy was enabled; that address was environment evidence, not application configuration.
 
 **Already ruled out historically:** A generic WebSocket echo endpoint was reachable while some exchange direct paths were not, so “WebSocket is globally disabled” was not the cause.
 
@@ -104,7 +138,7 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Workaround:** Do not misreport it as a Clippy or application warning. Reinvestigate only if it changes severity or accompanies a build failure.
 
-## Published Release text mismatch
+## Older published Release text mismatch
 
 **Symptom:** Older Release bodies emphasize Windows and may show a space-form Windows filename (`Crypto Top_...`) while the actual v1.1.0+ asset uses `Crypto.Top_...`; all five assets are present.
 
@@ -112,4 +146,4 @@ There is no known blocking business bug and no known flaky test at this checkpoi
 
 **Workaround:** Use the actual asset list, not copied body text, when downloading.
 
-**Next direction:** `v1.6.2` now has a verified UTF-8 five-platform body with exact filenames. If the user requests historical cleanup, update older Release text individually and verify each page afterward.
+**Next direction:** `v1.6.2` now has a verified UTF-8 Release body listing all five exact asset filenames. If the user requests historical cleanup, update older Release text individually and verify each page afterward.

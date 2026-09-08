@@ -15,16 +15,20 @@ interface TauriConfig {
       url?: string;
       width: number;
       minWidth: number;
-      maxWidth: number;
+      maxWidth?: number;
       height: number;
       minHeight: number;
       maxHeight?: number;
       dragDropEnabled?: boolean;
       resizable: boolean;
       maximizable: boolean;
+      maximized?: boolean;
+      fullscreen: boolean;
       decorations: boolean;
       alwaysOnTop: boolean;
       skipTaskbar: boolean;
+      visibleOnAllWorkspaces?: boolean;
+      shadow?: boolean;
       center?: boolean;
       visible?: boolean;
       focus?: boolean;
@@ -94,12 +98,16 @@ test("blocks a release when either macOS bundle misses the 12.0 deployment floor
 test("does not expose mouse-hover text tooltips", () => {
   const html = readProjectFile("src/index.html");
   const aboutHtml = readProjectFile("src/about.html");
+  const chartHtml = readProjectFile("src/chart.html");
   const typescript = readProjectFile("src/main.ts");
+  const chartTypescript = readProjectFile("src/chart.ts");
   const rust = readProjectFile("src-tauri/src/lib.rs");
 
   assert.doesNotMatch(html, /\btitle\s*=/i);
   assert.doesNotMatch(aboutHtml, /\btitle\s*=/i);
+  assert.doesNotMatch(chartHtml, /\btitle\s*=/i);
   assert.doesNotMatch(typescript, /(?:\.title\s*=|(?:set|remove)Attribute\(\s*["']title["'])/);
+  assert.doesNotMatch(chartTypescript, /(?:\.title\s*=|(?:set|remove)Attribute\(\s*["']title["'])/);
   assert.doesNotMatch(rust, /\.tooltip\s*\(/);
 });
 
@@ -123,6 +131,7 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.match(html, /id="quote-row-template"/);
   assert.match(html, /id="quotes"[\s\S]*?role="list"/);
   assert.match(html, /id="reorder-instructions"/);
+  assert.match(html, /单击或按回车查看 K 线/);
   assert.match(html, /id="reorder-status"[\s\S]*?aria-live="polite"[\s\S]*?aria-atomic="true"/);
   assert.match(html, /class="quote-row" role="listitem"/);
   assert.match(
@@ -151,7 +160,7 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.match(typescript, /product\.symbol\.length > 6/);
   assert.doesNotMatch(typescript, /product\.symbol\.length > 5/);
   assert.match(typescript, /row\.draggable = true/);
-  assert.match(typescript, /aria-keyshortcuts", "Alt\+ArrowUp Alt\+ArrowDown"/);
+  assert.match(typescript, /aria-keyshortcuts", "Enter Space Alt\+ArrowUp Alt\+ArrowDown"/);
   assert.match(typescript, /aria-describedby", "reorder-instructions"/);
   for (const eventName of ["dragstart", "dragover", "dragleave", "drop", "dragend"]) {
     assert.match(typescript, new RegExp(`addEventListener\\("${eventName}"`));
@@ -160,6 +169,17 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.match(typescript, /event\.dataTransfer\.effectAllowed = "move"/);
   assert.match(typescript, /event\.dataTransfer\.dropEffect = "move"/);
   assert.match(typescript, /event\.altKey[\s\S]*?event\.key === "ArrowDown"[\s\S]*?event\.key === "ArrowUp"/);
+  assert.match(
+    typescript,
+    /function openProductChart[\s\S]*?quote\?\.marketSource \|\| null[\s\S]*?serializeChartSelection[\s\S]*?tauriInvoke\("show_chart_window"/,
+  );
+  assert.match(typescript, /elements\.quotes\.addEventListener\("click"[\s\S]*?openProductChart\(productId\)/);
+  assert.match(typescript, /event\.key === "Enter"[\s\S]*?event\.key === " "[\s\S]*?openProductChart\(productId\)/);
+  assert.match(typescript, /suppressQuoteActivation = true/);
+  assert.match(
+    typescript,
+    /function clearQuoteDrag[\s\S]*?requestAnimationFrame[\s\S]*?suppressQuoteActivation = false/,
+  );
   assert.match(typescript, /requestAnimationFrame\(\(\) => quoteViews\.get\(movingProductId\)\?\.row\.focus\(\)\)/);
   assert.match(typescript, /document\.addEventListener\("drop"[\s\S]*?event\.preventDefault\(\)/);
   const reorderFunctionPattern =
@@ -201,6 +221,130 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.equal(windowConfig.dragDropEnabled, false);
   assert.equal(windowConfig.resizable, false);
   assert.equal(windowConfig.maximizable, false);
+});
+
+test("provides one maximized candlestick window without hiding the compact monitor", () => {
+  const chartHtml = readProjectFile("src/chart.html");
+  const chartCss = readProjectFile("src/chart.css");
+  const chartTypescript = readProjectFile("src/chart.ts");
+  const chartViewport = readProjectFile("src/chart-viewport.ts");
+  const candleHistory = readProjectFile("src/candle-history.ts");
+  const frontendBuild = readProjectFile("scripts/frontend.ts");
+  const rust = readProjectFile("src-tauri/src/lib.rs");
+  const tauriBuild = readProjectFile("src-tauri/build.rs");
+  const mainCapability = JSON.parse(
+    readProjectFile("src-tauri/capabilities/main.json"),
+  ) as { windows: string[]; permissions: string[] };
+  const chartCapability = JSON.parse(
+    readProjectFile("src-tauri/capabilities/chart.json"),
+  ) as { windows: string[]; permissions: string[] };
+  const tauriConfig = JSON.parse(readProjectFile("src-tauri/tauri.conf.json")) as TauriConfig;
+  const chartWindows = tauriConfig.app.windows.filter(({ label }) => label === "chart");
+  const chartWindow = chartWindows[0];
+
+  assert.equal(chartWindows.length, 1);
+  assert.ok(chartWindow);
+  assert.equal(chartWindow.url, "chart.html");
+  assert.equal(chartWindow.minWidth, 640);
+  assert.equal(chartWindow.minHeight, 400);
+  assert.equal(chartWindow.resizable, true);
+  assert.equal(chartWindow.maximizable, true);
+  assert.equal(chartWindow.maximized, false);
+  assert.equal(chartWindow.fullscreen, false);
+  assert.equal(chartWindow.decorations, false);
+  assert.equal(chartWindow.alwaysOnTop, false);
+  assert.equal(chartWindow.skipTaskbar, true);
+  assert.equal(chartWindow.visibleOnAllWorkspaces, false);
+  assert.equal(chartWindow.visible, false);
+  assert.equal(chartWindow.focus, false);
+
+  assert.match(chartHtml, /<canvas[\s\S]*?id="candle-canvas"[\s\S]*?role="application"/);
+  assert.match(chartHtml, /id="candle-canvas"[\s\S]*?aria-roledescription="交互式 K 线图"[\s\S]*?tabindex="0"[\s\S]*?aria-describedby="chart-summary chart-navigation-help"/);
+  assert.match(chartHtml, /id="interval-toolbar"[\s\S]*?role="toolbar"/);
+  for (const interval of ["1m", "5m", "15m", "1h", "1d"]) {
+    assert.match(chartHtml, new RegExp(`data-interval="${interval}"`));
+  }
+  assert.match(chartHtml, /id="close-chart"[\s\S]*?aria-label="关闭 K 线图并返回行情窗口"/);
+  assert.match(chartHtml, /id="state-message"[\s\S]*?aria-live="polite"/);
+  assert.match(chartHtml, /id="retry-button"/);
+  assert.match(chartHtml, /class="view-toolbar"[\s\S]*?id="zoom-out"[\s\S]*?id="reset-view"[\s\S]*?id="zoom-in"/);
+  assert.match(chartHtml, /id="view-caption"/);
+  assert.match(chartHtml, /滚轮缩放 · 拖拽平移 · 双击重置/);
+  assert.match(chartHtml, /按 Home 查看最早数据，按 End 查看最新数据，按 0 或双击重置视图/);
+  assert.match(chartHtml, /<script type="module" src="\.\/chart\.js"><\/script>/);
+  assert.match(chartCss, /\.chart-shell\s*\{[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*100vh;/);
+  assert.match(chartCss, /#candle-canvas\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
+  assert.match(chartCss, /#candle-canvas\s*\{[\s\S]*?overscroll-behavior:\s*none;[\s\S]*?touch-action:\s*none;/);
+  assert.match(chartCss, /#candle-canvas\s*\{[\s\S]*?cursor:\s*crosshair/);
+  assert.doesNotMatch(chartCss, /cursor:\s*grabb?ing|cursor:\s*grab\b/);
+  assert.match(chartHtml, /<canvas id="crosshair-canvas" aria-hidden="true"><\/canvas>/);
+  assert.match(chartCss, /#crosshair-canvas\s*\{[\s\S]*?pointer-events:\s*none;/);
+  assert.match(chartCss, /#candle-canvas:focus-visible/);
+  assert.match(chartCss, /@media \(min-width: 960px\)[\s\S]*?padding-right: max\(248px, env\(safe-area-inset-right\)\)/);
+
+  assert.match(chartTypescript, /fetchCandleHistoryPage\(\{/);
+  assert.match(chartTypescript, /devicePixelRatio/);
+  assert.match(chartTypescript, /new ResizeObserver\(scheduleDraw\)/);
+  assert.match(chartTypescript, /listen<string>\("chart-selection-changed"/);
+  assert.match(chartTypescript, /invokeTauri<unknown>\("get_chart_selection"\)/);
+  assert.match(chartTypescript, /invokeTauri<void>\("close_chart_window"\)/);
+  assert.match(chartTypescript, /event\.key !== "Escape"/);
+  assert.match(chartTypescript, /document\.visibilityState === "hidden"[\s\S]*?abortHistoryRequest\(\)/);
+  assert.match(chartTypescript, /document\.addEventListener\("drop"[\s\S]*?event\.preventDefault\(\)/);
+  assert.match(chartTypescript, /from "\.\/chart-viewport\.js"/);
+  assert.match(chartTypescript, /viewport = createCandleViewport\(candles\.length\)/);
+  assert.match(chartTypescript, /navigation\?\.zoom\(scale, anchor\)/);
+  assert.match(chartTypescript, /candleViewportBounds\(viewport, candles\.length\)/);
+  assert.match(chartTypescript, /candleBarGeometry\(plot\.width, viewport\.count\)/);
+  assert.match(chartHtml, /id="history-message"[\s\S]*?aria-live="polite"/);
+  assert.match(chartHtml, /id="load-older"[\s\S]*?aria-label="继续加载更早的同源 K 线"/);
+  assert.match(chartTypescript, /index \+ 0\.5 - viewport\.start/);
+  assert.match(chartTypescript, /context\.rect\(plot\.left, plot\.top, plot\.width, plot\.height\)[\s\S]*?context\.clip\(\)/);
+  assert.match(chartTypescript, /addEventListener\("wheel", handleCanvasWheel, \{ passive: false \}\)/);
+  assert.match(chartTypescript, /event\.preventDefault\(\)[\s\S]*?zoomViewport\(Math\.exp/);
+  for (const pointerEvent of ["pointerdown", "pointermove", "pointerup", "pointercancel", "lostpointercapture"]) {
+    assert.match(chartTypescript, new RegExp(`addEventListener\\("${pointerEvent}"`));
+  }
+  assert.match(chartTypescript, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(chartTypescript, /releasePointerCapture\(activePan\.pointerId\)/);
+  assert.match(chartTypescript, /addEventListener\("dblclick"[\s\S]*?resetViewport\(\)/);
+  assert.match(chartTypescript, /case "ArrowLeft"[\s\S]*?case "ArrowRight"[\s\S]*?case "Home"[\s\S]*?case "End"[\s\S]*?case "0"/);
+  assert.match(chartTypescript, /当前显示第 \$\{bounds\.startIndex \+ 1\} 至 \$\{bounds\.endIndex\} 根/);
+  assert.doesNotMatch(chartTypescript, /\.innerHTML\s*=|location\.(?:assign|replace)|window\.open/);
+  assert.match(chartViewport, /export const MIN_VISIBLE_CANDLES = 12/);
+  assert.match(chartViewport, /scale > 1/);
+  assert.match(chartViewport, /Positive values[\s\S]*?newer candles/);
+  assert.match(candleHistory, /marketSource !== "coinbase" && marketSource !== "bybit" && marketSource !== "gate"/);
+  assert.doesNotMatch(candleHistory, /marketSource\s*=\s*"coinbase"|fallback/i);
+  assert.match(frontendBuild, /"chart\.html"/);
+  assert.match(frontendBuild, /"chart\.css"/);
+
+  assert.deepEqual(mainCapability.windows, ["main"]);
+  assert.equal(mainCapability.permissions.includes("allow-show-chart-window"), true);
+  assert.deepEqual(chartCapability.windows, ["chart"]);
+  assert.deepEqual(chartCapability.permissions, [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-chart-selection",
+    "allow-close-chart-window",
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(chartCapability),
+    /(?:allow-create|allow-set-size|allow-set-fullscreen|core:window:default|\*)/,
+  );
+  assert.match(tauriBuild, /"show_chart_window"/);
+  assert.match(tauriBuild, /"get_chart_selection"/);
+  assert.match(tauriBuild, /"close_chart_window"/);
+  assert.match(rust, /const CHART_SELECTION_EVENT: &str = "chart-selection-changed"/);
+  assert.match(rust, /fn show_chart_window[\s\S]*?chart\.show\(\)[\s\S]*?chart\.maximize\(\)/);
+  assert.match(rust, /fn close_chart_window[\s\S]*?window\.hide\(\)[\s\S]*?show_main_window\(&app\)/);
+  assert.match(rust, /hides_on_close[\s\S]*?label == CHART_WINDOW_LABEL/);
+  assert.doesNotMatch(rust, /WebviewWindowBuilder|WebviewWindow::new/);
+  const showChartFunction = rust.match(
+    /fn show_chart_window[\s\S]*?\r?\n}\r?\n\r?\n#\[tauri::command\]\r?\nfn get_chart_selection/,
+  )?.[0];
+  assert.ok(showChartFunction);
+  assert.doesNotMatch(showChartFunction, /main\.(?:hide|close)\(|hide_main_window/);
 });
 
 test("provides a compact single-instance About window with a scoped repository link", () => {
@@ -296,7 +440,11 @@ test("provides a compact single-instance About window with a scoped repository l
       allow: [{ url: "https://github.com/ArchLinuxStudio/btc-price-monitor" }],
     },
   ]);
-  assert.deepEqual(tauriConfig.app.security.capabilities, ["main-capability", "about-capability"]);
+  assert.deepEqual(tauriConfig.app.security.capabilities, [
+    "main-capability",
+    "about-capability",
+    "chart-capability",
+  ]);
   assert.doesNotMatch(JSON.stringify(aboutCapability), /opener:default|\*/);
   assert.equal(packageMetadata.license, "GPL-3.0-only");
   assert.equal(packageLock.packages[""].license, packageMetadata.license);

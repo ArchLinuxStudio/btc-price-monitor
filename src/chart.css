@@ -1,0 +1,432 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #f1f4f8;
+  background: #080b10;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #080b10;
+}
+
+body {
+  user-select: none;
+}
+
+button {
+  border: 0;
+  font: inherit;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.chart-shell {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) 28px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 76% -12%, rgba(118, 108, 240, 0.12), transparent 34%),
+    #080b10;
+}
+
+.chart-header {
+  min-width: 0;
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: max(12px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) 12px
+    max(18px, env(safe-area-inset-left));
+  border-bottom: 1px solid #202733;
+  background: rgba(14, 19, 27, 0.94);
+}
+
+.instrument {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 11px;
+}
+
+.market-badge {
+  min-width: 58px;
+  padding: 5px 8px;
+  border: 1px solid #353d4c;
+  border-radius: 6px;
+  color: #aeb8c8;
+  background: #111720;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.instrument-copy {
+  min-width: 0;
+}
+
+.instrument h1,
+.instrument p {
+  margin: 0;
+}
+
+.instrument h1 {
+  overflow: hidden;
+  color: #f4f6f9;
+  font-size: clamp(20px, 2.2vw, 30px);
+  font-weight: 760;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.instrument p {
+  margin-top: 4px;
+  overflow: hidden;
+  color: #7f899a;
+  font-size: 11px;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-name {
+  align-self: end;
+  margin-bottom: 1px;
+  color: #697487;
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.chart-actions,
+.interval-toolbar,
+.view-toolbar {
+  display: flex;
+  align-items: center;
+}
+
+.chart-actions {
+  flex: none;
+  gap: 12px;
+}
+
+.interval-toolbar,
+.view-toolbar {
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #272f3c;
+  border-radius: 8px;
+  background: #0b1017;
+}
+
+.interval-toolbar button,
+.view-toolbar button {
+  min-width: 42px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 5px;
+  color: #8893a4;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  transition: color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.view-toolbar button {
+  min-width: 30px;
+  padding: 0 7px;
+}
+
+.view-toolbar .reset-view {
+  min-width: 44px;
+  font-size: 10px;
+}
+
+.interval-toolbar button:hover:not(:disabled),
+.view-toolbar button:hover:not(:disabled) {
+  color: #d8dde5;
+  background: #171d27;
+}
+
+.interval-toolbar button:disabled,
+.view-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.interval-toolbar button[aria-pressed="true"] {
+  color: #f3f1ff;
+  background: #5148b8;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.close-chart {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 7px;
+  color: #8d97a7;
+  background: #151b24;
+  cursor: pointer;
+}
+
+.close-chart:hover {
+  color: #ffffff;
+  background: #b6424d;
+}
+
+.close-chart svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.35;
+}
+
+.interval-toolbar button:focus-visible,
+.view-toolbar button:focus-visible,
+.close-chart:focus-visible,
+.retry-button:focus-visible {
+  outline: 2px solid #8b82f5;
+  outline-offset: 2px;
+}
+
+.chart-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.009) 1px, transparent 1px),
+    #090d13;
+  background-size: 100% 48px;
+}
+
+#candle-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overscroll-behavior: none;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#crosshair-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.crosshair-marker {
+  position: absolute;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 2px;
+  background: #363f4e;
+  color: #f2f5fa;
+  font: 11px/22px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#candle-canvas:focus-visible {
+  outline: 2px solid #8b82f5;
+  outline-offset: -3px;
+}
+
+.chart-state {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 32px;
+  color: #929dad;
+  background: rgba(8, 11, 16, 0.82);
+  text-align: center;
+}
+
+.chart-state p {
+  max-width: 520px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.history-notice {
+  position: absolute;
+  top: 2px;
+  left: 16px;
+  right: 88px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  color: #929dad;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+#history-message {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#load-older {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #b9b1ff;
+  background: #211d3d;
+  cursor: pointer;
+  font-size: 10px;
+  pointer-events: auto;
+}
+
+#load-older:focus-visible {
+  outline: 2px solid #8b82f5;
+  outline-offset: 1px;
+}
+
+.state-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #2f3744;
+  border-top-color: #8176ee;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+.retry-button {
+  min-width: 78px;
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid #3a4352;
+  border-radius: 7px;
+  color: #e2e6ec;
+  background: #171d27;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.retry-button:hover {
+  border-color: #766cf0;
+  background: #211d3d;
+}
+
+.chart-footer {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0 max(18px, env(safe-area-inset-right)) max(0px, env(safe-area-inset-bottom))
+    max(18px, env(safe-area-inset-left));
+  border-top: 1px solid #1a202a;
+  color: #596477;
+  background: #0b0f15;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.035em;
+}
+
+.chart-footer span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chart-footer .interaction-hint {
+  text-align: center;
+}
+
+.chart-footer #view-caption {
+  text-align: right;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Keep chart controls clear of the 208px monitor at its default top-right position. */
+@media (min-width: 960px) {
+  .chart-header {
+    padding-right: max(248px, env(safe-area-inset-right));
+  }
+}
+
+@media (max-width: 720px) {
+  .chart-header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .chart-actions {
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .interval-toolbar {
+    overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}

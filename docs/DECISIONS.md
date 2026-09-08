@@ -36,7 +36,7 @@ This document records accepted decisions that a future developer might otherwise
 
 **Context:** The user requested converting the existing JavaScript frontend to TypeScript while leaving features, UI, and Rust unchanged.
 
-**Decision:** Author the four frontend modules and Node tests in strict TypeScript. Use `tsc` only to erase types and emit native ES modules into ignored `dist/`; copy `index.html` and `styles.css` unchanged. Use `tsx` only to execute TypeScript tests and build tooling.
+**Decision:** Author frontend modules and Node tests in strict TypeScript. Use `tsc` only to erase types and emit native ES modules into ignored `dist/`; copy or inject local HTML, CSS, icon, and license assets through `scripts/frontend.ts`. Use `tsx` only to execute TypeScript tests and build tooling.
 
 **Reason:** This adds compile-time contracts at storage/network/DOM/IPC boundaries without introducing a framework, bundling, a development origin, or a different browser module graph.
 
@@ -176,6 +176,46 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** Main-window `dragDropEnabled` is false because Tauri's native file-drop integration intercepts frontend HTML5 drag events on Windows; page-level external-drop guards are therefore required. Keep row `draggable`/list semantics, drop indicators, keyboard shortcuts, focus/live announcements, pure fixed/custom reorder tests, stored-order round trips, title-bar dragging, bottom height resizing, and the absence of a reorder-time `feed.setProducts` call synchronized.
 
+## Decision: Use one exact-source, work-area-maximized candlestick window
+
+**Status:** Accepted; explicit user requirements on 2026-09-01 and 2026-09-02
+
+**Context:** The user requested a first basic candlestick viewer opened from a main quote row, with selectable candle length, while the compact main interface stays visible. A native/exclusive fullscreen window would conflict with that coexistence requirement on some platforms, and borrowing history from a different exchange would violate the existing same-source market-data contract.
+
+**Decision:** Pre-create one hidden, undecorated `chart` WebView and reuse it. A row click or `Enter`/`Space` activation snapshots the validated product plus that row's current `DisplayQuote.marketSource`; Rust stores a byte-bounded opaque JSON selection, shows the chart on the main window's monitor, and maximizes it to the normal work area while leaving `fullscreen: false` and `alwaysOnTop: false`. The main `208px` monitor is never hidden and retains its existing always-on-top behavior. The static local chart uses a DPI-aware `<canvas>`, no framework/CDN/runtime dependency, and five intervals: `1m`, `5m`, `15m`, `1h`, and `1d`. It requests history only from Coinbase for real-USD spot or from the exact Bybit/Gate stock-related USDT-perpetual mapping. Wheel/trackpad and visible `＋/−` controls zoom around an anchor down to 12 candles; primary-pointer drag and focused-canvas keys pan. Default/reset range and bounded older-history loading follow the subsequent zoom decision. If the active quote source is Kraken, Bitstamp, Bitfinex, or unavailable, show an explicit unsupported/unavailable state rather than substituting another source or fabricating gaps. Closing, `Escape`, and Alt+F4 hide/reuse the chart and restore/focus the main monitor.
+
+**Reason:** A normal maximized window provides the requested chart-sized surface without moving macOS into a separate fullscreen Space or covering the always-on-top monitor. Freezing the displayed quote's exchange preserves semantic honesty: the chart, source badge, product class, and price row all describe the same market. A local canvas keeps the existing small static architecture and exact CSP.
+
+**Rejected alternatives:** Hiding/replacing the main monitor; native/exclusive fullscreen; opening one chart per row; dynamically creating frontend windows; embedding a remote chart or adding a charting framework/CDN/bundler; giving the frontend arbitrary create/resize/maximize/fullscreen permissions; unbounded/infinite-scroll history fetches during pan; defaulting unsupported sources to Coinbase; mixing spot and perpetual history; synthesizing missing candles; or reconnecting `PriceFeed` merely to open a display-only view.
+
+**Implications:** `main` receives only the fixed `show_chart_window` command in addition to its existing capability. `chart` receives only selection retrieval, chart close, and fixed-event listen/unlisten; Rust alone owns placement/maximization. The versioned selection is validated on both frontend boundaries, remote text remains text-only, external drops are prevented, interval changes abort obsolete requests, and sparse valid provider history remains sparse. Viewport math stays pure/tested and in candle units, while the renderer clips partially visible candles and derives price/time axes plus non-live accessible summaries from the current visible range. Product/interval reload and window hiding cancel drag and reset the viewport. Keep `chart.*`, `chart-viewport.ts`, `chart-navigation.ts`, `candle-history.ts`, `chart-selection.ts`, the three window configurations/capabilities, provider documentation, and their focused TypeScript/Rust/static tests synchronized. No CSP origin was added because the three HTTPS origins were already allowlisted for existing market work.
+
+## Decision: Zoom into detail and out into bounded older history
+
+**Status:** Accepted; explicit zoom correction requested on 2026-09-07 and resumed on 2026-09-08
+
+**Context:** The initial chart decision capped total history at 240 candles and opened/reset to the entire loaded series. That made initial zoom-out unavailable and prevented users from revealing older candles. A fixed 12px body-width cap also made zoom-in widen gaps after candle bodies stopped growing. The user explicitly requested initial zoom-out, more historical candles when zooming out, and larger candle detail when zooming in, with TradingView as an interaction reference. This request supersedes the earlier total-240 and full-series-reset restrictions.
+
+**Decision:** Open/reset to up to the newest 120 available candles, retaining the 12-candle zoom-in minimum. Derive horizontal spacing from plot width divided by visible candle count and body width from 72% of that spacing, without the old fixed pixel cap. Wheel zoom retains its pointer anchor; button/keyboard zoom keeps the newest edge when current and otherwise the viewed range center. Allow requested zoom/pan ranges to extend before loaded data and fetch older history from the same frozen product/source/interval. Each page covers up to 240 interval buckets, each demand-driven batch performs at most four serial page requests, and each current selection/interval caches at most 4,800 candles. Use the queried range start as the exclusive next-page cursor so sparse or empty pages do not falsely end history. When a batch leaves pending demand or a page fails, retain the chart and expose a continue/retry action.
+
+**Reason:** The visible time range must grow when zooming out. Smaller bar spacing fits more data into the same canvas, consistent with the [TradingView time-scale documentation](https://www.tradingview.com/charting-library-docs/latest/ui_elements/Time-Scale/). Bounded same-source pagination satisfies that behavior while keeping memory, rendering, and public API request work finite; the existing static canvas architecture remains sufficient.
+
+**Rejected alternatives:** Restoring initial full-series zoom limits; expanding gaps while candle bodies stop growing; silently changing interval or exchange to simulate more history; treating an empty page as the end of all history; background prefetch of all available history; unbounded automatic page loops; or adding TradingView as a runtime dependency.
+
+**Implications:** `chart-navigation.ts` owns loaded data and pending viewport intent separately. Prepending candles shifts the viewport and active drag origin together. Reversing to zoom-in uses the visible range immediately, even if older pages are pending. Reset, double-click, and `0` return to the newest 120 candles; `End` returns to the newest edge at the visible scale. Late pages may enter the cache but cannot restore superseded navigation intent. Product/interval changes and window hiding cancel and invalidate obsolete work. Keep navigation, page boundaries, sparse history, retry, geometry, and race-condition regressions synchronized. This change does not alter the native window contract, product/source policy, CSP, capabilities, or `PriceFeed` behavior.
+
+## Decision: Crosshair inspection and a paced history buffer
+
+**Status:** Accepted; explicit user request on 2026-09-08 after accepting the basic zoom behavior
+
+**Decision:** Use a crosshair cursor during hover and drag, a vertical dashed guide snapped to a visible real candle center, and a horizontal dashed guide at the pointer's price. Show the candle's actual UTC timestamp on the time axis and the pointer price on the price axis. Keep projection pure and share the renderer's viewport and padded price range. Draw guides on a separate transparent canvas, coalesced by animation frame, so ordinary pointer motion does not repaint candles. Axis markers are chart annotations, not HTML `title` tooltips; leave/hide/reload/cancel clears them.
+
+After installing the current navigation instance, enable a 480-candle buffer before the visible left edge. A normal first page of 240 candles with the latest 120 visible therefore warms to 720 cached candles. Fetch each speculative page after a one-second delay, with no overlapping history requests. Explicit older-range demand reuses the same flight and has priority; adding data shifts candle indices and any drag origin together without changing the visible time/scale. Preserve the four-page demand batch and 4,800-candle cache cap. Stop speculative scanning after an empty/nonadvancing page, an error, or four insufficient sparse pages; a successful explicit demand page may resume it. HTTP 429/403 pause older requests in the current navigation instance for 60 seconds/10 minutes, respectively, without automatic retries. Product/interval reload and hiding cancel its timers and requests.
+
+**Reason:** Inspection needs precise time/price guides, and a small advance buffer removes network waits from ordinary zoom/pan. The user's new request authorizes bounded preloading; it does not overturn the rejection of fetching all available history in the background. Conservative pacing leaves headroom for the existing free market feeds.
+
+**Implications:** Keep `chart-crosshair.ts`, the overlay/UI, navigation scheduling tests, provider rate-limit references in `MARKET_DATA.md`, and lifecycle checks synchronized. Prefetch applies only to the selected product/source/interval; do not fan out across the watchlist or intervals. The cooldown is local to a navigation instance, not a global IP budget or a promise that another application cannot cause provider limits. No dependency, framework, CSP, capability, native command, or public market-feed contract changes.
+
 ## Decision: No hover text tooltips
 
 **Status:** Accepted; explicit user requirement
@@ -216,4 +256,4 @@ This document records accepted decisions that a future developer might otherwise
 
 **Rejected alternatives:** Uploading only the local Windows installer, moving an old tag, or manually dispatching and assuming artifacts became Release assets.
 
-**Implications:** Follow [`RELEASE.md`](RELEASE.md). Never overwrite the published `v1.2.1` with a local development build that still reports version 1.2.1.
+**Implications:** Follow [`RELEASE.md`](RELEASE.md). Never overwrite or move a published tag or Release. The uncommitted chart build still reports `1.6.2` while published `v1.6.2` predates it, so any formal release of this work requires a new version and tag.

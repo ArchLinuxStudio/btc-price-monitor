@@ -1,6 +1,7 @@
 import { PriceFeed } from "./price-feed.js";
-import type { DisplayQuote, FeedStatus, PriceFeedState } from "./price-feed.js";
+import type { DisplayQuote, FeedStatus, MarketSource, PriceFeedState } from "./price-feed.js";
 import { formatUsdPrice } from "./price-format.js";
+import { createChartSelection, serializeChartSelection } from "./chart-selection.js";
 import {
   applyBackupSourceMappings,
   fetchBackupSourceMappings,
@@ -28,6 +29,10 @@ interface MonitorLayout {
 interface MonitorHeightRequest {
   rowCount: number;
   requestedHeight: number;
+}
+
+interface ChartWindowRequest {
+  selectionJson: string;
 }
 
 interface ResizeDragState {
@@ -60,7 +65,8 @@ type TauriCommand =
   | "close_window"
   | "ensure_always_on_top"
   | "set_monitor_layout"
-  | "resize_monitor_height";
+  | "resize_monitor_height"
+  | "show_chart_window";
 type CatalogState = "idle" | "loading" | "ready" | "error";
 
 const elements = {
@@ -143,6 +149,7 @@ let resizeInFlight = false;
 let resizeDrag: ResizeDragState | null = null;
 let quoteDrag: QuoteDragState | null = null;
 let quoteDrop: QuoteDropState | null = null;
+let suppressQuoteActivation = false;
 
 function prefersReducedMotion(): boolean {
   return typeof globalThis.matchMedia === "function"
@@ -151,10 +158,11 @@ function prefersReducedMotion(): boolean {
 
 function tauriInvoke(command: "set_monitor_layout", args: MonitorLayout): Promise<unknown>;
 function tauriInvoke(command: "resize_monitor_height", args: MonitorHeightRequest): Promise<unknown>;
+function tauriInvoke(command: "show_chart_window", args: ChartWindowRequest): Promise<unknown>;
 function tauriInvoke(command: "close_window" | "ensure_always_on_top"): Promise<unknown>;
 function tauriInvoke(
   command: TauriCommand,
-  args?: MonitorLayout | MonitorHeightRequest,
+  args?: MonitorLayout | MonitorHeightRequest | ChartWindowRequest,
 ): Promise<unknown> {
   const tauri = (globalThis as TauriGlobal).__TAURI__;
   const invoke = tauri && tauri.core && tauri.core.invoke;
@@ -249,6 +257,11 @@ function clearQuoteDrag(): void {
   if (quoteDrag) quoteDrag.row.classList.remove("is-dragging");
   quoteDrag = null;
   elements.quotes.classList.remove("is-reordering");
+  if (suppressQuoteActivation) {
+    requestAnimationFrame(() => {
+      suppressQuoteActivation = false;
+    });
+  }
 }
 
 function setQuoteDropIndicator(row: HTMLElement, placeAfter: boolean): void {
@@ -295,6 +308,16 @@ function moveSelectedProductBy(movingProductId: string, offset: -1 | 1): void {
   const targetProduct = selectedProducts[targetIndex];
   if (!reorderSelectedProduct(movingProductId, targetProduct.id, offset > 0)) return;
   requestAnimationFrame(() => quoteViews.get(movingProductId)?.row.focus());
+}
+
+function openProductChart(productId: string): void {
+  const product = selectedProducts.find((entry) => entry.id === productId);
+  if (!product) return;
+  const quote = latestState?.prices[product.id] || latestState?.prices[product.symbol] || null;
+  const marketSource: MarketSource | null = quote?.marketSource || null;
+  const selectionJson = serializeChartSelection(createChartSelection(product, marketSource));
+  elements.reorderStatus.textContent = `正在打开 ${product.symbol} K 线`;
+  void tauriInvoke("show_chart_window", { selectionJson });
 }
 
 function productColorIndex(product: Product): number {
@@ -351,12 +374,12 @@ function rebuildQuoteRows(): void {
     row.dataset.productId = product.id;
     row.draggable = true;
     row.tabIndex = 0;
-    row.setAttribute("aria-keyshortcuts", "Alt+ArrowUp Alt+ArrowDown");
+    row.setAttribute("aria-keyshortcuts", "Enter Space Alt+ArrowUp Alt+ArrowDown");
     row.setAttribute("aria-describedby", "reorder-instructions");
     row.setAttribute(
       "aria-label",
       `${product.name}，${product.symbol}，${productQuoteCurrency(product)} 计价`
-        + `${productMarketDescription(product)}行情，第 ${index + 1} 项，共 ${selectedProducts.length} 项`,
+        + `${productMarketDescription(product)}行情，第 ${index + 1} 项，共 ${selectedProducts.length} 项，按回车查看 K 线`,
     );
     marker.classList.add(`marker-${productColorIndex(product)}`);
     symbol.textContent = product.symbol;
@@ -844,6 +867,7 @@ elements.quotes.addEventListener("dragstart", (event) => {
     event.preventDefault();
     return;
   }
+  suppressQuoteActivation = true;
   quoteDrag = { productId, row };
   elements.quotes.classList.add("is-reordering");
   row.classList.add("is-dragging");
@@ -899,7 +923,15 @@ elements.quotes.addEventListener("drop", (event) => {
   }
 });
 
-elements.quotes.addEventListener("dragend", clearQuoteDrag);
+elements.quotes.addEventListener("dragend", () => {
+  clearQuoteDrag();
+});
+
+elements.quotes.addEventListener("click", (event) => {
+  if (suppressQuoteActivation || quoteDrag || managementOpen) return;
+  const productId = quoteRowFromEvent(event)?.dataset.productId;
+  if (productId) openProductChart(productId);
+});
 
 elements.quotes.addEventListener("keydown", (event) => {
   const row = quoteRowFromEvent(event);
@@ -912,6 +944,11 @@ elements.quotes.addEventListener("keydown", (event) => {
     event.preventDefault();
     event.stopPropagation();
     moveSelectedProductBy(productId, event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+  if (productId && !event.altKey && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    if (!event.repeat) openProductChart(productId);
     return;
   }
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;

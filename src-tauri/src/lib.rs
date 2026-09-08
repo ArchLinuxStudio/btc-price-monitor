@@ -3,11 +3,15 @@ use std::sync::Mutex;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, LogicalSize, Manager, PhysicalPosition, RunEvent, State, WebviewWindow, WindowEvent,
+    AppHandle, Emitter, EventTarget, LogicalSize, Manager, PhysicalPosition, RunEvent, State,
+    WebviewWindow, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const ABOUT_WINDOW_LABEL: &str = "about";
+const CHART_WINDOW_LABEL: &str = "chart";
+const CHART_SELECTION_EVENT: &str = "chart-selection-changed";
+const MAX_CHART_SELECTION_BYTES: usize = 4096;
 const MONITOR_WIDTH: u32 = 208;
 const MONITOR_MIN_HEIGHT: u32 = 92;
 const MONITOR_MANAGEMENT_MAX_HEIGHT: u32 = 170;
@@ -146,6 +150,11 @@ fn about_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         .ok_or_else(|| "about window is unavailable".to_owned())
 }
 
+fn chart_window(app: &AppHandle) -> Result<WebviewWindow, String> {
+    app.get_webview_window(CHART_WINDOW_LABEL)
+        .ok_or_else(|| "chart window is unavailable".to_owned())
+}
+
 fn show_main_window(app: &AppHandle) -> Result<(), String> {
     let window = main_window(app)?;
     window.show().map_err(|error| error.to_string())?;
@@ -166,8 +175,30 @@ fn show_about_window(app: &AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|error| error.to_string())
 }
 
+fn validate_chart_selection(selection_json: &str) -> Result<(), String> {
+    if selection_json.is_empty() {
+        return Err("chart selection is empty".to_owned());
+    }
+    if selection_json.len() > MAX_CHART_SELECTION_BYTES {
+        return Err("chart selection exceeds 4096 bytes".to_owned());
+    }
+    Ok(())
+}
+
+fn place_chart_on_main_monitor(app: &AppHandle, chart: &WebviewWindow) {
+    let Ok(main) = main_window(app) else {
+        return;
+    };
+    let Ok(Some(monitor)) = main.current_monitor() else {
+        return;
+    };
+
+    let _ = chart.unmaximize();
+    let _ = chart.set_position(monitor.work_area().position);
+}
+
 fn hides_on_close(label: &str) -> bool {
-    label == MAIN_WINDOW_LABEL || label == ABOUT_WINDOW_LABEL
+    label == MAIN_WINDOW_LABEL || label == ABOUT_WINDOW_LABEL || label == CHART_WINDOW_LABEL
 }
 
 fn tray_action(id: &str) -> Option<TrayAction> {
@@ -308,11 +339,65 @@ fn resize_monitor_height(
     Ok(height)
 }
 
+#[tauri::command]
+fn show_chart_window(
+    app: AppHandle,
+    chart_selection: State<'_, Mutex<Option<String>>>,
+    selection_json: String,
+) -> Result<(), String> {
+    validate_chart_selection(&selection_json)?;
+    let chart = chart_window(&app)?;
+
+    {
+        let mut selection = chart_selection
+            .lock()
+            .map_err(|_| "chart selection is unavailable".to_owned())?;
+        *selection = Some(selection_json.clone());
+    }
+
+    chart.unminimize().map_err(|error| error.to_string())?;
+    if !chart.is_visible().unwrap_or(false) {
+        place_chart_on_main_monitor(&app, &chart);
+    }
+    chart.show().map_err(|error| error.to_string())?;
+    chart.maximize().map_err(|error| error.to_string())?;
+    if let Ok(main) = main_window(&app) {
+        let _ = apply_window_behavior(&main);
+    }
+    app.emit_to(
+        EventTarget::webview_window(CHART_WINDOW_LABEL),
+        CHART_SELECTION_EVENT,
+        selection_json,
+    )
+    .map_err(|error| error.to_string())?;
+    chart.set_focus().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_chart_selection(
+    chart_selection: State<'_, Mutex<Option<String>>>,
+) -> Result<Option<String>, String> {
+    chart_selection
+        .lock()
+        .map(|selection| selection.clone())
+        .map_err(|_| "chart selection is unavailable".to_owned())
+}
+
+#[tauri::command]
+fn close_chart_window(app: AppHandle, window: WebviewWindow) -> Result<(), String> {
+    if window.label() != CHART_WINDOW_LABEL {
+        return Err("chart window command called from an unexpected window".to_owned());
+    }
+    window.hide().map_err(|error| error.to_string())?;
+    show_main_window(&app)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(Mutex::new(MonitorLayoutState::default()))
+        .manage(Mutex::new(None::<String>))
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -335,6 +420,9 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } if hides_on_close(window.label()) => {
                 api.prevent_close();
                 let _ = window.hide();
+                if window.label() == CHART_WINDOW_LABEL {
+                    let _ = show_main_window(window.app_handle());
+                }
             }
             _ => {}
         })
@@ -343,7 +431,10 @@ pub fn run() {
             close_window,
             ensure_always_on_top,
             set_monitor_layout,
-            resize_monitor_height
+            resize_monitor_height,
+            show_chart_window,
+            get_chart_selection,
+            close_chart_window
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Crypto Top application");
@@ -361,7 +452,8 @@ pub fn run() {
 mod tests {
     use super::{
         hides_on_close, logical_available_height, monitor_height, quote_content_height,
-        quote_height, tray_action, TrayAction, MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT,
+        quote_height, tray_action, validate_chart_selection, TrayAction, MAX_CHART_SELECTION_BYTES,
+        MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT,
     };
 
     #[test]
@@ -416,7 +508,18 @@ mod tests {
     fn only_managed_windows_hide_instead_of_closing() {
         assert!(hides_on_close("main"));
         assert!(hides_on_close("about"));
+        assert!(hides_on_close("chart"));
         assert!(!hides_on_close("unexpected"));
+    }
+
+    #[test]
+    fn chart_selection_is_bounded_by_utf8_bytes() {
+        assert!(validate_chart_selection("{}").is_ok());
+        assert!(validate_chart_selection("").is_err());
+        assert!(validate_chart_selection(&"a".repeat(MAX_CHART_SELECTION_BYTES)).is_ok());
+        assert!(validate_chart_selection(&"a".repeat(MAX_CHART_SELECTION_BYTES + 1)).is_err());
+        assert!(validate_chart_selection(&"币".repeat(MAX_CHART_SELECTION_BYTES / 3)).is_ok());
+        assert!(validate_chart_selection(&"币".repeat(MAX_CHART_SELECTION_BYTES / 3 + 1)).is_err());
     }
 
     #[test]

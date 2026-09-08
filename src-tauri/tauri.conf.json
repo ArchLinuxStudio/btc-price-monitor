@@ -51,10 +51,31 @@
         "center": true,
         "visible": false,
         "focus": false
+      },
+      {
+        "label": "chart",
+        "title": "Crypto Top — K线图",
+        "url": "chart.html",
+        "width": 960,
+        "height": 600,
+        "minWidth": 640,
+        "minHeight": 400,
+        "resizable": true,
+        "maximizable": true,
+        "maximized": false,
+        "fullscreen": false,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "visibleOnAllWorkspaces": false,
+        "shadow": true,
+        "center": true,
+        "visible": false,
+        "focus": false
       }
     ],
     "security": {
-      "capabilities": ["main-capability", "about-capability"],
+      "capabilities": ["main-capability", "about-capability", "chart-capability"],
       "freezePrototype": true,
       "csp": {
         "default-src": ["'self'", "customprotocol:", "asset:"],

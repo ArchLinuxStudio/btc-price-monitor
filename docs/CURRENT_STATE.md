@@ -1,218 +1,199 @@
 # Current Development State
 
-Checkpoint date: 2026-09-01 (Asia/Shanghai)
+Checkpoint date: 2026-09-08 (Asia/Shanghai)
 
 ## Current Objective
 
-Preserve the completed five-asset `v1.6.2` formal release and its verification evidence as the repository's post-release recovery point.
+The user explicitly authorized pushing the code on 2026-09-08. Prepare and push the complete documented chart feature, including the corrected zoom, crosshair/axis markers, and paced history prefetch, to the existing `origin/main`. The source has passed the full frontend check and deterministic browser interaction tests and is included in the latest local Windows test installer; fresh Rust checks also passed before committing. This is a source push; version changes, tags, published packages, and the separate Bybit selection-mapping fix are not part of the request.
 
 ## Current Status
 
-- Branch/upstream: `main` tracking `origin/main`.
-- The user's authorization to commit, build, push, tag, and publish has been fulfilled. Immutable annotated tag `v1.6.2` points to release source commit `894dffbdfbcdb2c154976ebb65555cff5b0e49ef`; `main` preserves that source plus this post-release handoff checkpoint.
-- The task started from `main` synchronized with `origin/main` at `cd9a3ca9e189fbc7c9e68eb35cd5296725f48c55`.
-- The earlier compact About/resize and filtered-removal commits plus `2bb92ad` containing the uncapped watchlist, screen-bounded height, six-character typography, quote ordering, ES2025/macOS 12 baseline, tests, workflow gate, and documentation have all been pushed to `main`.
-- Immutable annotated tag `v1.6.0` points to `2bb92ad`. Its workflow run `33448938555` failed before publication: Linux succeeded; Windows exposed an LF-only static-test regex under CRLF checkout; both macOS bundles built, but Tauri cleaned their temporary `.app` directories before the post-build gate looked there. The dependent Release job was skipped, so no `v1.6.0` Release/assets were published.
-- Immutable annotated tag `v1.6.1` points to `c3e42a3`. Its workflow run `33467295096` proved the Windows CRLF repair and completed both macOS bundle builds, but both final-DMG gates stopped at `hdiutil: attach canceled`: `bundle.licenseFile` embeds a license agreement, and unattended mounting requires explicit acceptance on standard input. No `v1.6.1` Release/assets were published.
-- Annotated tag `v1.6.2` triggered successful workflow run `33468480211`: Windows x64, Linux x64, macOS Intel, macOS Apple Silicon, both final-DMG macOS 12 gates, and the Release job all passed. The published Release is <https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.6.2> and has exactly the five required assets.
-- Repository rules prohibit moving any published tag. All six source/lock/config version fields remain synchronized at `1.6.2`; failed tags `v1.6.0` and `v1.6.1` remain intact as release-attempt history and have no GitHub Release.
-- The root shared TypeScript config now fixes `target` and ECMAScript library declarations at `ES2025`; `module: ES2022` remains unchanged for browser-native modules. The Tauri macOS overlay now sets `minimumSystemVersion: 12.0`, which Tauri uses for bundle metadata and the macOS deployment target.
-- The repaired workflow disables interactive paging and pipes a single `Y` response into each read-only final-DMG mount, then verifies the shipped app's `LSMinimumSystemVersion` and Mach-O deployment target are both exactly 12.0; either mismatch fails its build job and prevents publication. Static coverage also normalizes the inspected source to CRLF so Windows checkout behavior remains tested locally.
-- Local `1.6.2` dependency, TypeScript, test, frontend, Rust, workflow-YAML, Windows package, package-inspection, and isolated executable-smoke verification passes. All five published assets were independently downloaded and matched their GitHub SHA-256 digests; the downloaded Windows installer was inspected but not run or installed.
-- The installed per-user `1.4.0` binary predates this redesign and is not a source of truth.
+- `main` tracks `origin/main`; both point to `d68af6dd423b66f00d97a9b62e6a598fa367794f` with no ahead/behind commits.
+- The complete row-activation, chart-window, exact-source candle-history, and zoom/pan slice exists only in the dirty working tree. It has not been committed, pushed, tagged, or published.
+- All source/package version fields remain `1.6.2`. Published tag `v1.6.2` points to older release source `894dffb` and therefore does **not** contain the chart work. Failed tags `v1.6.0`/`v1.6.1` and published `v1.6.2` are immutable.
+- The local unsigned installer at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` was rebuilt on 2026-09-08 at 13:08 (Asia/Shanghai) with zoom, crosshair, and paced prefetch. Its identical test copy is `artifacts/local-test-2026-09-08-131009/Crypto.Top_1.6.2_crosshair-prefetch-test_x64-setup.exe`. The older named zoom-test copy at `artifacts/local-test-2026-09-08-081230/` was preserved. These are local dirty-tree builds, not the published `v1.6.2` Windows asset. The new installer was not executed. The debug executable/native evidence below predates the crosshair/prefetch improvements.
+- No unrelated user edit could be safely isolated from the existing feature/checkpoint changes. Preserve the entire worktree unless the user explicitly authorizes a commit, cleanup, or release operation.
+
+## Git Worktree Snapshot
+
+Captured on 2026-09-08 after the crosshair/prefetch correction. `git status --short --branch` reported no staged changes.
+
+Modified tracked files (16):
+
+```text
+README.md
+docs/ARCHITECTURE.md
+docs/CURRENT_STATE.md
+docs/DECISIONS.md
+docs/KNOWN_ISSUES.md
+docs/MARKET_DATA.md
+docs/TODO.md
+package.json
+scripts/frontend.ts
+src-tauri/build.rs
+src-tauri/capabilities/main.json
+src-tauri/src/lib.rs
+src-tauri/tauri.conf.json
+src/index.html
+src/main.ts
+tests/ui.test.ts
+```
+
+Untracked files (14):
+
+```text
+src-tauri/capabilities/chart.json
+src/candle-history.ts
+src/chart-crosshair.ts
+src/chart-navigation.ts
+src/chart-selection.ts
+src/chart-viewport.ts
+src/chart.css
+src/chart.html
+src/chart.ts
+tests/candle-history.test.ts
+tests/chart-crosshair.test.ts
+tests/chart-navigation.test.ts
+tests/chart-selection.test.ts
+tests/chart-viewport.test.ts
+```
+
+These files together form the unreleased chart feature and its documentation/tests. Git cannot independently prove their human provenance, so do not split, overwrite, reset, delete, or stage only a guessed subset before reviewing the complete diff.
 
 ## Completed
 
-- Reduced the fixed About window from `380×450px` to `320×280px` and replaced the disclosure-heavy layout with compact identity and license cards.
-- Removed the visible full repository address and complete GPL disclosure from About while retaining the `GPL-3.0-only` summary and warranty notice.
-- Added a local GitHub icon button backed by Tauri's opener plugin. A dedicated `about` capability permits only `https://github.com/ArchLinuxStudio/btc-price-monitor`; no wildcard/default URL permission or new CSP origin was added.
-- Kept the complete root `LICENSE`, generated `dist/LICENSE.txt`, package metadata, and `bundle.licenseFile` delivery intact.
-- Updated static regression coverage and the stable About architecture/decision documentation for the revised user requirement.
-- Added a seven-pixel bottom resize handle for quote views with five or more products. Pointer capture supports drag outside the narrow WebView, arrow keys resize by one row, and a mouse fallback remains for engines without Pointer Events.
-- Added a single-flight/latest-value resize request path so fast movement cannot accumulate stale native calls. Scrolling, focusability, and its accessible label now follow real `scrollHeight > clientHeight` overflow rather than product count alone.
-- Removed the `MAX_PRODUCTS` persistence/UI limit. Every valid supported selection is retained, search additions never become disabled because of list length, and the market feed receives every selected product.
-- Removed the frontend eight-row saturation and the main window's static `290px` `maxHeight`. The main-window-only `resize_monitor_height` command now fixes width at `208px` and clamps requested height between the automatic four-row minimum and the lesser of full content height and the space to the current monitor work-area bottom. Management remains capped at `170px`; no general set-size/native-resize permission was granted and `resizable` remains false.
-- Added regression coverage for 64 persisted custom products, more-than-eight live subscription IDs, nine-row growth, screen-height clamping, overflow-safe content arithmetic, and the absence of a static main `maxHeight`.
-- Amended the compact-layout, watchlist, and native-sizing decisions plus architecture/README/agent constraints for the clarified screen-height requirement.
-- Corrected the quote-symbol typography threshold so six-character symbols keep the standard `9px` label size; only symbols longer than six characters receive the compact long-symbol class, while the existing extra-long fallback remains unchanged.
-- Added delegated HTML5 drag/drop ordering to every main quote row. Target midpoint selects before/after placement, edge dragging scrolls long lists, transient source/drop classes are cleared on drop/cancel/rebuild/blur/hide/manager-open, and page-level guards prevent external drops from navigating the WebView.
-- Added `Alt+ArrowUp/Down` ordering, focus restoration, ordered-list semantics, position-aware accessible labels, instructions, and polite live announcements without taking ordinary Arrow-key scrolling away from the quote list.
-- Changed persistence so complete valid lists retain explicit BTC/ETH positions; `fixed` continues to mean non-removable, while incomplete/damaged arrays safely recover canonical BTC/ETH before custom products. A pure reorder helper covers fixed/custom before/after moves, no-ops, immutability, and storage reload.
-- Kept display-only ordering out of `PriceFeed.setProducts`, so reordering does not restart WebSockets or UTC-open work. Removal focus now derives its index from removable items rather than assuming BTC/ETH occupy the first two rows.
-- Set `dragDropEnabled: false` only on the main Tauri window, as required for frontend HTML5 drag/drop on Windows; title-bar window dragging and the native-clamped bottom height handle remain separate.
-- Reproduced the removal bug specifically with a non-empty search: an already selected product was rendered as a disabled `✓` search result even though clearing the search exposed a working `×` removal button. The persistence/filter path itself was correct.
-- Changed selected search results to reuse the normal selected-product row. Custom products expose the same accessible `×` removal action in filtered and unfiltered management views; fixed BTC/ETH remain non-removable, and unselected results remain addable regardless of selected count.
-- Added regression coverage for the selected-search rendering branch and for saving, filtering, and reloading a removed custom product.
-- Synchronized all six version sources at `1.6.0`, ran the release verification commands, and built and inspected the local Windows x64 NSIS test installer without running it.
-- Raised the shared TypeScript language and library target from `ES2019` to the pinned compiler's newest concrete standard, `ES2025`, while retaining `ES2022` native-module output rather than adopting floating `ESNext`.
-- Raised Tauri's declared macOS minimum from 10.15 to 12.0. Added a regression for both baselines and synchronized architecture, decision, user-facing, release, known-issue, and handoff documentation.
-- Confirmed through the failed tag run that `release.needs: build` prevents publication when any platform job fails; no partial `v1.6.0` Release was created.
-- Made the source-inspection regression explicitly exercise CRLF text as well as LF. Replaced the temporary-app macOS gate with a read-only mount of the final DMG, status-preserving detach cleanup, and an all-slices deployment-target check.
-- Documented immutable failed-tag recovery, final-DMG validation, and cross-platform newline requirements in the release runbook.
-- Diagnosed `v1.6.1` directly from the completed macOS job logs: Tauri produced/uploaded each DMG, then `hdiutil attach` canceled before any plist or Mach-O read because the image carries the configured license agreement. Added a single `Y` response on the command's standard input and locked the noninteractive acceptance path with a static regression.
-- Published `v1.6.2` from immutable tag `v1.6.2` with the required Windows, AppImage, deb, Apple Silicon DMG, and Intel DMG assets. Both final-DMG gates reported `LSMinimumSystemVersion=12.0, minos=12.0`.
-- Replaced generated notes with a verified UTF-8 Chinese release summary listing the exact five filenames, major user-visible changes, market semantics, macOS baseline, and unsigned-package caveat.
+- Quote rows now open the selected product/source in a reusable chart window by mouse or `Enter`/`Space`; row drag still suppresses its synthetic click and display-only actions do not reconnect `PriceFeed`.
+- Rust owns one pre-created hidden chart window, maximizes it to the main monitor's work area without exclusive fullscreen, leaves the `208px` main monitor visible, and hides/reuses the chart on close.
+- The local chart supports five intervals and exact active-source history for Coinbase, Bybit, and Gate only. Each page covers at most 240 time buckets; older pages use exclusive time boundaries, retain sparse data, and never substitute an unsupported source.
+- The default/reset viewport shows the latest 120 candles (or all available if fewer). Initial zoom-out works; further zoom-out or dragging beyond the loaded left edge loads more same-source history. Candle spacing and body width scale together, without the old 12px body-width cap.
+- `ChartNavigation` retains pending viewport intent and prepends older candles without changing the selected time anchor. It allows one request at a time, at most four pages per interaction batch, and a 4,800-candle cache. Empty ranges can be queried further; failures keep the current chart and expose retry. Reverse zoom, reset, End, product/interval changes, and hiding cannot be overwritten by obsolete requests.
+- Pointer/wheel, `＋/−`, drag, focused keyboard navigation, and reset remain supported, with a 12-candle minimum. Wide chart headers reserve space for the main monitor's default top-right position so it does not cover zoom controls.
+- Hover and drag use a crosshair cursor, dashed horizontal/vertical guides, pointer-price and real-candle UTC time axis markers. An independent transparent canvas handles pointer motion without repainting candles; the renderer shares its visible padded price range with pure projection math. Markers stay inside the stage and clear on leave/blur/cancel/hide/reload.
+- A one-second paced prefetch maintains 480 candles before the visible left edge, normally warming 240 to 720 cached candles without changing the latest-120 view. It shares demand's single flight, shifts drag/time anchors on prepend, and cancels timers with the selection lifecycle. Empty/nonadvancing/error responses or four insufficient sparse pages pause speculation; a successful demand page can resume it. HTTP 429/403 add a 60-second/10-minute older-request cooldown in that navigation instance.
+- CSP origins and narrow per-window capabilities remain unchanged except for the fixed chart commands/event required by this feature. No framework, bundler, chart library, or arbitrary window permission was added.
 
 ## In Progress
 
-No implementation or release work remains for the current objective. This post-release documentation checkpoint is the final repository update for the completed `v1.6.2` request.
+- Reviewing and committing the complete documented feature, refreshing native checks, and pushing to the existing `origin/main` under the user's explicit authorization. No staged files existed at the start; the live remote `main` still matched `d68af6d` before the push.
+- Current crosshair/prefetch native/installer runtime acceptance and macOS/Linux runtime coverage remain unverified. The user accepted the preceding basic zoom logic; this does not establish full packaged or cross-platform acceptance.
 
 ## Relevant Files
 
 | Path | Current responsibility |
 | --- | --- |
-| `src-tauri/src/lib.rs` | Tray action routing, main/About show-hide behavior, tray-only exit, monitor sizing, opener plugin initialization |
-| `src-tauri/tauri.conf.json` | Main/About window envelopes, main HTML5 drag/drop compatibility, capability selection, version, CSP, bundle license |
-| `src/index.html` / `src/styles.css` / `src/main.ts` | Sortable quote/manager UI, accessibility, overflow scrolling, resize handle/input coalescing, and native layout calls |
-| `src/about.html` / `src/about.css` / `src/about.ts` | Compact About content, styling, accessible GitHub button, and opener interaction |
-| `scripts/frontend.ts` | Clean frontend emit, static/license copying, and authoritative version injection |
-| `tsconfig.json` / `tsconfig.app.json` / `tsconfig.test.json` / `tsconfig.build.json` | Shared ES2025 language/library baseline, native ES2022 module contract, and inherited app/test/build boundaries |
-| `src-tauri/tauri.macos.conf.json` | macOS app/dmg targets and the 12.0 minimum system/deployment baseline |
-| `src-tauri/capabilities/main.json` / `about.json` | Isolated main-window commands and exact repository URL permission |
-| `src-tauri/build.rs` / `src-tauri/permissions/window-controls.toml` | Narrow custom-command manifest and main-window command allowlist |
-| `LICENSE` | Complete GNU GPL v3 text for the `GPL-3.0-only` grant |
-| `package.json` / `package-lock.json` / `src-tauri/Cargo.toml` / `src-tauri/Cargo.lock` | Version/license metadata and locked opener dependency |
-| `tests/ui.test.ts` / `tests/watchlist.test.ts` / `tests/price-feed.test.ts` / `src-tauri/src/lib.rs` tests | ES/macOS baseline, reorder/persistence contracts, uncapped subscriptions, screen-bounded sizing, fixed width, permission negatives, compact About, native routing, and lifecycle coverage |
-| `docs/DECISIONS.md` | Stable ES/macOS compatibility, compact-layout, native-sizing, GPL/About choices, and rejected alternatives |
-| `docs/RELEASE.md` | Packaging/release procedure, macOS 12 metadata checks, and safe installer-license verification |
-| `.github/workflows/build-desktop.yml` | Four-platform build matrix, macOS 12 metadata gate, and tag-driven five-asset publication |
+| `AGENTS.md` | Development entry point, non-negotiable product constraints, verification commands, and change discipline |
+| `docs/INDEX.md` | Documentation authority and selective reading routes |
+| `docs/ARCHITECTURE.md` / `docs/DECISIONS.md` | Stable module boundaries and the accepted exact-source, separate-window chart contract |
+| `docs/MARKET_DATA.md` | Authoritative provider, exact-symbol, real-USD/perpetual, and candle-source semantics |
+| `docs/TODO.md` / `docs/KNOWN_ISSUES.md` | Unauthorized backlog and real limitations/workarounds |
+| `docs/RELEASE.md` | Versioning, package/release procedure, immutable-tag recovery, and artifact rules |
+| `src/main.ts` / `src/index.html` | Quote-row mouse/keyboard activation, current-source selection snapshot, and drag-click suppression |
+| `src/chart.html` / `src/chart.css` / `src/chart.ts` | Maximized candle viewer, interval/viewport controls, visible-range canvas drawing, pointer/wheel/keyboard navigation, status/accessibility, and chart-window lifecycle |
+| `src/chart-viewport.ts` | Pure minimum-12 floating viewport normalization, anchored zoom, fractional pan, reset detection, and visible integer bounds |
+| `src/chart-crosshair.ts` / `tests/chart-crosshair.test.ts` | Pure visible-candle crosshair projection, price mapping, edge/resize/prepend/invalid-input regressions |
+| `src/chart-navigation.ts` / `tests/chart-navigation.test.ts` | Default/reversed zoom intent, paced prefetch and bounded demand loading, stable prepend anchors, cancellation, sparse/error/cooldown recovery, and behavioral regressions |
+| `src/candle-history.ts` / `src/chart-selection.ts` | Exact-source candle requests/parsers and validated versioned cross-window selection state |
+| `src-tauri/src/lib.rs` / `build.rs` / `tauri.conf.json` | Bounded selection slot, fixed chart commands/event, pre-created chart envelope, placement/maximize, and hide/reuse lifecycle |
+| `src-tauri/capabilities/main.json` / `chart.json` | Narrow, window-specific chart command/event permissions |
+| `scripts/frontend.ts` / `package.json` | Clean static emit and the authoritative TypeScript/test/build commands |
+| `tests/candle-history.test.ts` / `chart-selection.test.ts` / `chart-viewport.test.ts` / `ui.test.ts` | Current chart data, transfer, viewport, UI/native-configuration regressions |
 
 ## Current Implementation
 
-Tauri pre-creates `main` and hidden `about` windows from `tauri.conf.json`. Stable tray item IDs map to show main, hide main, show About, or quit. Showing About centers, reveals, and focuses the existing window; close requests for either managed window are prevented and converted to hide.
+The stable monitor, watchlist, About, sizing, tray, and market-feed design remains as documented in [`ARCHITECTURE.md`](ARCHITECTURE.md); the current uncommitted slice adds the chart path without changing those contracts.
 
-The About page uses one local ES module. During each clean frontend build, `scripts/frontend.ts` reads the authoritative Tauri version, replaces its template token, and copies the canonical icon plus a standalone complete `LICENSE.txt` into ignored `dist/`. The UI shows only a concise GPL/SPDX/warranty summary.
+`src/main.ts` serializes a strict version-1 product/current-`DisplayQuote.marketSource` envelope and invokes only `show_chart_window`. Rust validates the opaque payload against a 4096-byte limit, stores one selection, shows/maximizes the pre-created chart window on the main monitor's work area, and emits `chart-selection-changed`. The main monitor is not hidden. Closing the chart hides it and restores the main window.
 
-The GitHub icon invokes `window.__TAURI__.opener.openUrl` with one fixed repository URL. About has its own capability containing only `opener:allow-open-url` for that exact URL; it does not receive the main commands, default URL protocols, wildcard scope, or a new CSP network origin. Tauri still embeds the complete root license in applicable bundles.
+`src/candle-history.ts` supports semantically exact Coinbase real-USD spot and Bybit/Gate stock-related USDT-perpetual history for five intervals. `fetchCandleHistoryPage` returns at most 240 valid candles plus the scanned-window `nextBefore` cursor. Its optional `before` is exclusive; empty/sparse pages still advance the cursor, and zero marks the timestamp boundary. The existing array-returning `fetchCandleHistory` interface remains compatible. Unsupported sources are rejected before `fetch`.
 
-The main window remains `resizable: false` with `minWidth = maxWidth = 208`, but it has no static `maxHeight`. Five or more selected products reveal a small bottom handle. Pointer movement sends the complete row count and requested logical height through the custom command; Rust computes `26 + 33 × rows` with saturating arithmetic, bounds it by the space from the window's current top to the current monitor work-area bottom, and calls `set_size` with the fixed width. Nine or more rows therefore no longer stop at `290px`; if selected content exceeds the usable screen height, the quote list keeps scrolling. Opening management hides the handle and temporarily applies its count-derived height up to `170px`; closing restores the remembered quote height, clamped again if products or the available work area changed. Height is session-only and returns to automatic sizing after process restart.
+`src/chart-viewport.ts` owns pure continuous candle-unit math, a latest-120 default/reset, a 12-candle minimum, and proportional candle geometry. `src/chart-navigation.ts` owns loaded history and pending navigation intent. It serially fetches up to four older pages per batch, preserves time anchors on prepend, and caps the cache at 4,800 candles with a visible limit message. A small reverse zoom immediately uses the rendered viewport instead of an unseen pending range. `src/chart.ts` synchronizes the canvas and drag origin with that state; drawing remains animation-frame coalesced and clipped, with visible-range price/time axes and accessible summaries. Product/interval changes or hiding cancel obsolete work; resize preserves candle position. Above 960px width, the header reserves 248px at the right for the monitor's default placement; arbitrary user-moved overlap is not prevented.
 
-Resize requests are requestAnimationFrame-coalesced with at most one resize IPC in flight; the newest pending height replaces older movement. Pointer capture makes growth/shrink robust when the cursor leaves the 208px content area. Native window behavior is not reasserted on every drag frame; its existing focus/resume/10-second resilience layers remain.
+The frontend remains strict TypeScript (`ES2025` target/library, native `ES2022` modules) emitted as local unbundled files. The chart introduces no provider, dependency, general native window permission, or CSP-origin expansion.
 
-Watchlist normalization preserves explicit order when canonical BTC/ETH are both present, validates and deduplicates every product, and no longer truncates by count. If either fixed default is missing, both canonical defaults are restored before the remaining valid custom products. BTC/ETH cannot be deleted but can be reordered.
-
-The quote list uses one delegated drag event surface rather than per-row listeners. A successful drop or keyboard move runs the pure reorder helper, saves only when the ID sequence actually changed, rebuilds rows while restoring scroll/focus, and announces the new position. It deliberately does not call `feed.setProducts`; quotes and sources are keyed by product ID, so a display-only move requires no subscription rebuild. Tauri native file-drop interception is disabled for `main` only, and external page drops are cancelled.
-
-All application, test/tooling, and clean-build TypeScript configurations inherit a fixed `ES2025` target and library surface from the root config. The emitted files remain unbundled native `ES2022` modules. The macOS overlay declares 12.0 as the minimum system version; Tauri propagates that value into application metadata and its deployment target. Neither TypeScript nor Tauri polyfills browser APIs, so the newer compiler baseline is not evidence that every API admitted by `lib: ES2025` exists in macOS 12 WKWebView, Linux WebKitGTK, or the Node 20 tooling runtime.
-
-The established real-USD crypto spot and explicitly labeled stock-related USDT perpetual implementation is otherwise unchanged. [`MARKET_DATA.md`](MARKET_DATA.md) remains authoritative for provider and UTC-day semantics.
+The crosshair is a separate, animation-frame-coalesced transparent canvas plus noninteractive axis markers. `chart-crosshair.ts` snaps only to visible real candle centers and maps pointer height with the renderer's padded extrema; UTC labels use that candle's actual timestamp. `ChartNavigation.startPrefetch()` runs after instance assignment, including empty initial pages (which do not trigger speculative fetches until manual recovery supplies data). Its 480-candle left buffer is paced at one second between speculative pages and yields to demand. Empty/nonadvancing/error pages and four insufficient sparse pages pause speculation. HTTP 429/403 cooldowns apply only to the current navigation instance, not globally to all provider traffic or deliberate interval/reopen reloads. See `DECISIONS.md` and `MARKET_DATA.md` for the accepted policy and official limits.
 
 ## Current Problems
 
-- No known blocking product bug and no known flaky test.
-- Both shipped macOS DMGs passed bundle/deployment metadata validation at exactly 12.0 in GitHub Actions. Startup on a real macOS 12.x system and the current ES2025 output in that system WKWebView remain unverified. Linux WebKitGTK runtime compatibility with future ES2025-era syntax/APIs likewise requires review.
-- Keyboard ordering and persistence were exercised in the local browser, but its coordinate-drag automation did not synthesize a native HTML5 drag. Real mouse drag ordering in a Windows Tauri WebView, long-list edge scrolling, and macOS/Linux behavior remain runtime-verification gaps.
-- The former eight-row resize behavior had a real Windows smoke test, but the new beyond-eight/work-area clamp has automated coverage only; real Windows, macOS, and Linux runtime verification of the clarified behavior remains outstanding.
-- Real compact-About and repository-opener verification remains incomplete on macOS and Linux/Wayland.
-- Local artifacts are unsigned; macOS signing/notarization is not configured.
-- The installed per-user binary on this machine is not authoritative for final HEAD. A prior NSIS UI-automation check advanced past the license page and installed a near-final same-version build before cancellation; do not repeat interactive installation merely to inspect the license page. See [`RELEASE.md`](RELEASE.md).
-- Remaining limitations and technical debt are maintained in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md); executable but unauthorized backlog items are in [`TODO.md`](TODO.md).
+- One confirmed chart-selection defect: `src/chart-selection.ts` requires a Bybit symbol to equal `${ticker}USDT`, while the existing catalog/persistence contract permits an exact official symbol that differs from the underlying ticker. The existing AMD / `AMDSTOCKUSDT` repository fixture passes catalog parsing but throws `TypeError: Invalid chart product` when opening its chart; the same product is rejected even with a valid active Gate mapping. Main quotes are unaffected. This is an offline fixture reproduction, not evidence that the example is currently listed online. See `KNOWN_ISSUES.md`; no product fix was made during takeover.
+- No known flaky test. The current selection tests do not cover this valid noncanonical Bybit mapping.
+- The requested first chart slice intentionally has history adapters only for the exact active Coinbase, Bybit, or Gate source. If a clicked USD quote is currently displayed from Kraken, Bitstamp, Bitfinex, or has no source yet, the chart reports that limitation instead of substituting Coinbase; broader exact-source coverage requires a separate product request and provider/CORS work.
+- The shipped DMGs passed metadata/deployment-target gates at exactly macOS 12.0, but startup and ES2025 output have not been exercised on a real macOS 12.x system. Representative Linux WebKitGTK runtime acceptance is also incomplete.
+- Real native mouse ordering/edge scrolling and beyond-eight/work-area height dragging are not fully smoke-tested across Windows, macOS, and Linux; compact About/opener behavior and chart/main maximize/always-on-top/close-to-hide plus chart pointer/wheel navigation likewise lack current macOS/Linux packaged-runtime coverage.
+- Published artifacts are unsigned; Windows signing and macOS Developer ID/notarization remain future release-quality work.
+- Known non-blocking technical debt includes the isolated extra `}` in `src/styles.css` and the unused native `minimize_window` command. Do not fix either without a separately authorized maintenance task.
+- Further limitations and their workarounds are in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md); executable but unauthorized follow-up items are in [`TODO.md`](TODO.md).
 
 ## Verification State
 
-Verified on Windows and GitHub-hosted runners, 2026-09-01, against exact tagged release candidate `v1.6.2` at `894dffb`:
+Source-push preflight on 2026-09-08:
 
-- `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
-- `npm.cmd run check`: passed after the final pager-safe mount change; strict application/test TypeScript checks, 75/75 Node tests, and clean ES2025 frontend emit.
-- `NODE_USE_SYSTEM_CA=1 npx.cmd --yes yaml-lint .github\workflows\build-desktop.yml`: passed after the final workflow change. The system-CA override was process-local.
+- Reviewed the complete documented 30-file feature scope and staged it explicitly; installers/logs remain ignored. No unrelated changes or credential-pattern matches were found. The existing remote is `https://github.com/ArchLinuxStudio/btc-price-monitor.git`, and live `refs/heads/main` matched local `d68af6d` before the source commit.
+- Fresh `cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check`, `cargo test --locked --manifest-path src-tauri/Cargo.toml` (7/7), `cargo check --locked --manifest-path src-tauri/Cargo.toml`, and `cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings`: passed. Only the documented benign MSVC import-library message appeared during test compilation; Clippy emitted no warnings.
+- The same-turn 152-test frontend check, browser regression, and local NSIS build evidence below remain applicable; no product source changed afterward. Staged `git diff --check` passed with no unstaged work.
+
+Crosshair/prefetch verification on 2026-09-08:
+
+- `npm.cmd run check`: passed strict application/test TypeScript checks, 152/152 Node tests (including 32 navigation and 8 crosshair projection cases), and clean frontend emit. Log: `artifacts/crosshair-prefetch-check.log` (ignored). There is no separate lint script.
+- Deterministic Chromium regression passed at `1440×900` and `640×400`, device pixel ratio 2: crosshair cursor during hover/drag, both dashed guides, actual UTC candle/time and continuous pointer-price labels, top/bottom alignment, unclipped markers, no candle-layer redraw on hover, and clearing on leave/interval/close. Initial 120/240 warmed to 120/720 with >=1-second page spacing, unchanged candle geometry/time/price anchors, immediate zoom-out to 330 from the buffer, preserved drag scale after a quiet prefetch failure, no automatic error retries, empty-page manual recovery enabling prefetch, and close cancelling its queued request. No page errors/console warnings. Harness and results/screenshots: `artifacts/chart-crosshair-prefetch-smoke.mjs` and `artifacts/chart-crosshair-prefetch-2026-09-08/` (ignored).
+- `git diff --check`: passed. No Rust, capability, CSP, dependency, or version change was needed for these two improvements. Earlier native evidence below applies to the preceding zoom implementation, not the current crosshair/prefetch runtime.
+- `npm.cmd run build:windows`: passed clean frontend build, optimized Rust build, and x64 NSIS packaging. Only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-crosshair-prefetch-2026-09-08.log` (ignored).
+- New test copy: `artifacts/local-test-2026-09-08-131009/Crypto.Top_1.6.2_crosshair-prefetch-test_x64-setup.exe`, 1,235,631 bytes, product/file version `1.6.2`, Authenticode `NotSigned`. SHA-256: `B51F4EF2D2D87B20C440A008CF51BF0D5BCF6FE9D928302C4E821045A3FC8F77`; canonical output and copy match. `build-info.json` and `SHA256SUMS.txt` are alongside it. Generated NSIS license-page metadata and the decoded packaged GPL license match the source. The installer was not run; no installed process was changed, and no commit, push, tag, release, or source-version change occurred.
+
+Earlier zoom-only installer verification on 2026-09-08 (historical; the canonical NSIS output has since been replaced above):
+
+- `npm.cmd run build:windows`: passed the clean frontend build, optimized Rust build, and x64 NSIS packaging. Build log: `artifacts/local-installer-build-2026-09-08.log` (ignored). Only the documented benign MSVC import-library message appeared.
+- Test copy: `artifacts/local-test-2026-09-08-081230/Crypto.Top_1.6.2_zoom-test_x64-setup.exe`, 1,232,936 bytes, product/file version `1.6.2`, Authenticode `NotSigned`.
+- SHA-256: `42DE2A845A5D339055FC1424F31707AA24DDBE17EF268B77E30CF134527655D7`. Original and copied installers have identical hashes. `build-info.json` and `SHA256SUMS.txt` are alongside the test copy.
+- All six source/lock/config version fields agree at `1.6.2`. Freshly generated NSIS metadata includes the GPL license page and its nonempty `license_file` matches the source `LICENSE` after decoding.
+- The installer has not been executed or installed; user acceptance remains pending. Source versions, commits, tags, and published Releases were not changed.
+
+Final zoom verification on Windows on 2026-09-08:
+
+- `npm.cmd run check`: passed strict application/test TypeScript checks, 129/129 Node tests (18 history-page, 17 navigation, and 13 viewport tests), and clean frontend emit. Log: `artifacts/zoom-final-check.log` (ignored).
+- `cargo build --locked --manifest-path src-tauri/Cargo.toml`: passed for the current debug executable; only the documented benign MSVC import-library message appeared. No Rust, capability, CSP, dependency, or version change was needed for this zoom correction.
+- Deterministic browser regression passed at `1440×900` and `640×400`: initial 120 → 168 → 330 visible candles with 480 loaded, monotonically smaller spacing/body width on zoom-out, larger bodies on zoom-in, wheel navigation, drag/prepend without scale jumps, reset, error/retry to 960 loaded candles, interval changes ignoring older responses, and wide-toolbar clearance. Screenshots and measurements: `artifacts/chart-zoom-2026-09-08/`; harness: `artifacts/chart-zoom-smoke.mjs` (all ignored). No page errors or console warnings were observed.
+- Real Windows Tauri debug runtime loaded Coinbase UNI hourly history: initial 120/240 → 168/240 → 236/240 → 330/480, with the visible start moving earlier. Native wheel zoom-in, latest-120 reset, main/chart coexistence, and Escape close-to-hide restoring the main window passed. This is real provider/WebView evidence, not an installer or cross-platform test.
+- `git diff --check`: passed after final documentation updates. Existing dirty work was preserved; no commit, push, version change, tag, release, or installation was performed.
+
+The following earlier evidence is retained for provenance; it is not a claim that the old full Rust or installer checks were repeated for this frontend-only correction.
+
+Takeover verification on Windows on 2026-09-07:
+
+- Git and the chart-related dirty source/diff were reviewed against this handoff: `main` and the local `origin/main` ref still equal `d68af6d`, with the same 16 modified tracked files, 10 untracked files, and no staged changes. No remote fetch was performed.
+- `npm.cmd run typecheck`: passed strict application/test TypeScript checks.
+- `node --import=tsx --test --test-reporter=dot tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/ui.test.ts`: passed, 33/33 tests.
+- `cargo test --locked --manifest-path src-tauri/Cargo.toml chart_selection_is_bounded_by_utf8_bytes`: passed, 1/1 selected Rust test; only the documented benign MSVC import-library message appeared.
+- `git diff --check`: passed after the takeover documentation update.
+- A separate offline probe reused the AMD / `AMDSTOCKUSDT` fixture from `tests/watchlist.test.ts`: catalog parsing succeeds, but chart selection creation throws and parsing rejects it for both Bybit and a Gate-mapped version of the product. This confirms an uncovered product defect despite the passing suite.
+- Product source was preserved. Only `CURRENT_STATE.md`, `KNOWN_ISSUES.md`, and `TODO.md` were updated to record the finding and verification. No full suite, frontend emit, installer build/execution, or runtime acceptance was repeated.
+
+Full verification retained from the preceding 2026-09-07 checkpoint, not rerun in this takeover:
+
+- `npm.cmd run check`: passed; strict application/test TypeScript checks, 102/102 Node tests including 9 viewport-math cases, and a clean frontend emit.
 - `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 6/6 Rust tests; only the documented benign MSVC import-library message appeared.
+- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 7/7 Rust tests; only the documented benign MSVC import-library message appeared.
 - `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed. The fresh unsigned release executable is 3,300,352 bytes with SHA-256 `017E3A099C6EDE6F9B0A9C62597BBC6F2EDD9F07F0207F507360A35084FE77A6`; the fresh unsigned `Crypto Top_1.6.2_x64-setup.exe` is 1,210,329 bytes with SHA-256 `BAB0F1C23B54044A24517E5032F033EE32E2D9C623653617BB57F3CE6B3A6165`. Both report file/product version `1.6.2`; the installer was not run or installed.
-- The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
-- Generated `dist/about.html` contains `1.6.2` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
-- GitHub Actions run `33468480211`: passed. Windows x64, Linux x64, macOS Intel, macOS Apple Silicon, and `Publish release assets` all completed successfully. The macOS Intel and Apple Silicon final-DMG gates each logged `LSMinimumSystemVersion=12.0, minos=12.0`.
-- Published Release `Crypto Top v1.6.2 · 无限自选与拖拽排序` is neither a draft nor a prerelease. Its 1,183-character Chinese body round-tripped through the GitHub API as UTF-8 without replacement question marks and lists all five exact filenames.
-- All five Release assets were downloaded into a dedicated temporary directory, matched the API byte counts and SHA-256 digests below, and the directory was removed afterward. The downloaded Windows installer reports file/product version `1.6.2` and remains unsigned.
+- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed with no Clippy warnings.
+- `git diff --check`: passed after the documentation edits; only expected LF-to-CRLF working-copy notices were printed.
+- There is no standalone frontend lint script. Strict TypeScript checking is part of `npm.cmd run check`; Rust linting is the Clippy command above.
 
-| Published asset | Bytes | SHA-256 |
-| --- | ---: | --- |
-| `Crypto.Top_1.6.2_x64-setup.exe` | 1,210,900 | `7234adb7f23b16645727d74ac171d887852e89a90184c3f168459b4fa3f36d7d` |
-| `Crypto-Top_1.6.2_linux-amd64.AppImage` | 79,837,688 | `58f6db789874a956d726167542b3436ba4e93870119fe62b73f267684e91e674` |
-| `Crypto-Top_1.6.2_linux-amd64.deb` | 1,982,678 | `6d8ef6361c5ec6f688a21ac6805f4fbc855307066893c8e30d40176094b7e6a6` |
-| `Crypto-Top_1.6.2_macos-aarch64.dmg` | 1,828,573 | `b647425df7a663832c6f45266e7444dd8a421a8d54b1cc85ebd8eca332942a3d` |
-| `Crypto-Top_1.6.2_macos-x64.dmg` | 1,927,577 | `bc25213b374f72ae221110a8515fbd64e0d53b0529f35b37f5ea534f8101e8ce` |
+Build/runtime evidence retained from 2026-09-02:
 
-Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.1` recovery candidate at `c3e42a3` before the licensed-DMG mount fix:
+- `npm.cmd run build:windows` passed. The installer still existed and was rehashed on 2026-09-07 at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` (1,229,641 bytes, SHA-256 `89BDF998A0DD76F8066861B27BF38041671FEEE5CE9CF9DCEE9727A9670A6614`, unsigned, version `1.6.2`). It was not rebuilt, run, or installed during this documentation-only checkpoint.
+- A deterministic browser fixture previously rendered 180 candles at `1440×900` and `640×400` and verified button/wheel zoom, pointer-anchored zoom, drag and keyboard pan, Home/End, reset, interval reset, ARIA state, and no console warnings/errors. It was not rerun on 2026-09-07 and does not prove Tauri multi-window behavior or live-provider CORS.
+- Published `v1.6.2` at `894dffb` passed Actions run `33468480211` with all five platform assets and both macOS 12 gates. That immutable release predates the chart work; Git/GitHub and `docs/RELEASE.md` remain authoritative for its detailed evidence.
 
-- `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 75/75 Node tests (including an explicit CRLF source copy), and clean ES2025 frontend emit.
-- `NODE_USE_SYSTEM_CA=1 npx.cmd --yes yaml-lint .github\workflows\build-desktop.yml`: passed. The system-CA override was process-local.
-- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 6/6 Rust tests; only the documented benign MSVC import-library message appeared.
-- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed. The fresh unsigned release executable is 3,300,352 bytes with SHA-256 `DC731F354FB6089F4D2AD4D4791CC4567A9B2C794F3D5487AE7E32C7534A1EB8`; the fresh unsigned `Crypto Top_1.6.1_x64-setup.exe` is 1,210,280 bytes with SHA-256 `E4F6BBABC66B5C7C3D25EF4A39C8A53488A38CC619210AD3F7940850ED86A158`. Both report file/product version `1.6.1`; the installer was not run or installed.
-- The exact release executable remained alive with a nonzero native window handle during an isolated five-second startup smoke. Only that launched PID was stopped; its dedicated WebView data directory was removed, and no pre-existing application process was touched.
-- Generated `dist/about.html` contains `1.6.1` with no unresolved version token. `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`; the 35,152-byte NSIS `license_file` contains the GPL header and generated `installer.nsi` has a non-empty `!define LICENSE`.
-- macOS final-DMG validation cannot run on this Windows host; the repaired gate still requires its first real proof from both GitHub macOS jobs before publication.
-- GitHub Actions run `33467295096`: the Windows CRLF regression stayed fixed and both macOS architectures built/uploaded their DMGs, but their metadata steps failed immediately with `hdiutil: attach canceled`. The images embed the configured bundle license, so noninteractive inspection requires an affirmative response on standard input; no plist/Mach-O mismatch was reported and no Release was published.
-
-Verified on Windows, 2026-09-01, against the exact committed/tagged `v1.6.0` candidate at `2bb92ad` before the release-only fixes:
-
-- `npm.cmd ci`: passed; nine audited packages and zero reported vulnerabilities.
-- `node --import=tsx --test tests/ui.test.ts`: passed, 6/6 focused tests, including the `ES2025`/macOS 12.0 configuration regression and tag-build metadata gate.
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 75/75 Node tests, and clean ES2025 frontend emit. Generated native modules retain modern optional chaining instead of the prior ES2019 downlevel output.
-- `NODE_USE_SYSTEM_CA=1 npx.cmd --yes yaml-lint .github\workflows\build-desktop.yml`: passed. The system-CA override was process-local and only needed because the Node CLI otherwise encountered the already documented local certificate-chain issue.
-- The persistence regression keeps 64 custom entries plus fixed BTC/ETH, and the feed regression sends 16 selected product IDs without truncation.
-- The UI regression locks the compact-symbol threshold at more than six characters, preventing six-character labels from receiving the smaller-font class again.
-- Reorder regressions cover fixed/custom moves to both sides of a target, input immutability, already-positioned/unknown-ID no-ops, stored-order reload, incomplete fixed-default recovery, delegated drag lifecycle wiring, insertion/focus styles, keyboard/live-region contracts, external-drop prevention, no reorder-time feed reset, and main-window `dragDropEnabled: false`.
-- Local browser interaction loaded seven live quote rows, moved BTC from position 1 to 2 with `Alt+ArrowDown`, retained focus and announced the new position, reloaded with the same persisted order, then restored/reloaded the original order. The temporary viewport override, tab, and HTTP server were removed.
-- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 6/6 Rust tests. Sizing coverage includes five/eight/nine rows, screen-limited long lists, saturating content-height arithmetic, window position, and display scaling; only the documented benign MSVC import-library message appeared.
-- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed. The fresh ignored unsigned release executable is 3,300,352 bytes with SHA-256 `B99219861179F9F6D21CB276FF4EECF41FED0C54FC9609BE1EB4EEFC3D329298`; the fresh ignored unsigned `Crypto Top_1.6.0_x64-setup.exe` is 1,209,825 bytes with SHA-256 `02A5369485776DB7CED7254E0A037D2E4ACF7F8EACA8951AE8719F1F1AA366E0`. The installer was not run or installed.
-- The release executable reports file/product version `1.6.0` and remained alive with a native window handle during an isolated five-second startup smoke. Only that launched PID was terminated; its dedicated WebView test-data directory was removed, and no pre-existing application process was touched.
-- Generated `dist/about.html` contains `1.6.0` with no unresolved version token and `dist/LICENSE.txt` is byte-identical to root `LICENSE` at SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`. The generated 35,152-byte NSIS `license_file` contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`.
-- `git diff --check`: passed with only the expected Windows LF-to-CRLF notices.
-- GitHub Actions run `33448938555`: failed without publishing a Release. Linux x64 completed successfully. Windows stopped in the static UI suite because the `reorderSelectedProduct` extractor required LF-only blank lines on a CRLF checkout. Both macOS architectures completed DMG construction and artifact upload, then the metadata gate found zero temporary `.app` directories because Tauri's DMG builder had already cleaned them. `Publish release assets` was skipped.
-- Reproduction after log inspection: all 75 tests, both TypeScript checks, and frontend emit passed under an explicit local Node 20.20.2 runtime, confirming the Windows failure was newline-dependent rather than an ES2025/Node 20 runtime failure.
-- Not verified for this worktree: macOS 12 bundle/deployment metadata and runtime compatibility, representative Linux WebKitGTK compatibility with the higher language target, real Tauri mouse row dragging/edge scrolling, a real native height drag beyond eight rows, switching monitors with different scaling/work areas, or installation.
-
-Previously verified on Windows, 2026-08-31, against the exact committed `1.5.1` search-state removal patch:
-
-- `node --import=tsx --test tests/watchlist.test.ts tests/ui.test.ts`: passed, 24/24 focused tests.
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 70/70 Node tests, and clean ES2019 frontend emit.
-- Local browser reproduction before the fix showed selected `ADA` as a disabled `✓` result with no delete action while the query remained active. After rebuilding, the same filtered view exposed a visible, enabled `删除 ADA` button; no BTC/ETH delete button existed. The temporary test tab/server were closed.
-- The persistence regression confirms that filtering a custom product out, saving, and reloading leaves only the fixed defaults.
-- `npm.cmd ci`: passed; nine audited packages, zero reported vulnerabilities.
-- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 5/5 Rust tests; only the documented benign MSVC import-library message appeared.
-- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed without running the installer. The ignored unsigned release executable is 3,298,304 bytes, SHA-256 `80198FC5C757CD45FE6FFC9EBC837503E9158E83B16B867C82A3B35C042C67F8`. The ignored `Crypto Top_1.5.1_x64-setup.exe` NSIS installer is 1,209,130 bytes, SHA-256 `4FEE73C687C576AC49775E4DCFA218BBE1F496FB5DD9BD869FF78D9A9EDC1DC2`.
-- Generated `dist/about.html` contains version `1.5.1` with no unresolved version token. `dist/LICENSE.txt` remains byte-identical to root `LICENSE`, both with SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`.
-- Generated NSIS `license_file` contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
-- `git diff --check`: passed with only the expected Windows LF-to-CRLF notices.
-
-Previously verified on Windows, 2026-08-31, against the exact committed `1.5.0` compact About and former eight-row-bounded resize source:
-
-- `npm.cmd ci`: passed; lockfile dependencies installed cleanly.
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 69/69 Node tests, and clean ES2019 frontend emit.
-- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 5/5 Rust tests; quote automatic/content clamps and the unchanged `170px` management cap are covered. Only the documented benign MSVC import-library message appeared.
-- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed.
-- `npm.cmd run build:windows`: passed without running the installer. The ignored unsigned release executable is 3,298,304 bytes, SHA-256 `7E931A8F245914303BF74C49F42B43776F1167810E18C1E6B18B769CD2C0AC1C`. The ignored `Crypto Top_1.5.0_x64-setup.exe` NSIS installer is 1,208,942 bytes, SHA-256 `0E83EA901186418950CC0883A889D72886EEBF909C8E52D099E1A0023BA0B068`.
-- Browser visual QA used exact `208×158`, `208×191`, `208×290`, and `208×170` viewports with five/eight products. It confirmed four-row overflow, five/eight-row complete display without a false scroll label, a contained bottom handle, and the compact capped management layout.
-- A real Windows Tauri debug-window smoke started from a separate two-row test state, added six products through the native WebView, and verified: pointer-captured growth outside the narrow window from `208×158` to the clamped `208×290`; management at `208×170`; quote-height restoration to `208×290`; keyboard steps to `208×257` and back; and pointer shrink clamped to `208×158`. Width stayed `208px` throughout. The test process/config were removed, the pre-existing application process was not touched, and reopening the test binary confirmed the original two-row `208×92` state rather than a retained test watchlist.
-- Generated `dist/about.html` has version `1.5.0`, no unresolved token, no visible complete repository address, and no GPL-full-text container. `dist/LICENSE.txt` remains byte-identical to root `LICENSE` with SHA-256 `3972DC9744F6499F0F9B2DBF76696F2AE7AD8AF9B23DDE66D6AF86C9DFB36986`.
-- Browser visual QA at an exact `320×280` viewport confirmed no overflow, the compact two-card layout, visible keyboard focus, and a contained opener-failure message.
-- Native release-binary smoke identified the exact test process/tray menu, opened an About WebView with a `320×280` content area, confirmed the concise visible/accessibility content, and clicked the GitHub button. The system default browser loaded `github.com/ArchLinuxStudio/btc-price-monitor`. The test process then exited through its own tray Quit action with no application/WebView process left behind.
-- Generated NSIS `license_file` still contains the GPL header and `installer.nsi` has a non-empty `!define LICENSE`. The installer was not run.
-- `git diff --check` passed with only the expected Windows LF-to-CRLF notices. A read-only pre-commit audit found no credentials, temporary files, generated artifacts, unrelated changes, or missing required source files.
-
-Not verified: macOS 12 startup and actual system-WebView execution of the current output, representative Linux WebKitGTK runtime compatibility with the higher target, real native quote-row mouse dragging and beyond-eight/work-area height dragging, real macOS/Linux compact About/opener/resize behavior, signing, or notarization. Packaging and the five-asset formal Release are verified. There is no standalone lint command; TypeScript checking is part of `npm.cmd run check`, and Rust linting is the Clippy command above.
+Not verified for this unreleased slice: installer execution; a packaged-Windows click-through of main/chart coexistence, live Coinbase/Bybit/Gate history, viewport interactions, and close paths; real macOS 12/WebKit or Linux WebKitGTK runtime behavior; signing or notarization.
 
 ## Next Recommended Action
 
-No further action is required for the completed release request. For future confidence work, continue the existing `TODO.md` item for real macOS 12.x and representative Linux runtime smoke tests; do not move or reuse `v1.6.0`, `v1.6.1`, or `v1.6.2`.
+Finish the authorized source commit/push after review and checks, verify the remote `main` hash against the local revision, then update this checkpoint with the actual commit and delivery evidence. Preserve all documented chart files as one coherent feature; ignored installers/logs must remain local. Do not publish, change versions, or take on the unrelated Bybit mapping defect. A formal release still requires explicit authorization, a new version/tag, and `RELEASE.md`.
+
+If the next request is to validate this slice, first run a manual packaged-Windows click-through of main/chart coexistence, live exact-source history, zoom/pan/reset, and chart close-to-hide behavior. If the next request is to release it, obtain explicit authorization, choose a new SemVer version, and follow `docs/RELEASE.md`; never reuse or move an existing tag.
 
 ## New Thread Bootstrap
 
-1. Read `AGENTS.md`, `docs/INDEX.md`, and this file.
-2. Run `git status --short --branch`. At this checkpoint `main`/`origin/main` include the post-release handoff; immutable release tag `v1.6.2` points to `894dffb`, and failed attempt tags `v1.6.0`/`v1.6.1` remain intact without Releases.
-3. Inspect `tsconfig.json`, `src-tauri/tauri.macos.conf.json`, the corresponding UI regression, and the compatibility decision before changing language/runtime support. For quote UI work, inspect `normalizeWatchlist`/`reorderWatchlist`, delegated quote events, reorder styles/ARIA, native size clamps, and their focused tests.
-4. The formal `v1.6.2` request is complete. Begin only the next explicitly requested product task; installer execution/installation, moving published tags, and unrelated changes remain out of scope.
+1. Read `AGENTS.md`, `docs/INDEX.md`, and this file; then run `git status --short --branch` and compare it with the exact snapshot above.
+2. Preserve the complete dirty diff. Chart, corrected zoom, crosshair, and paced prefetch are implemented and verified but uncommitted; the newest test installer path is recorded above.
+3. Complete the explicitly authorized source push if it remains pending, using actual Git state to avoid repeating a completed push. Do not independently pick a TODO, discard changes, change versions, tag, publish, install, or release.
+4. Once work is authorized, read only the directly relevant decisions/domain docs and source files, then run the smallest relevant baseline verification before changing code.

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Crypto Top — K线</title>
+    <link rel="stylesheet" href="./chart.css" />
+    <script type="module" src="./chart.js"></script>
+  </head>
+  <body>
+    <main class="chart-shell" aria-labelledby="chart-symbol">
+      <header class="chart-header">
+        <div class="instrument">
+          <span class="market-badge" id="market-badge">行情</span>
+          <div class="instrument-copy">
+            <h1 id="chart-symbol">K线图</h1>
+            <p id="product-name">等待主界面选择标的</p>
+          </div>
+          <span class="source-name" id="source-name">—</span>
+        </div>
+
+        <div class="chart-actions">
+          <div class="interval-toolbar" id="interval-toolbar" role="toolbar" aria-label="每根 K 线的时间长度">
+            <button type="button" data-interval="1m" aria-pressed="false">1m</button>
+            <button type="button" data-interval="5m" aria-pressed="false">5m</button>
+            <button type="button" data-interval="15m" aria-pressed="false">15m</button>
+            <button type="button" data-interval="1h" aria-pressed="true">1h</button>
+            <button type="button" data-interval="1d" aria-pressed="false">1d</button>
+          </div>
+          <div class="view-toolbar" role="group" aria-label="K 线图缩放">
+            <button id="zoom-out" type="button" aria-label="缩小 K 线图，显示更多 K 线" disabled>−</button>
+            <button class="reset-view" id="reset-view" type="button" aria-label="恢复最近 120 根 K 线的默认视图" disabled>重置</button>
+            <button id="zoom-in" type="button" aria-label="放大 K 线图，显示更少 K 线" disabled>＋</button>
+          </div>
+          <button class="close-chart" id="close-chart" type="button" aria-label="关闭 K 线图并返回行情窗口">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m3.5 3.5 9 9m0-9-9 9" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="chart-stage" id="chart-stage" aria-busy="true">
+        <canvas
+          id="candle-canvas"
+          role="application"
+          aria-roledescription="交互式 K 线图"
+          tabindex="0"
+          aria-label="等待 K 线数据"
+          aria-describedby="chart-summary chart-navigation-help"
+        ></canvas>
+        <canvas id="crosshair-canvas" aria-hidden="true"></canvas>
+        <span id="crosshair-price" class="crosshair-marker" aria-hidden="true" hidden></span>
+        <span id="crosshair-time" class="crosshair-marker" aria-hidden="true" hidden></span>
+        <div class="chart-state" id="chart-state">
+          <span class="state-spinner" id="state-spinner" aria-hidden="true"></span>
+          <p id="state-message" role="status" aria-live="polite">正在准备 K 线图…</p>
+          <button class="retry-button" id="retry-button" type="button" hidden>重试</button>
+        </div>
+        <div class="history-notice">
+          <span id="history-message" role="status" aria-live="polite"></span>
+          <button id="load-older" type="button" aria-label="继续加载更早的同源 K 线" hidden>继续加载</button>
+        </div>
+      </section>
+
+      <footer class="chart-footer">
+        <span id="interval-caption">每根 1 小时</span>
+        <span class="interaction-hint" aria-hidden="true">滚轮缩放 · 拖拽平移 · 双击重置</span>
+        <span id="view-caption">显示 0 / 0 根 · UTC+0</span>
+      </footer>
+      <p class="sr-only" id="chart-summary">尚未加载 K 线数据</p>
+      <p class="sr-only" id="chart-navigation-help">
+        移动指针显示十字线及价格、UTC 时间标记。在图表上滚轮或使用加减键缩放，缩小显示更多历史，放大查看细节。按住拖动或使用左右方向键平移，按 Home 查看最早数据，按 End 查看最新数据，按 0 或双击重置视图到最近 120 根 K 线
+      </p>
+    </main>
+  </body>
+</html>

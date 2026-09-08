@@ -88,6 +88,30 @@ Stored fields are syntax-validated and product-class validated before reuse. Gat
 - Current-price fallback: `/api/v4/futures/usdt/tickers?contract={contract}`. REST quotes retain `marketSource: "gate"` with `source: "gateRest"`.
 - UTC open: `/api/v4/futures/usdt/candlesticks?contract={contract}&interval=1d&from=...&to=...`; accept only a candle whose `t` equals current UTC midnight exactly.
 
+## Historical candlestick viewer
+
+The basic chart is display-only and does not participate in `PriceFeed` source selection. Activating a quote row freezes its current validated product and `DisplayQuote.marketSource`; later interval requests remain on that exact source until the main row is activated again. This avoids a chart silently describing a different exchange from the price that the user clicked.
+
+History is requested in windows covering up to 240 interval buckets, with at most 240 valid OHLC candles per page sorted oldest to newest, for these exact public/keyless routes:
+
+| Active `marketSource` | Exact product | Endpoint | `1m` / `5m` / `15m` / `1h` / `1d` mapping |
+| --- | --- | --- | --- |
+| `coinbase` | Validated real-USD crypto spot ID | `/products/{productId}/candles` | `60` / `300` / `900` / `3600` / `86400` seconds |
+| `bybit` | Exact cataloged stock-related USDT perpetual symbol | `/v5/market/kline?category=linear` | `1` / `5` / `15` / `60` / `D` |
+| `gate` | Exact cataloged stock-related USDT perpetual contract | `/api/v4/futures/usdt/candlesticks` | `1m` / `5m` / `15m` / `1h` / `1d` |
+
+Coinbase arrays are interpreted as `[time, low, high, open, close, volume]`; Bybit and Gate fields follow their own official schemas. Every normalized row must have a safe positive timestamp and finite positive OHLC values with `high >= max(open, close)` and `low <= min(open, close)`. Duplicate timestamps keep the first valid provider row, out-of-window rows are discarded, and an otherwise non-empty response containing no valid candle is treated as malformed. Genuine empty/sparse history remains empty/sparse: do not synthesize candles, interpolate prices, or fill exchange gaps.
+
+`fetchCandleHistoryPage` accepts an optional exclusive `before` timestamp in milliseconds. The initial page ends at request time; an older page ends at `before - 1 ms` and starts up to 239 interval buckets before that end bucket. Coinbase receives ISO `start`/`end`; Bybit receives millisecond `start`/`end` and `limit=240`; Gate receives second-based `from`/`to`. The page returns `nextBefore` equal to the queried range start, even when no candles were returned. Pagination therefore advances across empty/sparse ranges without treating a short or empty page as proof that no older history exists. Rows at or after the previous page boundary are excluded, and prepends deduplicate against already loaded history.
+
+The viewport defaults/resets to the newest 120 available candles. Zoom-out or pan past the loaded range triggers only the older pages needed for that requested range, with one request at a time, at most four pages per batch, and a 4,800-candle cache limit for the current selection/interval. The chart offers “继续加载” when a bounded batch leaves more range to query, after a retriable older-page failure, or when the initial range is empty. Failure keeps existing candles and the failed cursor. A cache limit or the earliest supported query time stops loading with an explicit status; a merely empty page does not. Reset/return-to-latest replaces pending range intent, and a late page must preserve that newer navigation choice.
+
+The selected chart also preloads a 480-candle buffer before the visible left edge (normally 720 total cached candles at the latest-120 view). Speculative pages start after a one-second delay following the previous completion and share the same single flight with demand; no other intervals, products, or sources are prefetched. An empty/nonadvancing page, failure, or four insufficient sparse pages pauses speculation; a successful demand page can resume it. Background failures leave the chart quiet and usable; if the user subsequently requests unavailable history, the normal demand/retry path applies. HTTP 429/403 impose a conservative 60-second/10-minute cooldown for older requests in the current navigation instance, with no automatic retry. This is not a shared provider/IP limiter: a deliberate interval/reopen reload creates a new instance, and main feeds/other applications retain their own behavior.
+
+Official limits checked on 2026-09-08: [Coinbase Exchange](https://docs.cdp.coinbase.com/exchange/rest-api/rate-limits) public REST allows 10 requests/second/IP (15 burst); [Bybit](https://bybit-exchange.github.io/docs/v5/rate-limit) documents 600 HTTP requests/5 seconds/IP and at least a 10-minute wait after a frequency-related 403; [Gate](https://www.gate.com/docs/developers/apiv4/en/#frequency-limit-rule) public endpoints, including candlesticks, allow 200 requests/10 seconds per endpoint/IP. The modest paced buffer leaves headroom rather than treating these shared quotas as exclusively available to the chart. Provider limits and access policies can change.
+
+`kraken`, `bitstamp`, `bitfinex`, and a missing current source are deliberately unsupported in this basic slice. The chart must state that limitation and must not fall back to Coinbase or another exchange. Requests use the existing exact CSP origins, an eight-second deadline, an external abort signal, and a latest-request revision guard so hiding the chart, changing interval/product, or receiving a newer selection prevents stale data from drawing.
+
 ## Selection and stale behavior
 
 For each product, `selectQuote` applies this order:
