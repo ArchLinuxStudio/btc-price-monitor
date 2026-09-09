@@ -304,4 +304,4 @@ Refresh actual recent OHLC from the existing source/interval on interval rollove
 
 **Rejected alternatives:** Uploading only the local Windows installer, moving an old tag, or manually dispatching and assuming artifacts became Release assets.
 
-**Implications:** Follow [`RELEASE.md`](RELEASE.md). Never overwrite or move a published tag or Release. The uncommitted chart build still reports `1.6.2` while published `v1.6.2` predates it, so any formal release of this work requires a new version and tag.
+**Implications:** Follow [`RELEASE.md`](RELEASE.md). Never overwrite or move a published tag or Release. The local unreleased chart build still reports `1.6.2` while published `v1.6.2` predates it, so any formal release of this work requires a new version and tag.

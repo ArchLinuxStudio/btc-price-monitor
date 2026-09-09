@@ -4,11 +4,11 @@ Checkpoint date: 2026-09-10 (Asia/Shanghai)
 
 ## Current Objective
 
-The user explicitly requested a source push on 2026-09-10. Commit and push the verified chart improvements: two-sided pan, confirmed history origin/status, clearer axes, and synchronized current-candle/price guide. The 252-test suite, direct five-interval/1m rollover browser regression, existing origin/prefetch regressions and local Windows installer verification apply. Preserve named local artifacts; this is a source delivery, with no version, tag, Release or binary upload requested.
+The explicitly requested source delivery is complete: commit `5e9c281e766393bbddf94ac8aaabec22b5b310b3` was pushed to `origin/main` on 2026-09-10. It contains two-sided pan, confirmed history origin/status, clearer axes and synchronized current-candle/price guide, with the 252-test/browser/installer verification below. Await user feedback on the local candle-sync installer. Named artifacts remain local; no version, tag, Release or binary upload was performed.
 
 ## Current Status
 
-- `main` tracks `origin/main`; both local refs are at documentation commit `c2bb229095709b090fdeff9714d5ca129b7164c5`. The preceding chart source is committed/pushed in `625ac40e448e4f663f9d0c3e93993264c43c3c1e`. Subsequent pan-boundary, confirmed-origin/status/axis and current-price work is implemented and verified in the unstaged worktree, not committed or pushed.
+- `main` tracks `origin/main`. All subsequent chart fixes are committed/pushed in `5e9c281e766393bbddf94ac8aaabec22b5b310b3`, following the original chart source `625ac40` and documentation checkpoint `c2bb229`. This documentation checkpoint records the completed delivery; inspect Git for the current tip rather than reusing an old worktree list.
 - Both data edges allow blank space until one complete candle slot remains, with unchanged horizontal spacing. The date-axis flag now says “历史起点” and appears only after actual source-history completion is confirmed and its first candle is retained and visible. Completion stops demand/prefetch and removes the continue button. Date/price axes use brighter 12px semibold values and matching crosshair labels.
 - All source/package version fields remain `1.6.2`. Published tag `v1.6.2` points to older release source `894dffb` and therefore does **not** contain the chart work. Failed tags `v1.6.0`/`v1.6.1` and published `v1.6.2` are immutable.
 - The local unsigned installer at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` was rebuilt on 2026-09-10 at 00:04 (Asia/Shanghai) with the candle/price-guide synchronization correction and all preceding chart improvements. Its identical test copy is `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe`. Earlier named current-price, origin, pan, crosshair/prefetch and zoom copies remain preserved; their paths are recorded below. These are local dirty-tree builds, not the published `v1.6.2` Windows asset. The new installer was not executed. Earlier debug/native runtime evidence predates this correction.
@@ -16,7 +16,7 @@ The user explicitly requested a source push on 2026-09-10. Commit and push the v
 
 ## Git Worktree Snapshot
 
-Current `git status --short --branch` reports `## main...origin/main`, 21 modified tracked files, eight untracked files, and no staged changes. Modified: `README.md`, `docs/ARCHITECTURE.md`, `docs/CURRENT_STATE.md`, `docs/DECISIONS.md`, `docs/KNOWN_ISSUES.md`, `docs/MARKET_DATA.md`, `docs/TODO.md`, `package.json`, `src/candle-history.ts`, `src/chart-crosshair.ts`, `src/chart-navigation.ts`, `src/chart-viewport.ts`, `src/chart.css`, `src/chart.html`, `src/chart.ts`, `src/price-feed.ts`, `tests/candle-history.test.ts`, `tests/chart-crosshair.test.ts`, `tests/chart-navigation.test.ts`, `tests/chart-viewport.test.ts`, and `tests/ui.test.ts`. New: `src/chart-current-price.ts`, `src/chart-live-candles.ts`, `src/chart-price-line.ts`, `src/chart-time-axis.ts`, and their four matching test files. The original pan task began from clean `c2bb229`; subsequent origin and current-price work preserved and extended its unstaged changes.
+The source delivery committed all 29 reviewed files (21 modified and eight new) in `5e9c281`. After its push, live `refs/heads/main` matched that full hash and `git status --short --branch` reported `## main...origin/main` with no staged, unstaged or untracked work. This follow-up documentation checkpoint records that verified source delivery. Check live Git before another task; the former 29-file dirty list is retired.
 
 Local `artifacts/`, `dist/`, and `src-tauri/target/` remain ignored. The installer copies and verification evidence there were not committed or uploaded. Check actual Git state before starting new work; do not assume a later working tree is still clean.
 
@@ -39,7 +39,7 @@ Local `artifacts/`, `dist/`, and `src-tauri/target/` remain ignored. The install
 
 ## In Progress
 
-- Source push is authorized and in progress; no implementation or packaging work remains. Await user testing of the new candle-sync installer. The earlier current-price installer exhibits the reported static-OHLC defect and should not be used to test this correction.
+- Source delivery is complete; no implementation or packaging work remains. Await user testing of the new candle-sync installer. The earlier current-price installer exhibits the reported static-OHLC defect and should not be used to test this correction.
 - Packaged runtime acceptance of the current chart and macOS/Linux runtime coverage remain unverified. The user accepted the preceding basic zoom logic; this does not establish full packaged or cross-platform acceptance.
 
 ## Relevant Files
@@ -106,7 +106,11 @@ The crosshair is a separate, animation-frame-coalesced transparent canvas plus n
 
 ## Verification State
 
-Source-push preflight on 2026-09-10: live `git ls-remote --heads origin refs/heads/main` returned `c2bb229095709b090fdeff9714d5ca129b7164c5`, matching local `HEAD` and `origin/main`. The reviewed delivery scope is 29 source/test/document files (21 modified and eight new), with no staged work initially. Local installers, browser fixtures/logs, `dist/` and Rust outputs remain ignored. No product changes were made after the final 252-test/browser/installer verification below; this push does not require a new build or repeat runtime acceptance.
+Source-push verification on 2026-09-10:
+
+- Live remote `main` matched local `c2bb229` before delivery. Independent scope review confirmed all 29 source/test/document files belong to the completed chart fixes; no unrelated configuration, dependency, version or artifact changes were included. Credential-pattern checks found no matches. Files were staged explicitly; staged `git diff --check` passed with no unstaged work.
+- `git push origin main:main` advanced the remote to `5e9c281e766393bbddf94ac8aaabec22b5b310b3`. A subsequent live `git ls-remote --heads origin refs/heads/main` confirmed that exact source commit and the worktree was clean. No force push, version change, tag, Release or binary upload occurred.
+- Local installers, browser fixtures/logs, `dist/` and Rust outputs remain ignored. No product changes followed the final 252-test/browser/installer verification below; those results apply to the pushed source. Tests/builds and native acceptance were not unnecessarily repeated for this source-only delivery.
 
 Synchronization correction verified on 2026-09-10:
 
@@ -213,7 +217,7 @@ Not verified for this unreleased slice: installer execution; a packaged-Windows 
 
 ## Next Recommended Action
 
-Complete the explicitly authorized source commit/push to `origin/main`, verify the remote hash and clean worktree, then record delivery. Continue awaiting feedback on `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe`. Do not publish a release, change versions or take on the unrelated Bybit mapping defect.
+Await feedback on `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe` or a new explicitly scoped task. Source delivery is complete; do not repeat it. Do not publish a release, change versions or take on the unrelated Bybit mapping defect without new scope.
 
 If the next request is to validate this slice, first run a manual packaged-Windows click-through of main/chart coexistence, live exact-source history, zoom/pan/reset, and chart close-to-hide behavior. If the next request is to release it, obtain explicit authorization, choose a new SemVer version, and follow `docs/RELEASE.md`; never reuse or move an existing tag.
 
@@ -221,5 +225,5 @@ If the next request is to validate this slice, first run a manual packaged-Windo
 
 1. Read `AGENTS.md`, `docs/INDEX.md`, and this file; then inspect current `git status --short --branch` and recent commits instead of reusing the retired dirty-file list.
 2. Chart, corrected zoom, crosshair, and paced prefetch are implemented, verified, and committed/pushed in `625ac40`. Preserve any subsequent user changes; the newest local test installer path is recorded above.
-3. The user authorized pushing the completed chart fixes on 2026-09-10. Inspect live Git/remote state to finish or confirm delivery without repeating completed work. The candle-sync build passes 252 tests, direct all-interval/1m rollover checks, existing browser regressions and NSIS verification; await testing feedback. Do not independently pick a TODO, discard changes, change versions, tag, publish, install or release.
+3. The completed chart fixes were pushed in `5e9c281` on 2026-09-10 and the remote source hash was verified. The candle-sync build passes 252 tests, direct all-interval/1m rollover checks, existing browser regressions and NSIS verification; await testing feedback. Do not repeat the delivery, independently pick a TODO, discard changes, change versions, tag, publish, install or release.
 4. Once work is authorized, read only the directly relevant decisions/domain docs and source files, then run the smallest relevant baseline verification before changing code.
