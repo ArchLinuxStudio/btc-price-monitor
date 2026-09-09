@@ -6,8 +6,10 @@ import {
   CandleHistoryError,
   candleIntervalLabel,
   candleSourceLabel,
+  createCandleHistoryLoader,
   fetchCandleHistory,
   fetchCandleHistoryPage,
+  fetchRecentCandleHistory,
   type CandleInterval,
 } from "../src/candle-history.ts";
 import type { MarketSource } from "../src/price-feed.ts";
@@ -148,7 +150,7 @@ test("fetches Bybit candles with the exact catalog symbol and provider interval"
   assert.equal(url.searchParams.get("symbol"), "MUUSDT");
   assert.equal(url.searchParams.get("interval"), "60");
   assert.equal(url.searchParams.get("limit"), String(CANDLE_HISTORY_LIMIT));
-  assert.equal(url.searchParams.get("start"), String(bucket - ((CANDLE_HISTORY_LIMIT - 1) * 3_600_000)));
+  assert.equal(url.searchParams.has("start"), false);
   assert.equal(url.searchParams.get("end"), String(now));
 });
 
@@ -450,7 +452,9 @@ test("history pages use exclusive older windows for every provider and interval"
         },
       });
       const start = before - CANDLE_HISTORY_LIMIT * entry.duration;
-      assert.deepEqual(page, { candles: [], nextBefore: start });
+      assert.deepEqual(page, source === "bybit"
+        ? { candles: [], nextBefore: 0, historyComplete: true }
+        : { candles: [], nextBefore: start });
       const url = new URL(requestedUrl);
       if (source === "coinbase") {
         assert.equal(url.origin, "https://api.exchange.coinbase.com");
@@ -464,7 +468,7 @@ test("history pages use exclusive older windows for every provider and interval"
         assert.equal(url.searchParams.get("symbol"), "MUUSDT");
         assert.equal(url.searchParams.get("category"), "linear");
         assert.equal(url.searchParams.get("interval"), entry.bybit);
-        assert.equal(Number(url.searchParams.get("start")), start);
+        assert.equal(url.searchParams.has("start"), false);
         assert.equal(Number(url.searchParams.get("end")), before - 1);
         assert.equal(Number(url.searchParams.get("limit")), CANDLE_HISTORY_LIMIT);
       } else {
@@ -645,4 +649,254 @@ test("older pages remain cancellable before fetch, in transport, and while parsi
     if (phase === "json") finishJson();
     await assert.rejects(pending, isAbort);
   }
+});
+
+test("Bybit end-only history crosses sparse time gaps and requires an empty page to confirm origin", async () => {
+  const before = Date.parse("2026-09-01T00:00:00Z");
+  const oldest = before - 500 * 86_400_000;
+  const calls: string[] = [];
+  const load = createCandleHistoryLoader({
+    product: MU_PRODUCT, marketSource: "bybit", interval: "1d",
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return response({ retCode: 0, result: { symbol: "MUUSDT", list: calls.length === 1
+        ? [[String(oldest), "100", "105", "99", "104"]] : [] } });
+    },
+  });
+  const sparse = await load(before);
+  assert.equal(sparse.candles[0].openTime, oldest);
+  assert.equal(sparse.nextBefore, oldest);
+  assert.equal(sparse.historyComplete, undefined);
+  const last = await load(sparse.nextBefore);
+  assert.deepEqual(last, { candles: [], nextBefore: 0, historyComplete: true });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((url) => !new URL(url).searchParams.has("start")));
+});
+
+test("Bybit rejects an ignored end cursor instead of declaring an empty normalized page complete", async () => {
+  const before = Date.parse("2026-09-01T00:00:00Z");
+  await rejectsWithCode(fetchCandleHistoryPage({
+    product: MU_PRODUCT, marketSource: "bybit", interval: "1h", before,
+    fetchImpl: async () => response({ retCode: 0, result: { symbol: "MUUSDT", list: [
+      [String(before), "100", "105", "99", "104"],
+    ] } }),
+  }), "malformed-response");
+});
+
+test("Coinbase confirms origin only after scanning through verified trade 1's interval bucket", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const firstTrade = now - 600 * 60_000 + 17_000;
+  const firstBucket = Math.floor(firstTrade / 60_000) * 60_000;
+  const calls: string[] = [];
+  const load = createCandleHistoryLoader({
+    product: BTC_PRODUCT, marketSource: "coinbase", interval: "1m", now: () => now,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      const query = new URL(url);
+      if (query.pathname.endsWith("/trades")) {
+        assert.equal(query.pathname, "/products/BTC-USD/trades");
+        assert.equal(query.searchParams.get("limit"), "1");
+        return response(query.searchParams.get("after") === "2"
+          ? [{ trade_id: 1, time: new Date(firstTrade).toISOString() }] : []);
+      }
+      const start = Date.parse(query.searchParams.get("start")!);
+      const end = Date.parse(query.searchParams.get("end")!);
+      return response(firstBucket >= start && firstBucket <= end
+        ? [[firstBucket / 1_000, 99, 105, 100, 104]] : []);
+    },
+  });
+  const first = await load();
+  assert.equal(first.historyComplete, undefined);
+  const second = await load(first.nextBefore);
+  assert.equal(second.historyComplete, undefined);
+  const last = await load(second.nextBefore);
+  assert.equal(last.historyComplete, true);
+  assert.equal(last.candles[0].openTime, firstBucket);
+  assert.equal(calls.filter((url) => new URL(url).pathname.endsWith("/trades")).length, 2);
+  assert.ok(calls.every((url) => !new URL(url).searchParams.has("before")));
+});
+
+test("regular complete pages defer origin metadata and a later probe cannot contradict cached candles", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const oldest = now - 239 * 60_000;
+  let metadataCalls = 0;
+  let candleCalls = 0;
+  const load = createCandleHistoryLoader({
+    product: BTC_PRODUCT, marketSource: "coinbase", interval: "1m", now: () => now,
+    fetchImpl: async (url) => {
+      const query = new URL(url);
+      if (query.pathname.endsWith("/trades")) {
+        metadataCalls += 1;
+        return response(query.searchParams.get("after") === "2"
+          ? [{ trade_id: 1, time: new Date(now - 60_000).toISOString() }] : []);
+      }
+      candleCalls += 1;
+      return response(candleCalls === 1 ? Array.from({ length: 240 }, (_, index) => [
+        (oldest + index * 60_000) / 1_000, 99, 105, 100, 104,
+      ]) : []);
+    },
+  });
+  const first = await load();
+  assert.equal(metadataCalls, 0);
+  const second = await load(first.nextBefore);
+  assert.equal(metadataCalls, 2);
+  assert.equal(second.historyComplete, undefined);
+  const third = await load(second.nextBefore);
+  assert.equal(third.historyComplete, undefined);
+  assert.equal(metadataCalls, 2);
+});
+
+test("Coinbase does not trust missing trade 1, invalid/future time, or a nonempty earlier trade response", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const valid = { trade_id: 1, time: new Date(now - 60_000).toISOString() };
+  const cases = [
+    { first: [], earlier: [] },
+    { first: [{ ...valid, trade_id: 500 }], earlier: [] },
+    { first: [{ ...valid, time: "invalid" }], earlier: [] },
+    { first: [{ ...valid, time: new Date(now + 86_400_000).toISOString() }], earlier: [] },
+    { first: [valid], earlier: [valid] },
+    { first: [valid], earlier: {} },
+  ];
+  for (const entry of cases) {
+    const load = createCandleHistoryLoader({
+      product: BTC_PRODUCT, marketSource: "coinbase", interval: "1m", now: () => now,
+      fetchImpl: async (url) => {
+        const query = new URL(url);
+        return response(query.pathname.endsWith("/trades")
+          ? query.searchParams.get("after") === "2" ? entry.first : entry.earlier
+          : [[(now - 60_000) / 1_000, 99, 105, 100, 104]]);
+      },
+    });
+    assert.equal((await load()).historyComplete, undefined);
+  }
+});
+
+test("Gate uses exact contract creation bucket, including candles before the creation time within that bucket", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const firstBucket = Date.parse("2026-08-01T00:00:00Z");
+  const calls: string[] = [];
+  const load = createCandleHistoryLoader({
+    product: MU_PRODUCT, marketSource: "gate", interval: "1d", now: () => now,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return response(new URL(url).pathname.includes("/contracts/")
+        ? { name: "MU_USDT", create_time: firstBucket / 1_000 + 35_000, launch_time: now / 1_000 }
+        : [{ t: firstBucket / 1_000, o: 100, h: 105, l: 99, c: 104 }]);
+    },
+  });
+  const first = await load();
+  assert.equal(first.historyComplete, true);
+  assert.equal(first.candles[0].openTime, firstBucket);
+  assert.equal(new URL(calls[1]).pathname, "/api/v4/futures/usdt/contracts/MU_USDT");
+  assert.equal(calls.length, 2);
+});
+
+test("Gate refuses wrong-contract, missing, invalid, future, or contradicted creation timestamps", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const oldest = now - 30 * 60_000;
+  const cases = [
+    { name: "OTHER_USDT", create_time: oldest / 1_000 },
+    { name: "MU_USDT", launch_time: oldest / 1_000 },
+    { name: "MU_USDT", create_time: -1 },
+    { name: "MU_USDT", create_time: "invalid" },
+    { name: "MU_USDT", create_time: (now + 60_000) / 1_000 },
+    { name: "MU_USDT", create_time: (oldest + 60_000) / 1_000 },
+  ];
+  for (const metadata of cases) {
+    const load = createCandleHistoryLoader({
+      product: MU_PRODUCT, marketSource: "gate", interval: "1m", now: () => now,
+      fetchImpl: async (url) => response(new URL(url).pathname.includes("/contracts/") ? metadata
+        : [{ t: oldest / 1_000, o: 100, h: 105, l: 99, c: 104 }]),
+    });
+    const page = await load();
+    assert.equal(page.candles.length, 1);
+    assert.equal(page.historyComplete, undefined);
+  }
+});
+
+test("origin metadata failures retain candles and do not retry on later empty pages", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  for (const status of [403, 429, 503]) {
+    let metadataCalls = 0;
+    let candleCalls = 0;
+    const load = createCandleHistoryLoader({
+      product: MU_PRODUCT, marketSource: "gate", interval: "1m", now: () => now,
+      fetchImpl: async (url) => {
+        if (new URL(url).pathname.includes("/contracts/")) {
+          metadataCalls += 1;
+          return response({}, status);
+        }
+        candleCalls += 1;
+        return response(candleCalls === 1 ? [{ t: now / 1_000, o: 100, h: 105, l: 99, c: 104 }] : []);
+      },
+    });
+    const first = await load();
+    assert.equal(first.candles.length, 1);
+    assert.equal(first.olderRetryAfterMs, status === 429 ? 60_000 : status === 403 ? 600_000 : undefined);
+    const second = await load(first.nextBefore);
+    assert.equal(second.historyComplete, undefined);
+    assert.equal(second.olderRetryAfterMs, undefined);
+    assert.equal(metadataCalls, 1);
+  }
+});
+
+test("partially malformed history is retryable without skipping a potentially oldest candle", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  let calls = 0;
+  const load = createCandleHistoryLoader({
+    product: MU_PRODUCT, marketSource: "gate", interval: "1m", now: () => now,
+    fetchImpl: async () => {
+      calls += 1;
+      return response([{ t: now / 1_000, o: 100, h: 105, l: 99, c: 104 }, { t: "bad" }]);
+    },
+  });
+  await rejectsWithCode(load(), "malformed-response");
+  assert.equal(calls, 1);
+});
+
+test("aborting an origin probe prevents a late metadata response from completing the page", async () => {
+  const now = Date.parse("2026-09-01T12:00:00Z");
+  const controller = new AbortController();
+  let started!: () => void;
+  let finish!: (payload: unknown) => void;
+  const ready = new Promise<void>((resolve) => { started = resolve; });
+  const load = createCandleHistoryLoader({
+    product: MU_PRODUCT, marketSource: "gate", interval: "1m", now: () => now,
+    fetchImpl: async (url) => {
+      if (!new URL(url).pathname.includes("/contracts/")) return response([]);
+      return { ok: true, status: 200, json: async () => new Promise((resolve) => {
+        finish = resolve;
+        started();
+      }) };
+    },
+  });
+  const pending = load(undefined, controller.signal);
+  await ready;
+  controller.abort();
+  finish({ name: "MU_USDT", create_time: now / 1_000 - 60 });
+  await assert.rejects(pending, (error: unknown) => error instanceof Error && error.name === "AbortError");
+});
+
+test("recent refresh is exact-source and strict without repeating origin metadata", async () => {
+  const now = Date.parse("2026-09-09T12:00:30Z");
+  const urls: string[] = [];
+  let malformed = false;
+  const options = {
+    product: BTC_PRODUCT, marketSource: "coinbase" as const, interval: "1m" as const, now: () => now,
+    fetchImpl: async (url: string) => {
+      urls.push(url);
+      return response(malformed ? [[now / 1000 - 30, 99, 105, 100, 104], ["bad"]]
+        : [[now / 1000 - 30, 99, 105, 100, 104]]);
+    },
+  };
+  const recent = await fetchRecentCandleHistory(options);
+  assert.equal(recent.candles.at(-1)?.close, 104);
+  assert.equal(recent.historyComplete, undefined);
+  assert.equal(urls.length, 1);
+  const url = new URL(urls[0]);
+  assert.equal(url.pathname, "/products/BTC-USD/candles");
+  assert.equal(url.searchParams.get("granularity"), "60");
+  malformed = true;
+  await rejectsWithCode(fetchRecentCandleHistory(options), "malformed-response");
+  assert.equal(urls.length, 2);
 });

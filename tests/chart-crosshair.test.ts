@@ -76,7 +76,28 @@ test("prepending history retains the same screen position and adjusts only the i
     { x: 319, y: 172 }, plot, { start: viewport.start + 240, count: viewport.count }, 480, prices,
   );
   assert.ok(before);
+  assert.notEqual(before.index, null);
+  if (before.index === null) throw new Error("Expected a real candle");
   assert.deepEqual(after, { ...before, index: before.index + 240 });
+});
+
+test("empty margins keep guides at the pointer without inventing a candle or timestamp", () => {
+  for (const view of [{ start: -119, count: 120 }, { start: 239, count: 120 }]) {
+    assert.deepEqual(projectChartCrosshair({ x: 616, y: 322 }, plot, view, 240, prices), {
+      index: null, x: 616, y: 322, price: 120,
+    });
+  }
+  assert.equal(projectChartCrosshair({ x: 1_211, y: 322 }, plot, { start: -119, count: 120 }, 240, prices)?.index, 0);
+  assert.equal(projectChartCrosshair({ x: 21, y: 322 }, plot, { start: 239, count: 120 }, 240, prices)?.index, 239);
+});
+
+test("fractional blank-to-candle transitions do not borrow the endpoint timestamp", () => {
+  const view = { start: -0.5, count: 12 };
+  assert.equal(projectChartCrosshair({ x: 65, y: 322 }, plot, view, 240, prices)?.index, null);
+  assert.equal(projectChartCrosshair({ x: 66, y: 322 }, plot, view, 240, prices)?.index, 0);
+  const rightView = { start: 228.5, count: 12 };
+  assert.equal(projectChartCrosshair({ x: 1_166, y: 322 }, plot, rightView, 240, prices)?.index, 239);
+  assert.equal(projectChartCrosshair({ x: 1_167, y: 322 }, plot, rightView, 240, prices)?.index, null);
 });
 
 test("ignores pointer locations outside the plot or without a real candle center", () => {

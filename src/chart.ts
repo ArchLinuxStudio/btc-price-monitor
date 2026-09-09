@@ -3,7 +3,8 @@ import {
   CandleHistoryError,
   candleIntervalLabel,
   candleSourceLabel,
-  fetchCandleHistoryPage,
+  createCandleHistoryLoader,
+  fetchRecentCandleHistory,
 } from "./candle-history.js";
 import type { Candle, CandleInterval } from "./candle-history.js";
 import { parseChartSelection, serializeChartSelection } from "./chart-selection.js";
@@ -11,13 +12,17 @@ import type { ChartSelection } from "./chart-selection.js";
 import { ChartNavigation, MAX_HISTORY_CANDLES } from "./chart-navigation.js";
 import { projectChartCrosshair } from "./chart-crosshair.js";
 import type { ChartPlot } from "./chart-crosshair.js";
+import { layoutChartTimeAxis } from "./chart-time-axis.js";
+import { ChartCurrentPrice } from "./chart-current-price.js";
+import type { ChartCurrentPriceState } from "./chart-current-price.js";
+import { ChartLiveCandles } from "./chart-live-candles.js";
+import { projectChartPriceLine } from "./chart-price-line.js";
 import {
   MIN_VISIBLE_CANDLES,
   candleBarGeometry,
   candleViewportBounds,
   createCandleViewport,
   isCandleViewportReset,
-  isCandleViewportFull,
   normalizeCandleViewport,
 } from "./chart-viewport.js";
 import type { CandleViewport } from "./chart-viewport.js";
@@ -52,6 +57,12 @@ interface PanState {
 const elements = {
   stage: document.querySelector<HTMLElement>("#chart-stage")!,
   canvas: document.querySelector<HTMLCanvasElement>("#candle-canvas")!,
+  historyStart: document.querySelector<HTMLElement>("#history-start-marker")!,
+  historyStartLabel: document.querySelector<HTMLElement>("#history-start-label")!,
+  priceLine: document.querySelector<HTMLCanvasElement>("#current-price-canvas")!,
+  currentPrice: document.querySelector<HTMLElement>("#current-price-marker")!,
+  currentPriceValue: document.querySelector<HTMLElement>("#current-price-value")!,
+  currentPriceStatus: document.querySelector<HTMLElement>("#current-price-status")!,
   crosshair: document.querySelector<HTMLCanvasElement>("#crosshair-canvas")!,
   crosshairPrice: document.querySelector<HTMLSpanElement>("#crosshair-price")!,
   crosshairTime: document.querySelector<HTMLSpanElement>("#crosshair-time")!,
@@ -79,6 +90,7 @@ const elements = {
 };
 
 const intervalValues = new Set<CandleInterval>(CANDLE_INTERVALS.map(({ value }) => value));
+const AXIS_FONT = '600 12px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const marketSourceNames: Readonly<Record<MarketSource, string>> = Object.freeze({
   coinbase: "Coinbase",
   kraken: "Kraken",
@@ -122,6 +134,11 @@ let requestController: AbortController | null = null;
 let requestRevision = 0;
 let drawFrame: number | null = null;
 let crosshairFrame: number | null = null;
+let priceLineFrame: number | null = null;
+let currentPriceFeed: ChartCurrentPrice | null = null;
+let currentPriceKey: string | null = null;
+let currentPriceState: ChartCurrentPriceState = { quote: null, stale: true };
+let liveCandles: ChartLiveCandles | null = null;
 let crosshairPointer: { readonly clientX: number; readonly clientY: number } | null = null;
 let crosshairScale: { readonly plot: ChartPlot; readonly low: number; readonly high: number } | null = null;
 let removeSelectionListener: (() => void) | null = null;
@@ -188,6 +205,8 @@ function setChartState(kind: ChartStateKind, message: string): void {
 }
 
 function abortHistoryRequest(): void {
+  liveCandles?.stop();
+  liveCandles = null;
   clearCrosshair();
   requestRevision += 1;
   requestController?.abort();
@@ -195,11 +214,46 @@ function abortHistoryRequest(): void {
   navigation?.cancel();
 }
 
+function stopCurrentPrice(): void {
+  liveCandles?.stop();
+  liveCandles = null;
+  const feed = currentPriceFeed;
+  currentPriceFeed = null;
+  currentPriceKey = null;
+  feed?.stop();
+  currentPriceState = { quote: null, stale: true };
+  drawCurrentPrice();
+}
+
+function ensureCurrentPrice(): void {
+  if (!selection || document.visibilityState === "hidden") return;
+  if (currentPriceFeed && currentPriceKey === selectionKey) return;
+  stopCurrentPrice();
+  if (!candleSourceLabel(selection.marketSource)) return;
+  try {
+    const feed = new ChartCurrentPrice({
+      product: selection.product,
+      marketSource: selection.marketSource,
+      onChange: (state) => {
+        if (currentPriceFeed !== feed) return;
+        currentPriceState = state;
+        liveCandles?.setQuote(state);
+        schedulePriceLine();
+      },
+    });
+    currentPriceFeed = feed;
+    currentPriceKey = selectionKey;
+    feed.start();
+  } catch {
+    stopCurrentPrice();
+  }
+}
+
 function chartPlot(width: number, height: number): ChartPlot {
   const left = 16;
   const top = 22;
-  const right = width < 520 ? 70 : 88;
-  const bottom = 36;
+  const right = width < 520 ? 96 : 104;
+  const bottom = 40;
   return {
     left,
     top,
@@ -235,10 +289,7 @@ function updateViewportControls(): void {
     || viewport.count >= MAX_HISTORY_CANDLES - tolerance
     || (viewport.count >= total - tolerance && !navigation?.canLoadOlder);
   elements.resetView.disabled = total === 0 || (reset && !navigation?.needsOlder);
-  elements.canvas.classList.toggle(
-    "is-pannable",
-    total > 0 && (!isCandleViewportFull(viewport, total) || !!navigation?.canLoadOlder),
-  );
+  elements.canvas.classList.toggle("is-pannable", total > 0);
   elements.viewCaption.textContent = total === 0
     ? "显示 0 / 0 根 · UTC+0"
     : `显示 ${bounds.endIndex - bounds.startIndex} / ${total} 根 · UTC+0`;
@@ -278,7 +329,7 @@ function syncNavigation(prepended: number): void {
   if (!navigation) return;
   candles = navigation.candles;
   viewport = navigation.viewport;
-  if (panState && prepended > 0) {
+  if (panState && prepended !== 0) {
     panState = {
       ...panState,
       startViewport: {
@@ -289,6 +340,9 @@ function syncNavigation(prepended: number): void {
   }
   updateViewportControls();
   if (candles.length > 0) setChartState("ready", "");
+  else if (!navigation.canLoadOlder) {
+    setChartState("empty", navigation.historyMessage || "该数据源暂无可查询的历史 K 线");
+  }
   scheduleDraw();
 }
 
@@ -302,6 +356,9 @@ function resetViewport(): void {
 
 function clearChart(summary: string): void {
   clearCrosshair();
+  crosshairScale = null;
+  drawCurrentPrice();
+  elements.historyStart.hidden = true;
   cancelPan();
   navigation?.cancel();
   navigation = null;
@@ -331,6 +388,7 @@ function currentSourceLabel(): string {
 async function loadHistory(): Promise<void> {
   abortHistoryRequest();
   if (!selection) {
+    stopCurrentPrice();
     clearChart("尚未选择 K 线标的");
     setChartState("empty", "请在主行情窗口点击一个标的查看 K 线");
     return;
@@ -350,31 +408,45 @@ async function loadHistory(): Promise<void> {
     const selectedProduct = selection.product;
     const selectedSource = selection.marketSource;
     const interval = selectedInterval;
-    const page = await fetchCandleHistoryPage({
+    ensureCurrentPrice();
+    const loadPage = createCandleHistoryLoader({
       product: selectedProduct,
       marketSource: selectedSource,
       interval,
-      signal: controller.signal,
     });
+    const snapshotStartedAt = Date.now();
+    const page = await loadPage(undefined, controller.signal);
     if (revision !== requestRevision || controller.signal.aborted) return;
     requestController = null;
     navigation = new ChartNavigation(page, {
-      loadPage: (before, signal) => fetchCandleHistoryPage({
-        product: selectedProduct,
-        marketSource: selectedSource,
-        interval,
-        before,
-        signal,
-      }),
+      loadPage,
       onChange: syncNavigation,
     });
     candles = navigation.candles;
     viewport = navigation.viewport;
+    const selectedNavigation = navigation;
+    const live = new ChartLiveCandles({
+      interval,
+      productId: selectedProduct.id,
+      marketSource: selectedSource!,
+      snapshotStartedAt,
+      getCandles: () => selectedNavigation.candles,
+      mergeCandles: (recent) => selectedNavigation.mergeRecentCandles(recent, panState === null),
+      loadRecent: (signal) => fetchRecentCandleHistory({
+        product: selectedProduct, marketSource: selectedSource, interval, signal,
+      }),
+      onChange: () => { if (liveCandles === live) scheduleDraw(); },
+    });
+    liveCandles = live;
+    live.start();
+    live.setQuote(currentPriceState);
     navigation.startPrefetch();
     if (candles.length === 0) {
       updateViewportControls();
       elements.summary.textContent = `${selection.product.symbol} 当前范围暂无 K 线数据`;
-      setChartState("empty", "当前查询范围暂无 K 线，可继续加载更早历史");
+      setChartState("empty", navigation.canLoadOlder
+        ? "当前查询范围暂无 K 线，可继续查询更早历史"
+        : "该数据源暂无可查询的历史 K 线");
       return;
     }
 
@@ -385,6 +457,7 @@ async function loadHistory(): Promise<void> {
   } catch (error) {
     if (revision !== requestRevision || isAbortError(error)) return;
     requestController = null;
+    stopCurrentPrice();
     clearChart(`${selection.product.symbol} K 线加载失败`);
     setChartState("error", historyErrorMessage(error));
   }
@@ -393,6 +466,7 @@ async function loadHistory(): Promise<void> {
 function acceptSelection(value: unknown, reloadUnchanged: boolean): void {
   const parsed = parseChartSelection(value);
   if (!parsed) {
+    stopCurrentPrice();
     selection = null;
     selectionKey = null;
     updateInstrumentUi(null);
@@ -404,6 +478,7 @@ function acceptSelection(value: unknown, reloadUnchanged: boolean): void {
 
   const nextKey = serializeChartSelection(parsed);
   const changed = nextKey !== selectionKey;
+  if (changed) stopCurrentPrice();
   selection = parsed;
   selectionKey = nextKey;
   updateInstrumentUi(parsed);
@@ -414,6 +489,7 @@ async function refreshSelectionFromNative(reloadUnchanged: boolean): Promise<voi
   try {
     const value = await invokeTauri<unknown>("get_chart_selection");
     if (value === null || value === undefined) {
+      stopCurrentPrice();
       selection = null;
       selectionKey = null;
       updateInstrumentUi(null);
@@ -424,6 +500,7 @@ async function refreshSelectionFromNative(reloadUnchanged: boolean): Promise<voi
     }
     acceptSelection(value, reloadUnchanged);
   } catch {
+    stopCurrentPrice();
     abortHistoryRequest();
     clearChart("无法连接图表窗口接口");
     setChartState("error", "无法读取主行情窗口选择的标的");
@@ -431,6 +508,7 @@ async function refreshSelectionFromNative(reloadUnchanged: boolean): Promise<voi
 }
 
 async function closeChart(): Promise<void> {
+  stopCurrentPrice();
   abortHistoryRequest();
   resetViewport();
   try {
@@ -449,6 +527,7 @@ function drawTimeLabel(candle: Candle): string {
 function drawCandles(): void {
   drawFrame = null;
   crosshairScale = null;
+  elements.historyStart.hidden = true;
   const bounds = elements.canvas.getBoundingClientRect();
   const width = Math.floor(bounds.width);
   const height = Math.floor(bounds.height);
@@ -464,6 +543,7 @@ function drawCandles(): void {
   if (!context) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, bounds.width, bounds.height);
+  drawCurrentPrice();
   drawCrosshair();
   if (candles.length === 0) {
     updateViewportControls();
@@ -492,7 +572,7 @@ function drawCandles(): void {
     plot.top + ((priceHigh - price) / priceRange) * plot.height
   );
 
-  context.font = "10px ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
+  context.font = AXIS_FONT;
   context.textBaseline = "middle";
   context.lineWidth = 1;
   for (let index = 0; index <= 4; index += 1) {
@@ -504,7 +584,7 @@ function drawCandles(): void {
     context.moveTo(plot.left, Math.round(y) + 0.5);
     context.lineTo(plot.left + plot.width, Math.round(y) + 0.5);
     context.stroke();
-    context.fillStyle = "#6e7889";
+    context.fillStyle = "#b9c5d7";
     context.textAlign = "left";
     context.fillText(formatUsdPrice(price), plot.left + plot.width + 9, y);
   }
@@ -536,41 +616,87 @@ function drawCandles(): void {
   }
   context.restore();
 
-  const firstCenterIndex = Math.min(
-    visibleBounds.endIndex - 1,
-    Math.max(visibleBounds.startIndex, Math.ceil(viewport.start - 0.5)),
-  );
-  const lastCenterIndex = Math.max(
-    firstCenterIndex,
-    Math.min(
-      visibleBounds.endIndex - 1,
-      Math.floor(viewport.start + viewport.count - 0.5),
-    ),
-  );
-  const timeLabelCount = Math.min(5, lastCenterIndex - firstCenterIndex + 1);
-  const usedIndexes = new Set<number>();
-  context.fillStyle = "#5e697a";
-  context.textBaseline = "top";
-  for (let tick = 0; tick < timeLabelCount; tick += 1) {
-    const index = timeLabelCount === 1
-      ? lastCenterIndex
-      : Math.round(
-        firstCenterIndex + (tick * (lastCenterIndex - firstCenterIndex)) / (timeLabelCount - 1),
-      );
-    if (usedIndexes.has(index)) continue;
-    usedIndexes.add(index);
-    const x = plot.left + (index + 0.5 - viewport.start) * slotWidth;
-    const label = drawTimeLabel(candles[index]);
-    const halfLabelWidth = context.measureText(label).width / 2;
-    const minimumX = plot.left + halfLabelWidth;
-    const maximumX = plot.left + plot.width - halfLabelWidth;
-    const labelX = minimumX > maximumX
-      ? plot.left + plot.width / 2
-      : Math.min(maximumX, Math.max(minimumX, x));
-    context.textAlign = "center";
-    context.fillText(label, labelX, plot.top + plot.height + 11);
+  const startLabel = `历史起点 · ${drawTimeLabel(candles[0])}`;
+  const axis = layoutChartTimeAxis(viewport, candles.length, plot,
+    (index) => context.measureText(drawTimeLabel(candles[index])).width,
+    navigation?.historyStartReached ? Math.ceil(context.measureText(startLabel).width) + 30 : null);
+  if (axis.startMarker) {
+    const marker = axis.startMarker;
+    elements.historyStartLabel.textContent = startLabel;
+    elements.historyStart.setAttribute("aria-label", `已确认到达该数据源的历史起点，${utcSummaryFormatter.format(candles[0].openTime)} UTC`);
+    elements.historyStart.style.left = `${marker.left}px`;
+    elements.historyStart.style.top = `${plot.top + plot.height + 7}px`;
+    elements.historyStart.style.width = `${marker.width}px`;
+    elements.historyStart.style.setProperty("--start-anchor", `${marker.x - marker.left}px`);
+    elements.historyStart.hidden = false;
   }
+  context.fillStyle = "#b9c5d7";
+  context.textBaseline = "top";
+  for (const tick of axis.ticks) {
+    context.textAlign = "center";
+    context.fillText(drawTimeLabel(candles[tick.index]), tick.x, plot.top + plot.height + 11);
+  }
+  drawCurrentPrice();
   drawCrosshair();
+}
+
+function drawCurrentPrice(): void {
+  if (priceLineFrame !== null) cancelAnimationFrame(priceLineFrame);
+  priceLineFrame = null;
+  elements.currentPrice.hidden = true;
+  const bounds = elements.canvas.getBoundingClientRect();
+  const pixelRatio = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
+  const width = Math.max(1, Math.round(bounds.width * pixelRatio));
+  const height = Math.max(1, Math.round(bounds.height * pixelRatio));
+  if (elements.priceLine.width !== width || elements.priceLine.height !== height) {
+    elements.priceLine.width = width;
+    elements.priceLine.height = height;
+  }
+  const context = elements.priceLine.getContext("2d");
+  if (!context) return;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, bounds.width, bounds.height);
+  const { price, stale, syncing } = liveCandles?.state ?? { price: null, stale: true, syncing: false };
+  if (price === null || !crosshairScale || candles.length === 0) return;
+  const { plot } = crosshairScale;
+  const position = projectChartPriceLine(price, plot, crosshairScale);
+  if (!position) return;
+  const rising = price >= candles[candles.length - 1].open;
+  const color = stale || syncing ? "#8793a5" : rising ? "#3dd49a" : "#f16b75";
+  if (position.lineY !== null) {
+    context.strokeStyle = color;
+    context.lineWidth = 1;
+    context.setLineDash([4, 4]);
+    context.beginPath();
+    context.moveTo(plot.left, position.lineY);
+    context.lineTo(plot.left + plot.width, position.lineY);
+    context.stroke();
+  }
+  const prefix = position.edge === "above" ? "↑ " : position.edge === "below" ? "↓ " : "";
+  const priceLabel = `${prefix}${formatUsdPrice(price)}`;
+  const statusText = stale ? "报价滞后" : syncing ? "同步 K 线…" : "";
+  context.font = AXIS_FONT;
+  const markerWidth = Math.min(bounds.width - plot.left - plot.width,
+    Math.max(Math.ceil(context.measureText(priceLabel).width) + 16, statusText ? 84 : 0));
+  elements.currentPriceValue.textContent = priceLabel;
+  elements.currentPriceStatus.textContent = statusText;
+  elements.currentPriceStatus.hidden = !statusText;
+  elements.currentPrice.dataset.direction = stale || syncing ? "stale" : rising ? "up" : "down";
+  elements.currentPrice.dataset.syncing = String(syncing);
+  elements.currentPrice.dataset.edge = position.edge ?? "none";
+  elements.currentPrice.style.left = `${plot.left + plot.width}px`;
+  elements.currentPrice.style.top = `${Math.max(0, Math.min(bounds.height - (statusText ? 40 : 24), position.labelY - 12))}px`;
+  elements.currentPrice.style.width = `${markerWidth}px`;
+  const outside = position.edge === "above" ? "，高于当前可视价格范围"
+    : position.edge === "below" ? "，低于当前可视价格范围" : "";
+  elements.currentPrice.setAttribute("aria-label",
+    `${stale ? "最新 K 线价格，报价滞后" : syncing ? "最新 K 线价格，同步中" : "当前价格"} ${formatUsdPrice(price)} ${selection?.product.quoteCurrency ?? "USD"}，${currentSourceLabel()}${outside}`);
+  elements.currentPrice.hidden = false;
+}
+
+function schedulePriceLine(): void {
+  if (priceLineFrame !== null || drawFrame !== null) return;
+  priceLineFrame = requestAnimationFrame(drawCurrentPrice);
 }
 
 // Pointer motion redraws only this transparent layer, leaving the candle canvas intact.
@@ -610,20 +736,22 @@ function drawCrosshair(): void {
   context.stroke();
 
   const priceLabel = position.price === 0 ? "0.00" : formatUsdPrice(position.price);
-  const timeLabel = utcSummaryFormatter.format(candles[position.index].openTime).replace(/\//g, "-");
-  context.font = '11px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-  const priceWidth = Math.min(bounds.width - plot.left - plot.width, Math.ceil(context.measureText(priceLabel).width) + 12);
-  const timeWidth = Math.min(bounds.width, Math.ceil(context.measureText(timeLabel).width) + 16);
+  context.font = AXIS_FONT;
+  const priceWidth = Math.min(bounds.width - plot.left - plot.width, Math.ceil(context.measureText(priceLabel).width) + 16);
   elements.crosshairPrice.textContent = priceLabel;
   elements.crosshairPrice.style.left = `${plot.left + plot.width}px`;
-  elements.crosshairPrice.style.top = `${Math.max(0, Math.min(bounds.height - 22, position.y - 11))}px`;
+  elements.crosshairPrice.style.top = `${Math.max(0, Math.min(bounds.height - 24, position.y - 12))}px`;
   elements.crosshairPrice.style.width = `${priceWidth}px`;
-  elements.crosshairTime.textContent = timeLabel;
-  elements.crosshairTime.style.left = `${Math.max(0, Math.min(bounds.width - timeWidth, position.x - timeWidth / 2))}px`;
-  elements.crosshairTime.style.top = `${plot.top + plot.height + 7}px`;
-  elements.crosshairTime.style.width = `${timeWidth}px`;
   elements.crosshairPrice.hidden = false;
-  elements.crosshairTime.hidden = false;
+  if (position.index !== null) {
+    const timeLabel = utcSummaryFormatter.format(candles[position.index].openTime).replace(/\//g, "-");
+    const timeWidth = Math.min(bounds.width, Math.ceil(context.measureText(timeLabel).width) + 16);
+    elements.crosshairTime.textContent = timeLabel;
+    elements.crosshairTime.style.left = `${Math.max(0, Math.min(bounds.width - timeWidth, position.x - timeWidth / 2))}px`;
+    elements.crosshairTime.style.top = `${plot.top + plot.height + 7}px`;
+    elements.crosshairTime.style.width = `${timeWidth}px`;
+    elements.crosshairTime.hidden = false;
+  }
 }
 
 function scheduleCrosshair(): void {
@@ -685,7 +813,6 @@ function handlePointerDown(event: PointerEvent): void {
   trackCrosshair(event);
   if (
     candles.length === 0
-    || (isCandleViewportFull(viewport, candles.length) && !navigation?.canLoadOlder)
     || !event.isPrimary
     || event.button !== 0
   ) {
@@ -729,10 +856,15 @@ function handlePointerMove(event: PointerEvent): void {
   const delta = (
     (panState.startClientX - event.clientX) * panState.startViewport.count / plot.width
   );
+  const requestedStart = panState.startViewport.start + delta;
   navigation?.setViewport({
-    start: panState.startViewport.start + delta,
+    start: requestedStart,
     count: panState.startViewport.count,
   });
+  if (Math.abs(viewport.start - requestedStart) > 1e-8) {
+    // Discard movement beyond the edge so reversing a held drag responds at once.
+    panState = { pointerId: event.pointerId, startClientX: event.clientX, startViewport: viewport };
+  }
   event.preventDefault();
 }
 
@@ -851,6 +983,7 @@ document.addEventListener("drop", (event) => event.preventDefault());
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
+    stopCurrentPrice();
     abortHistoryRequest();
     resetViewport();
   } else {
@@ -864,10 +997,12 @@ globalThis.addEventListener("blur", clearCrosshair);
 globalThis.addEventListener("resize", scheduleDraw);
 globalThis.addEventListener("online", () => void refreshSelectionFromNative(true));
 globalThis.addEventListener("pagehide", () => {
+  stopCurrentPrice();
   abortHistoryRequest();
   resetViewport();
 });
 globalThis.addEventListener("beforeunload", () => {
+  stopCurrentPrice();
   abortHistoryRequest();
   cancelPan();
   removeSelectionListener?.();

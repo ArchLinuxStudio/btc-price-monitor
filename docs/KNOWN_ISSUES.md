@@ -40,9 +40,9 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Evidence:** On 2026-09-07, an offline probe reused the existing AMD / `AMDSTOCKUSDT` fixture from the `US-stock perpetual directories require exact official metadata and mappings` test in `tests/watchlist.test.ts`. `parseBybitStockCatalog` accepts it, but chart selection creation throws and envelope parsing returns `null`. Adding a valid `AMD_USDT` Gate mapping and selecting Gate reproduces the rejection because the entire product is validated. These are repository fixture values, not a claim about the current online catalog.
 
-**Impact:** Chart activation fails for this permitted product shape; main quotes and the watchlist remain usable. The current chart-selection tests cover only Bybit symbols equal to ticker plus `USDT`, so the 33 focused chart/UI tests still pass.
+**Impact:** Chart activation fails for this permitted product shape; main quotes and the watchlist remain usable. The chart-selection tests cover only Bybit symbols equal to ticker plus `USDT`; the 33 focused chart/UI tests passed at the 2026-09-07 takeover despite this uncovered defect.
 
-**Current action:** Recorded during takeover; the active crosshair/prefetch task does not include this separate selection-mapping fix.
+**Current action:** Recorded during takeover; the pan-boundary/start-marker task does not include this separate selection-mapping fix.
 
 **Next direction:** In a scoped correctness change, reuse the catalog/persistence Bybit symbol validation contract, retain the exact stored symbol, and add catalog-to-selection round-trip and exact-history-request regressions. Preserve Gate's canonical mapping rule, strict envelope/class validation, and unsupported-source rejection.
 
@@ -56,11 +56,23 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Next direction:** Add a provider only with a product request, current official exact-symbol/history semantics, target-WebView CORS evidence or a narrowly allowlisted native proxy, and parser/security tests. Never “solve” this limitation with cross-source substitution, a guessed symbol, or wildcard CSP.
 
+## Current-price line and last-candle synchronization
+
+**Reported defect:** The first current-price implementation streamed a separate quote line while the candle series remained its initial history snapshot. The line therefore diverged from the newest candle close, visibly on 1m charts. The 223-test and first-browser checks covered axis geometry, not this required equality; their pass did not rule out the defect.
+
+**Correction:** Synchronize fresh same-bucket quotes into the actual latest candle, derive the guide from its close, and reconcile provider OHLC at rollover/recovery and periodically. Missing new buckets are not fabricated: retain the previous close with “同步 K 线…” until an actual candle arrives. Direct line-to-body/close equality and rollover/race regressions are required; see `CURRENT_STATE.md` for progress and verification.
+
+**Remaining boundary:** Quote updates only contain observed last prices, so the source's recent OHLC refresh repairs missed extrema and closed buckets. After a prolonged outage the bounded recent page may leave a real history gap; never interpolate it. No valid quote means no guide, and stale values say “报价滞后”. Packaged and macOS/Linux live-provider acceptance remains incomplete.
+
 ## Chart history is intentionally bounded per viewing session
 
-**Current behavior:** Zoom-out and older-direction pan request same-source history in pages of at most 240 time buckets. A batch scans at most four pages, with one request in flight, and the chart caches at most 4,800 candles. At the cache limit the chart displays that limit; it does not claim to contain every candle the exchange has.
+**Current behavior:** Zoom-out and older-direction pan request same-source history in pages of at most 240 candles (240 time buckets for Coinbase/Gate; end-only across gaps for Bybit). A batch scans at most four pages, with one request in flight, and the chart caches at most 4,800 candles. At the cache limit the chart displays that limit; it does not claim to contain every candle the exchange has.
 
 **Sparse history:** An empty page advances the scanned time range without manufacturing candles or declaring the entire instrument exhausted. If four pages are insufficient, the user can continue loading. Network failures retain the existing chart and allow retry.
+
+**Pan/start semantics:** Both edges permit blank space until one complete end-candle slot remains. The 2026-09-08 cache-first “已加载起点” marker was rejected by the user and corrected on 2026-09-09: only the confirmed earliest retained candle gets “历史起点”. Confirmed completion removes the continue action and stops both demand and prefetch. Blank space has no fabricated candle/time marker. A failed/nonadvancing demand page or unfinished four-page batch pauses automatic continuation until explicit retry or loaded-range/reset recovery; retain the held-pointer retry regression.
+
+**Origin evidence limitations:** Coinbase trade-ID/cursor verification and Gate contract creation metadata give conservative same-source lower bounds; Bybit end-only empty results cover all older timestamps. A missing/failed/contradictory metadata probe leaves origin unconfirmed and the status says so; reloading creates a new probe opportunity. Do not replace this with one empty window, `before=0` Coinbase trades, Bybit formal `launchTime`, or a cache cap. Metadata 429/403 preserve candles and impose a one-time navigation cooldown. See `MARKET_DATA.md` for the precise contract and `CURRENT_STATE.md` for current verification.
 
 **Advance buffer:** The selected chart targets a 480-candle left buffer, refilling by whole pages (usually 720 total at the initial latest-120 view, with 600 candles before that view), with a one-second delay between speculative pages. Empty/nonadvancing/error responses or four insufficient sparse pages pause prefetch; successful demand can resume it. HTTP 429/403 pause older requests for 60 seconds/10 minutes in the current navigation instance. This is not a provider-wide limiter across deliberate chart reloads, main feeds, or other applications. Sparse history and fast navigation beyond the buffer can still require a visible load; the chart does not promise an offline copy of all exchange history.
 

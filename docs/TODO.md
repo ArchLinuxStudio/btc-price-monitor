@@ -4,7 +4,7 @@ This is an executable backlog, not authorization to start work. A future agent m
 
 ## P0 — Blocking
 
-None. The requested crosshair and prefetch improvements have passed frontend/browser verification; package delivery and current task state are recorded in `CURRENT_STATE.md`. A separate confirmed chart-selection defect is listed below.
+None. Current scoped chart improvements, package delivery, and verification state are recorded in `CURRENT_STATE.md`. A separate confirmed chart-selection defect is listed below.
 
 ## P1 — Chart correctness
 

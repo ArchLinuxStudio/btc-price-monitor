@@ -67,8 +67,12 @@ export interface FetchCandleHistoryPageOptions extends FetchCandleHistoryOptions
 
 export interface CandleHistoryPage {
   candles: Candle[];
-  /** Scanned window start, including empty windows; zero means the time origin. */
+  /** Exclusive older cursor; zero means that no older query remains. */
   nextBefore: number;
+  /** Only true after a provider-wide query or verified lower bound proves completion. */
+  readonly historyComplete?: boolean;
+  /** A metadata request can be limited after the candle page has already succeeded. */
+  readonly olderRetryAfterMs?: number;
 }
 
 type CandleSource = "coinbase" | "bybit" | "gate";
@@ -229,7 +233,6 @@ function requestUrl(
     return `${BYBIT_API_ROOT}/kline?category=linear`
       + `&symbol=${encodeURIComponent(target.symbol)}`
       + `&interval=${config.bybit}`
-      + `&start=${window.startAt}`
       + `&end=${window.endAt}`
       + `&limit=${CANDLE_HISTORY_LIMIT}`;
   }
@@ -337,7 +340,7 @@ function normalizeCandles(
   payload: unknown,
   expectedSymbol: string,
   window: RequestWindow,
-): Candle[] {
+): { candles: Candle[]; allRowsValid: boolean } {
   const rawLength = source === "bybit"
     ? (payload as { result?: { list?: unknown } } | null)?.result?.list
     : payload;
@@ -363,7 +366,7 @@ function normalizeCandles(
     normalized.push(candle);
   }
   normalized.sort((left, right) => left.openTime - right.openTime);
-  return normalized.slice(-CANDLE_HISTORY_LIMIT);
+  return { candles: normalized.slice(-CANDLE_HISTORY_LIMIT), allRowsValid: parsed.length === rows };
 }
 
 function abortError(): Error {
@@ -392,19 +395,11 @@ function resolveFetch(fetchImpl: FetchImpl | null | undefined): FetchImpl {
   return globalThis.fetch.bind(globalThis) as FetchImpl;
 }
 
-export async function fetchCandleHistoryPage({
-  product,
-  marketSource,
-  interval,
-  fetchImpl,
-  now = () => Date.now(),
-  signal,
-  before,
-}: FetchCandleHistoryPageOptions): Promise<CandleHistoryPage> {
-  const target = resolveTarget(product, marketSource);
-  const config = intervalConfig(interval);
-  const window = requestWindow(now, config.durationMs, before);
-  const fetcher = resolveFetch(fetchImpl);
+async function fetchJson(
+  url: string,
+  fetcher: FetchImpl,
+  signal: AbortSignal | undefined,
+): Promise<unknown> {
   if (signal?.aborted) throw abortError();
 
   const controller = new AbortController();
@@ -417,7 +412,7 @@ export async function fetchCandleHistoryPage({
   }, REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetcher(requestUrl(target, config, window), {
+    const response = await fetcher(url, {
       signal: controller.signal,
       cache: "no-store",
       headers: { Accept: "application/json" },
@@ -438,10 +433,7 @@ export async function fetchCandleHistoryPage({
       throw new CandleHistoryError("malformed-response", "K 线响应不是有效 JSON");
     }
     if (controller.signal.aborted) throw abortError();
-    return {
-      candles: normalizeCandles(target.source, payload, target.symbol, window),
-      nextBefore: window.startAt,
-    };
+    return payload;
   } catch (error) {
     if (signal?.aborted) throw abortError();
     if (timedOut) {
@@ -454,6 +446,134 @@ export async function fetchCandleHistoryPage({
     clearTimeout(timeout);
     signal?.removeEventListener("abort", forwardAbort);
   }
+}
+
+async function fetchHistoryPageDetails({
+  product,
+  marketSource,
+  interval,
+  fetchImpl,
+  now = () => Date.now(),
+  signal,
+  before,
+}: FetchCandleHistoryPageOptions): Promise<{ page: CandleHistoryPage; allRowsValid: boolean }> {
+  const target = resolveTarget(product, marketSource);
+  const config = intervalConfig(interval);
+  const window = requestWindow(now, config.durationMs, before);
+  const payload = await fetchJson(requestUrl(target, config, window), resolveFetch(fetchImpl), signal);
+  // Bybit's end-only query returns the newest available rows before the cursor,
+  // even across long gaps. A genuinely empty list covers all older timestamps.
+  const normalized = normalizeCandles(target.source, payload, target.symbol,
+    target.source === "bybit" ? { startAt: 0, endAt: window.endAt } : window);
+  const page: CandleHistoryPage = { candles: normalized.candles, nextBefore: window.startAt };
+  if (target.source === "bybit") {
+    const list = (payload as { result: { list: unknown[] } }).result.list;
+    if (list.length === 0) {
+      page.nextBefore = 0;
+      return { page: { ...page, historyComplete: true }, allRowsValid: true };
+    }
+    if (page.candles.length === 0) {
+      throw new CandleHistoryError("malformed-response", "Bybit K 线响应没有请求边界内的数据");
+    }
+    page.nextBefore = page.candles[0].openTime;
+  }
+  return { page, allRowsValid: normalized.allRowsValid };
+}
+
+export async function fetchCandleHistoryPage(options: FetchCandleHistoryPageOptions): Promise<CandleHistoryPage> {
+  return (await fetchHistoryPageDetails(options)).page;
+}
+
+/** Refresh real recent OHLC without probing or changing the older-history origin. */
+export async function fetchRecentCandleHistory(options: FetchCandleHistoryOptions): Promise<CandleHistoryPage> {
+  const { page, allRowsValid } = await fetchHistoryPageDetails(options);
+  if (!allRowsValid) {
+    throw new CandleHistoryError("malformed-response", "最新 K 线包含无效数据，请重试");
+  }
+  return page;
+}
+
+function metadataTime(value: unknown, multiplier: number): number | null {
+  if ((typeof value !== "number" && typeof value !== "string") || value === "") return null;
+  return normalizedOpenTime(value, multiplier);
+}
+
+async function fetchHistoryLowerBound(
+  target: CandleTarget,
+  fetcher: FetchImpl,
+  signal: AbortSignal | undefined,
+): Promise<number | null> {
+  if (target.source === "coinbase") {
+    const root = `${COINBASE_API_ROOT}/${encodeURIComponent(target.symbol)}/trades`;
+    const payload = await fetchJson(`${root}?after=2&limit=1`, fetcher, signal);
+    if (!Array.isArray(payload) || payload.length !== 1) return null;
+    const trade = payload[0] as Record<string, unknown> | null;
+    if (!trade || typeof trade !== "object" || trade.trade_id !== 1 || typeof trade.time !== "string"
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(trade.time)) return null;
+    const time = Date.parse(trade.time);
+    if (!Number.isSafeInteger(time) || time <= 0) return null;
+    const earlier = await fetchJson(`${root}?after=1&limit=1`, fetcher, signal);
+    return Array.isArray(earlier) && earlier.length === 0 ? time : null;
+  }
+  if (target.source === "gate") {
+    const payload = await fetchJson(`${GATE_API_ROOT}/contracts/${encodeURIComponent(target.symbol)}`, fetcher, signal);
+    if (!payload || typeof payload !== "object") return null;
+    const contract = payload as Record<string, unknown>;
+    return contract.name === target.symbol ? metadataTime(contract.create_time, 1_000) : null;
+  }
+  return null;
+}
+
+/** Reuses one lazy origin probe for a frozen chart selection and interval. */
+export function createCandleHistoryLoader(options: FetchCandleHistoryOptions): (
+  before?: number,
+  signal?: AbortSignal,
+) => Promise<CandleHistoryPage> {
+  const frozen = { ...options, product: { ...options.product } };
+  const target = resolveTarget(frozen.product, frozen.marketSource);
+  const config = intervalConfig(frozen.interval);
+  let lowerBound: Promise<number | null> | null = null;
+  let contradicted = false;
+  let oldestObserved = Number.POSITIVE_INFINITY;
+  let pendingCooldownMs: number | undefined;
+  return async (before, signal = frozen.signal) => {
+    const { page, allRowsValid } = await fetchHistoryPageDetails({ ...frozen, before, signal });
+    if (!allRowsValid) {
+      throw new CandleHistoryError("malformed-response", "K 线历史包含无效数据，请重试");
+    }
+    oldestObserved = Math.min(oldestObserved, page.candles[0]?.openTime ?? Number.POSITIVE_INFINITY);
+    if (target.source === "bybit" || contradicted) return page;
+    // Ordinary full pages remain one request. Probe only when a short/empty
+    // range first makes the true origin relevant; failures never discard data.
+    if (lowerBound === null && page.candles.length < CANDLE_HISTORY_LIMIT) {
+      lowerBound = fetchHistoryLowerBound(target, resolveFetch(frozen.fetchImpl), signal).catch((error: unknown) => {
+        if (signal?.aborted || isAbortError(error)) throw error;
+        if (error instanceof CandleHistoryError && (error.status === 429 || error.status === 403)) {
+          pendingCooldownMs = error.status === 429 ? 60_000 : 600_000;
+        }
+        return null;
+      });
+    }
+    if (lowerBound === null) return page;
+    const origin = await lowerBound;
+    if (signal?.aborted) throw abortError();
+    if (origin === null) {
+      if (pendingCooldownMs === undefined) return page;
+      const olderRetryAfterMs = pendingCooldownMs;
+      pendingCooldownMs = undefined;
+      return { ...page, olderRetryAfterMs };
+    }
+    const bucket = Math.floor(origin / config.durationMs) * config.durationMs;
+    // Metadata cannot supersede older candles already observed in any page.
+    // Future/invalid clocks also cannot prove an origin.
+    let currentTime = Number.NaN;
+    try { currentTime = Number((frozen.now ?? Date.now)()); } catch { /* Keep the page. */ }
+    if (!Number.isSafeInteger(currentTime) || origin > currentTime || oldestObserved < bucket) {
+      contradicted = true;
+      return page;
+    }
+    return page.nextBefore <= bucket ? { ...page, historyComplete: true } : page;
+  };
 }
 
 export async function fetchCandleHistory(options: FetchCandleHistoryOptions): Promise<Candle[]> {

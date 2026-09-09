@@ -29,10 +29,11 @@ function normalizedCount(count: number, total: number): number {
   return Math.min(total, Math.max(minimum, count));
 }
 
-function clampedStart(start: number, maximum: number): number {
-  if (Number.isNaN(start) || start === Number.NEGATIVE_INFINITY) return 0;
+function clampedStart(start: number, minimum: number, maximum: number): number {
+  if (Number.isNaN(start)) return 0;
+  if (start === Number.NEGATIVE_INFINITY) return minimum;
   if (start === Number.POSITIVE_INFINITY) return maximum;
-  return Math.min(maximum, Math.max(0, start));
+  return Math.min(maximum, Math.max(minimum, start));
 }
 
 function clampedAnchor(anchor: number): number {
@@ -59,19 +60,19 @@ export function createCandleViewport(
 }
 
 /**
- * Clamps a viewport to the loaded series while retaining fractional candle
- * offsets. Invalid counts fall back to the full series; invalid starts use the
- * nearest deterministic boundary.
+ * Allows blank space at either end while keeping one complete candle slot in
+ * view. Fractional offsets and scale are retained; invalid counts fall back to
+ * the full series and invalid starts use a deterministic boundary.
  */
 export function normalizeCandleViewport(
   viewport: CandleViewport,
   total: number,
 ): CandleViewport {
   const safeTotal = normalizedTotal(total);
+  if (safeTotal === 0) return { start: 0, count: 0 };
   const count = normalizedCount(viewport.count, safeTotal);
-  const maximumStart = safeTotal - count;
   return {
-    start: clampedStart(viewport.start, maximumStart),
+    start: clampedStart(viewport.start, 1 - count, safeTotal - 1),
     count,
   };
 }
@@ -86,12 +87,13 @@ export function isCandleViewportReset(viewport: CandleViewport, total: number): 
     && Math.abs(normalized.count - reset.count) <= tolerance;
 }
 
-/** Returns whether every loaded candle is visible, leaving no room for local pan. */
+/** Returns whether every loaded candle is visible, excluding blank-space pans. */
 export function isCandleViewportFull(viewport: CandleViewport, total: number): boolean {
   const safeTotal = normalizedTotal(total);
   const normalized = normalizeCandleViewport(viewport, safeTotal);
   const tolerance = Math.max(1, safeTotal) * Number.EPSILON * 16;
-  return normalized.start <= tolerance && safeTotal - normalized.count <= tolerance;
+  return normalized.start <= tolerance
+    && normalized.start + normalized.count >= safeTotal - tolerance;
 }
 
 /** Keeps the same candles and scale visible when older candles are prepended. */
@@ -164,14 +166,7 @@ export function panCandleViewport(
   const current = normalizeCandleViewport(viewport, safeTotal);
   if (safeTotal === 0 || Number.isNaN(delta) || delta === 0) return current;
 
-  const maximumStart = safeTotal - current.count;
-  const nextStart = delta === Number.POSITIVE_INFINITY
-    ? maximumStart
-    : delta === Number.NEGATIVE_INFINITY
-      ? 0
-      : current.start + delta;
-
-  return normalizeCandleViewport({ start: nextStart, count: current.count }, safeTotal);
+  return normalizeCandleViewport({ start: current.start + delta, count: current.count }, safeTotal);
 }
 
 /**
@@ -186,7 +181,7 @@ export function candleViewportBounds(
   if (safeTotal === 0) return { startIndex: 0, endIndex: 0 };
 
   const normalized = normalizeCandleViewport(viewport, safeTotal);
-  const startIndex = Math.min(safeTotal - 1, Math.floor(normalized.start));
+  const startIndex = Math.max(0, Math.min(safeTotal - 1, Math.floor(normalized.start)));
   const endIndex = Math.min(
     safeTotal,
     Math.max(startIndex + 1, Math.ceil(normalized.start + normalized.count)),

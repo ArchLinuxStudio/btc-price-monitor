@@ -50,11 +50,11 @@ test("normalizes count and continuous start without mutating input", () => {
   assert.deepEqual(input, { start: 14.75, count: 24.5 });
 
   assert.deepEqual(normalizeCandleViewport({ start: -10, count: 5 }, 100), {
-    start: 0,
+    start: -10,
     count: 12,
   });
   assert.deepEqual(normalizeCandleViewport({ start: 999, count: 20 }, 100), {
-    start: 80,
+    start: 99,
     count: 20,
   });
   assert.deepEqual(normalizeCandleViewport({ start: Number.NaN, count: 20 }, 100), {
@@ -63,32 +63,32 @@ test("normalizes count and continuous start without mutating input", () => {
   });
   assert.deepEqual(
     normalizeCandleViewport({ start: Number.POSITIVE_INFINITY, count: 20 }, 100),
-    { start: 80, count: 20 },
+    { start: 99, count: 20 },
   );
   assert.deepEqual(
     normalizeCandleViewport({ start: Number.NEGATIVE_INFINITY, count: 20 }, 100),
-    { start: 0, count: 20 },
+    { start: -19, count: 20 },
   );
   assert.deepEqual(
     normalizeCandleViewport({ start: 20, count: Number.POSITIVE_INFINITY }, 100),
-    { start: 0, count: 100 },
+    { start: 20, count: 100 },
   );
   assert.deepEqual(
     normalizeCandleViewport({ start: 20, count: Number.NEGATIVE_INFINITY }, 100),
     { start: 20, count: 12 },
   );
   assert.deepEqual(normalizeCandleViewport({ start: 20, count: Number.NaN }, 100), {
-    start: 0,
+    start: 20,
     count: 100,
   });
 });
 
 test("detects the reset state after normalization", () => {
   assert.equal(isCandleViewportReset(createCandleViewport(100), 100), true);
-  assert.equal(isCandleViewportReset({ start: -5, count: 500 }, 100), true);
+  assert.equal(isCandleViewportReset({ start: -5, count: 500 }, 100), false);
   assert.equal(isCandleViewportReset({ start: 0, count: 99 }, 100), false);
   assert.equal(isCandleViewportReset({ start: 1, count: 50 }, 100), false);
-  assert.equal(isCandleViewportReset({ start: 10, count: 1 }, 8), true);
+  assert.equal(isCandleViewportReset({ start: 10, count: 1 }, 8), false);
   assert.equal(isCandleViewportReset({ start: 999, count: 999 }, 0), true);
 });
 
@@ -100,7 +100,8 @@ test("distinguishes the default reset view from the full loaded history", () => 
   assert.equal(isCandleViewportFull({ start: 0, count: 240 }, 240), true);
   assert.equal(isCandleViewportReset({ start: 100, count: 120 }, 240), false);
   assert.equal(isCandleViewportFull({ start: 0, count: 239 }, 240), false);
-  assert.equal(isCandleViewportFull({ start: -5, count: 500 }, 240), true);
+  assert.equal(isCandleViewportFull({ start: -5, count: 500 }, 240), false);
+  assert.equal(isCandleViewportFull({ start: 5, count: 240 }, 240), false);
   for (const total of [0, 1, 12, 100, 120]) {
     assert.equal(isCandleViewportReset(createCandleViewport(total), total), true);
     assert.equal(isCandleViewportFull(createCandleViewport(total), total), true);
@@ -228,14 +229,14 @@ test("pans smoothly by fractional candle counts and clamps at both ends", () => 
   const viewport = { start: 20, count: 40 };
   assert.deepEqual(panCandleViewport(viewport, 100, 3.25), { start: 23.25, count: 40 });
   assert.deepEqual(panCandleViewport(viewport, 100, -7.5), { start: 12.5, count: 40 });
-  assert.deepEqual(panCandleViewport(viewport, 100, -1_000_000), { start: 0, count: 40 });
-  assert.deepEqual(panCandleViewport(viewport, 100, 1_000_000), { start: 60, count: 40 });
+  assert.deepEqual(panCandleViewport(viewport, 100, -1_000_000), { start: -39, count: 40 });
+  assert.deepEqual(panCandleViewport(viewport, 100, 1_000_000), { start: 99, count: 40 });
   assert.deepEqual(panCandleViewport(viewport, 100, Number.NEGATIVE_INFINITY), {
-    start: 0,
+    start: -39,
     count: 40,
   });
   assert.deepEqual(panCandleViewport(viewport, 100, Number.POSITIVE_INFINITY), {
-    start: 60,
+    start: 99,
     count: 40,
   });
   assert.deepEqual(panCandleViewport(viewport, 100, Number.NaN), viewport);
@@ -260,7 +261,7 @@ test("returns half-open integer bounds covering fractional viewport edges", () =
     endIndex: 100,
   });
   assert.deepEqual(candleViewportBounds({ start: 99, count: 999 }, 100), {
-    startIndex: 0,
+    startIndex: 99,
     endIndex: 100,
   });
   assert.deepEqual(candleViewportBounds({ start: 0, count: 1 }, 1), {
@@ -270,6 +271,47 @@ test("returns half-open integer bounds covering fractional viewport edges", () =
   assert.deepEqual(candleViewportBounds({ start: 999, count: 999 }, 0), {
     startIndex: 0,
     endIndex: 0,
+  });
+});
+
+test("blank-space boundaries keep the complete end candle slot visible at the original scale", () => {
+  for (const total of [1, 8, 240, 4_800]) {
+    const original = createCandleViewport(total);
+    const first = panCandleViewport(original, total, Number.NEGATIVE_INFINITY);
+    const last = panCandleViewport(original, total, Number.POSITIVE_INFINITY);
+    assert.deepEqual(first, { start: 1 - original.count, count: original.count });
+    assert.deepEqual(last, { start: total - 1, count: original.count });
+    assert.deepEqual(candleViewportBounds(first, total), { startIndex: 0, endIndex: 1 });
+    assert.deepEqual(candleViewportBounds(last, total), { startIndex: total - 1, endIndex: total });
+    assert.equal(0.5 - first.start, original.count - 0.5);
+    assert.equal(total - 0.5 - last.start, 0.5);
+    assert.deepEqual(candleBarGeometry(1_200, first.count), candleBarGeometry(1_200, original.count));
+    assert.deepEqual(candleBarGeometry(1_200, last.count), candleBarGeometry(1_200, original.count));
+  }
+});
+
+test("prepending preserves fractional blank-space anchors at both ends", () => {
+  for (const viewport of [{ start: -95.75, count: 120 }, { start: 239, count: 120 }]) {
+    const next = prependCandleViewport(viewport, 240, 20);
+    assert.equal(next.count, viewport.count);
+    assert.equal(next.start, viewport.start + 20);
+    for (const index of [0, 239]) {
+      assert.equal(index + 20 + 0.5 - next.start, index + 0.5 - viewport.start);
+    }
+  }
+});
+
+test("zooming in blank space retains a possible anchor and otherwise keeps an end candle visible", () => {
+  for (const viewport of [{ start: -60, count: 120 }, { start: 200, count: 120 }]) {
+    const zoomed = zoomCandleViewport(viewport, 240, 0.75, 0.5);
+    assert.equal(zoomed.start + zoomed.count / 2, viewport.start + viewport.count / 2);
+    assert.deepEqual(zoomCandleViewport(zoomed, 240, 4 / 3, 0.5), viewport);
+  }
+  assert.deepEqual(zoomCandleViewport({ start: -119, count: 120 }, 240, 2, 0), {
+    start: -59, count: 60,
+  });
+  assert.deepEqual(zoomCandleViewport({ start: 239, count: 120 }, 240, 2, 1), {
+    start: 239, count: 60,
   });
 });
 
@@ -296,10 +338,14 @@ test("all operations preserve finite clamped viewport invariants", () => {
         const normalized = normalizeCandleViewport({ start, count }, total);
         assert.equal(Number.isFinite(normalized.start), true);
         assert.equal(Number.isFinite(normalized.count), true);
-        assert.ok(normalized.start >= 0);
+        assert.ok(normalized.start >= (safeTotal === 0 ? 0 : 1 - normalized.count));
         assert.ok(normalized.count >= Math.min(MIN_VISIBLE_CANDLES, safeTotal));
         assert.ok(normalized.count <= safeTotal);
-        assert.ok(normalized.start + normalized.count <= safeTotal);
+        assert.ok(normalized.start <= Math.max(0, safeTotal - 1));
+        const bounds = candleViewportBounds(normalized, total);
+        assert.ok(bounds.startIndex >= 0);
+        assert.ok(bounds.endIndex <= safeTotal);
+        assert.equal(bounds.endIndex > bounds.startIndex, safeTotal > 0);
       }
     }
   }

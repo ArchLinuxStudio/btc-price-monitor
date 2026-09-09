@@ -18,14 +18,15 @@ export interface ChartPriceRange {
 }
 
 export interface ChartCrosshair extends ChartPoint {
-  readonly index: number;
+  readonly index: number | null;
   readonly price: number;
 }
 
 /**
  * Snaps time to the nearest actual candle center inside the drawn plot while
- * retaining the pointer's price. Use the renderer's viewport and padded price
- * range so both guide lines and their axis markers share its exact scale.
+ * retaining the pointer's price. In blank margins, keep the pointer position
+ * with a null candle index. Use the renderer's viewport and padded price range
+ * so both guide lines and their axis markers share its exact scale.
  */
 export function projectChartCrosshair(
   point: ChartPoint,
@@ -58,15 +59,20 @@ export function projectChartCrosshair(
   const lastIndex = Math.min(total - 1, Math.floor(viewportEnd - 0.5));
   if (firstIndex > lastIndex) return null;
 
-  const nearestIndex = Math.round(
-    viewport.start + (point.x - plot.left) / plot.width * viewport.count - 0.5,
-  );
+  const logicalPosition = viewport.start + (point.x - plot.left) / plot.width * viewport.count;
+  const price = prices.high - (point.y - plot.top) / plot.height * priceSpan;
+  // Empty margins have no observed timestamp; keep the guides under the pointer
+  // without snapping to a distant candle or inventing a trading session/date.
+  if (logicalPosition < 0 || logicalPosition > total) {
+    return { index: null, x: point.x, y: point.y, price };
+  }
+  const nearestIndex = Math.round(logicalPosition - 0.5);
   const index = Math.min(lastIndex, Math.max(firstIndex, nearestIndex));
   const x = plot.left + (index + 0.5 - viewport.start) / viewport.count * plot.width;
   return {
     index,
     x: Math.min(right, Math.max(plot.left, x)),
     y: point.y,
-    price: prices.high - (point.y - plot.top) / plot.height * priceSpan,
+    price,
   };
 }

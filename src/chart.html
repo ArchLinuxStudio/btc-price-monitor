@@ -50,6 +50,15 @@
           aria-label="等待 K 线数据"
           aria-describedby="chart-summary chart-navigation-help"
         ></canvas>
+        <div id="history-start-marker" role="img" aria-label="已确认的历史起点" hidden>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14V2m0 1h8l-2 3 2 3H4" /></svg>
+          <span id="history-start-label" aria-hidden="true"></span>
+        </div>
+        <canvas id="current-price-canvas" aria-hidden="true"></canvas>
+        <div id="current-price-marker" role="img" aria-label="当前价格" hidden>
+          <span id="current-price-value"></span>
+          <span id="current-price-status" hidden></span>
+        </div>
         <canvas id="crosshair-canvas" aria-hidden="true"></canvas>
         <span id="crosshair-price" class="crosshair-marker" aria-hidden="true" hidden></span>
         <span id="crosshair-time" class="crosshair-marker" aria-hidden="true" hidden></span>
@@ -71,7 +80,7 @@
       </footer>
       <p class="sr-only" id="chart-summary">尚未加载 K 线数据</p>
       <p class="sr-only" id="chart-navigation-help">
-        移动指针显示十字线及价格、UTC 时间标记。在图表上滚轮或使用加减键缩放，缩小显示更多历史，放大查看细节。按住拖动或使用左右方向键平移，按 Home 查看最早数据，按 End 查看最新数据，按 0 或双击重置视图到最近 120 根 K 线
+        移动指针显示十字线及价格、UTC 时间标记。在图表上滚轮或使用加减键缩放，缩小显示更多历史，放大查看细节。按住拖动或使用左右方向键平移，允许两端留白，直到只保留一根完整 K 线。确认已到达历史起点后，日期轴才会显示起点旗标。按 Home 查看最早已加载数据，按 End 查看最新数据，按 0 或双击重置视图到最近 120 根 K 线
       </p>
     </main>
   </body>

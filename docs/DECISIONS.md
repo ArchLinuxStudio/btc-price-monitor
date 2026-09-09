@@ -216,6 +216,54 @@ After installing the current navigation instance, enable a 480-candle buffer bef
 
 **Implications:** Keep `chart-crosshair.ts`, the overlay/UI, navigation scheduling tests, provider rate-limit references in `MARKET_DATA.md`, and lifecycle checks synchronized. Prefetch applies only to the selected product/source/interval; do not fan out across the watchlist or intervals. The cooldown is local to a navigation instance, not a global IP budget or a promise that another application cannot cause provider limits. No dependency, framework, CSP, capability, native command, or public market-feed contract changes.
 
+## Decision: Allow blank pan margins and mark the loaded history start
+
+**Status:** Accepted; explicit user clarification and implementation request on 2026-09-08
+
+**Decision:** Allow horizontal panning beyond either data edge until one complete end-candle slot remains: for viewport capacity `count` and loaded series length `total`, clamp its start to `[1 - count, total - 1]`. Retain count and proportional bar spacing while dragging; the first candle can reach the right and the latest can reach the left without losing all data offscreen. `Home` still opens the earliest loaded range at start zero; `End` restores the usual latest range, and reset still shows the latest 120. Keep larger pending zoom intent separate from the renderable pan viewport, preserving its anchor as pages arrive and letting drag/reset/reverse zoom replace obsolete intent.
+
+The initial implementation placed “已加载起点” at every visible cache-first candle. **This marker meaning was rejected by the user on 2026-09-09 and is superseded by the confirmed-origin decision below.** The two-sided pan, real-date collision layout, and blank crosshair behavior remain accepted.
+
+**Reason:** The user explicitly requested room on both sides while inspecting chart history. This matches the separation of bar spacing, offsets, and freely scrollable edges in [TradingView's horizontal-scale options](https://tradingview.github.io/lightweight-charts/docs/api/interfaces/HorzScaleOptions). The local canvas and exact-source/capped history contract remain sufficient; no external chart library is needed.
+
+**Implications:** Preserve bounded same-source pagination and prefetch. After a failed/nonadvancing demand page or an unfinished four-page batch, continuing pointer movements must not restart requests automatically. Explicit “继续加载” can retry subject to the existing provider cooldown; returning to a loaded range or resetting permits a later new demand. Tests cover both one-candle edges, sparse/no-more-history/cache-limit states, pending zoom and prepend anchors, held-pointer retry suppression, and time-axis/crosshair behavior in blank space. This supersedes the earlier pan constraint that the full viewport had to remain within loaded candles; it does not change native permissions or market semantics.
+
+## Decision: Confirm the actual history origin before marking it
+
+**Status:** Accepted; explicit correction requested on 2026-09-09
+
+**Decision:** Show “历史起点” only when the current source's earliest queryable candle has been established and retained. A loaded page edge, a short/empty bounded window, an error, or the 4,800-candle cap does not prove origin. `CandleHistoryPage.historyComplete` conveys provider-level completion; navigation separately checks whether cache truncation discarded the earliest candle. Confirmed completion stops both demand and prefetch and removes “继续加载”. Unknown completion uses “尚未确认历史起点，可继续查询”. Preserve two-sided blank pan at all boundaries.
+
+For Coinbase, lazily verify exact-product trade ID 1 with `after=2&limit=1` and verify `after=1&limit=1` is empty; use that time's interval bucket as a conservative scan lower bound. For Gate, use the exact contract's validated `create_time` bucket. Metadata never creates candles or overrides earlier observed data. For Bybit, query `end` without `start`, keep the actual oldest returned timestamp as the exclusive cursor, and declare completion only on a valid empty list covering all earlier times. These routes are supported by [Coinbase trade pagination](https://docs.cdp.coinbase.com/api-reference/exchange-api/rest-api/products/get-product-trades), [Coinbase cursor direction](https://docs.cdp.coinbase.com/exchange/rest-api/pagination), [Bybit Kline parameters](https://bybit-exchange.github.io/docs/v5/market/kline), and [Gate contract metadata](https://www.gate.com/docs/developers/apiv4/en/#get-a-single-contract). The lower-bound interpretation is local engineering logic checked against actual provider responses, not an additional provider guarantee of complete archived data.
+
+**Constraints:** Origin metadata is requested serially only after the first short/empty Coinbase/Gate page, cached within the frozen selection/interval, and failed probes remain unknown without automatic retries. Metadata 429/403 preserve the received candles and impose the existing 60-second/10-minute cooldown once. The actual chart loader rejects partially malformed candle pages so discarded rows cannot later masquerade as the first candle; the older array-returning helper retains its compatibility behavior. No provider, symbol guess, key, CSP origin, or native permission is added.
+
+**Rejected alternatives:** A flag at each cache edge; treating any empty window or cache cap as listing inception; unlimited empty-window scanning as the only end detector; Coinbase `before=0` (observed to return latest trades); Bybit `launchTime` as the cutoff (could exclude prelisting data); or inventing OHLC data from metadata. If origin evidence is unavailable, keep it unconfirmed rather than declaring success.
+
+**Presentation:** Date and price axes use brighter 12px semibold values, matching measured crosshair fonts and expanded margins. Preserve compact-window label bounds and real UTC dates.
+
+## Decision: Show a live same-source current-price guide
+
+**Status:** Accepted; explicit user request on 2026-09-09
+
+**Decision:** Display a 1px dashed horizontal current-price line and a matching colored right-axis label. Use the selected exchange's actual quote, with green/red relative to the latest loaded candle's open. An unavailable quote creates no line; a retained stale quote uses gray and “报价滞后”. Keep crosshair inspection labels above the current-price layer. The [TradingView series options](https://tradingview.github.io/lightweight-charts/docs/api/interfaces/SeriesOptionsCommon) provide the thin dashed line and axis-value style reference; no chart library is added.
+
+One visible chart subscribes only to its frozen exact Coinbase/Bybit/Gate product through the existing resilient WebSocket code. Reuse same-source REST parsers for cold-start/failure fallback, with healthy WebSocket priority, the existing 12-second freshness rule, serial requests at least five seconds apart, an eight-second timeout and 429/403 cooldowns. Interval changes retain the quote connection; product/source changes and hiding stop and invalidate old work. Do not instantiate a second full `PriceFeed`, fan out across sources, reconnect the monitor feed, or fetch daily opens just to draw this guide.
+
+**Original boundary, superseded by the synchronization correction below:** The first guide updated only its price overlay and left OHLC at the initial history snapshot. User testing found that this separates the line from the newest candle close. The prior tests verified line-to-axis alignment but missed line-to-candle equality. Exact-source selection, CSP, permissions and package versions remain unchanged.
+
+## Decision: Synchronize the current candle and its price guide
+
+**Status:** Accepted; explicit user correction on 2026-09-09
+
+**Decision:** The guide's value always comes from the last loaded candle's close. A fresh same-source/product quote may update close/high/low only in the already established matching time bucket, preserving its exchange-provided open. Candle geometry and guide render in the same animation frame. Reject stale quotes and event times older than the accepted snapshot or live watermark. Pointer-only crosshair movement still redraws just its overlay.
+
+Refresh actual recent OHLC from the existing source/interval on interval rollover, stale recovery and a 30-second reconciliation cadence. Requests remain serial, at least five seconds apart, with an eight-second timeout and HTTP 429/403 cooldowns of 60 seconds/10 minutes. Retain and replay bounded same-bucket quote extrema/last values from during the request so a late snapshot cannot overwrite a newer quote. This is bounded history reconciliation, not REST replacing the primary WebSocket quote stream. Coinbase's public [WebSocket candle channel](https://docs.cdp.coinbase.com/coinbase-app/advanced-trade-apis/websocket/websocket-endpoints) supplies five-minute buckets, so it cannot alone cover the requested 1m interval; the existing REST intervals remain authoritative for opens and new buckets.
+
+**Missing buckets:** Never create a candle from a ticker snapshot, repeat the previous close across a gap, or apply a new-minute quote to the preceding minute. Until the exchange supplies the new candle, keep the guide attached to the last actual close and show “同步 K 线…”. Failures retain the chart; stale quotes remain explicitly marked. Known existing buckets can be reconciled and actual later buckets appended, without changing the older-history cursor or confirmed origin. Latest-aligned views follow appended bars; historical views, active drags and blank margins preserve their time anchors. The 4,800-candle cap also applies to live appends; evicting the original first candle removes its origin flag.
+
+**Lifecycle and validation:** Interval changes replace the candle synchronizer while keeping the same quote connection. Source/product changes, hide/close and failed initialization cancel both obsolete work and late callbacks. Test direct line-to-last-body/close equality, 1m rollover, request-time extrema replay, sparse gaps, stale/recovery, interval races, signed cache-trim offsets and concurrent older loads. No new provider, symbol, dependency or native permission is introduced.
+
 ## Decision: No hover text tooltips
 
 **Status:** Accepted; explicit user requirement

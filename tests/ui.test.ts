@@ -270,7 +270,7 @@ test("provides one maximized candlestick window without hiding the compact monit
   assert.match(chartHtml, /class="view-toolbar"[\s\S]*?id="zoom-out"[\s\S]*?id="reset-view"[\s\S]*?id="zoom-in"/);
   assert.match(chartHtml, /id="view-caption"/);
   assert.match(chartHtml, /滚轮缩放 · 拖拽平移 · 双击重置/);
-  assert.match(chartHtml, /按 Home 查看最早数据，按 End 查看最新数据，按 0 或双击重置视图/);
+  assert.match(chartHtml, /按 Home 查看最早已加载数据，按 End 查看最新数据，按 0 或双击重置视图/);
   assert.match(chartHtml, /<script type="module" src="\.\/chart\.js"><\/script>/);
   assert.match(chartCss, /\.chart-shell\s*\{[\s\S]*?width:\s*100vw;[\s\S]*?height:\s*100vh;/);
   assert.match(chartCss, /#candle-canvas\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;/);
@@ -278,11 +278,19 @@ test("provides one maximized candlestick window without hiding the compact monit
   assert.match(chartCss, /#candle-canvas\s*\{[\s\S]*?cursor:\s*crosshair/);
   assert.doesNotMatch(chartCss, /cursor:\s*grabb?ing|cursor:\s*grab\b/);
   assert.match(chartHtml, /<canvas id="crosshair-canvas" aria-hidden="true"><\/canvas>/);
+  assert.match(chartHtml, /id="history-start-marker" role="img" aria-label="已确认的历史起点" hidden/);
+  assert.match(chartHtml, /id="current-price-canvas" aria-hidden="true"/);
+  assert.match(chartHtml, /id="current-price-marker" role="img" aria-label="当前价格" hidden/);
+  assert.match(chartCss, /#current-price-marker\s*\{[\s\S]*?pointer-events:\s*none;/);
+  assert.match(chartHtml, /确认已到达历史起点后，日期轴才会显示起点旗标/);
+  assert.match(chartCss, /#history-start-marker\s*\{[\s\S]*?pointer-events:\s*none;/);
+  assert.match(chartTypescript, /layoutChartTimeAxis\(viewport, candles\.length/);
+  assert.doesNotMatch(chartTypescript, /isCandleViewportFull/);
   assert.match(chartCss, /#crosshair-canvas\s*\{[\s\S]*?pointer-events:\s*none;/);
   assert.match(chartCss, /#candle-canvas:focus-visible/);
   assert.match(chartCss, /@media \(min-width: 960px\)[\s\S]*?padding-right: max\(248px, env\(safe-area-inset-right\)\)/);
 
-  assert.match(chartTypescript, /fetchCandleHistoryPage\(\{/);
+  assert.match(chartTypescript, /createCandleHistoryLoader\(\{/);
   assert.match(chartTypescript, /devicePixelRatio/);
   assert.match(chartTypescript, /new ResizeObserver\(scheduleDraw\)/);
   assert.match(chartTypescript, /listen<string>\("chart-selection-changed"/);

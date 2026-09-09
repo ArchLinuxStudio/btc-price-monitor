@@ -57,6 +57,22 @@ export interface PriceFeedOptions {
   products?: readonly Product[];
 }
 
+export type ExactPriceSource = "coinbase" | "bybit" | "gate";
+
+export interface ExactPriceSocket {
+  start(): void;
+  stop(): void;
+  reconnectNow(): void;
+}
+
+export interface ExactPriceSocketOptions {
+  product: Product;
+  marketSource: MarketSource | null | undefined;
+  onQuotes: (quotes: Quote[]) => void;
+  WebSocketImpl?: WebSocketConstructor;
+  now?: () => number;
+}
+
 interface UtcOpenEvent {
   kind: "utcOpen";
   asset: string;
@@ -1398,6 +1414,56 @@ function buildSourceConfigs(products: readonly Product[]): SourceConfig[] {
   }
 
   return configs;
+}
+
+/** Opens only the frozen chart market, reusing the monitor's socket recovery. */
+export function createExactPriceSocket({
+  product,
+  marketSource,
+  onQuotes,
+  WebSocketImpl = globalThis.WebSocket as unknown as WebSocketConstructor,
+  now = () => Date.now(),
+}: ExactPriceSocketOptions): ExactPriceSocket {
+  if (marketSource !== "coinbase" && marketSource !== "bybit" && marketSource !== "gate") {
+    throw new TypeError("Unsupported exact price source");
+  }
+  const frozen = { ...product };
+  if (marketSource === "coinbase") {
+    if (frozen.marketType === "perpetual" || frozen.quoteCurrency === "USDT"
+      || frozen.assetClass === "equity" || !/^[A-Z0-9][A-Z0-9._-]{0,63}-USD$/.test(frozen.id)) {
+      throw new TypeError("Coinbase requires a real USD spot product");
+    }
+  } else {
+    const match = /^([A-Z0-9][A-Z0-9.]{0,39})-USDT-PERP$/.exec(frozen.id);
+    if (!match || frozen.marketType !== "perpetual" || frozen.quoteCurrency !== "USDT"
+      || frozen.assetClass !== "equity") {
+      throw new TypeError("An exact stock-related USDT perpetual is required");
+    }
+    if (marketSource === "bybit"
+      && (typeof frozen.bybitSymbol !== "string" || !/^[A-Z0-9]{2,80}USDT$/.test(frozen.bybitSymbol))) {
+      throw new TypeError("Missing exact Bybit symbol");
+    }
+    if (marketSource === "gate"
+      && (typeof frozen.gateSymbol !== "string" || !/^[A-Z0-9]{1,80}_USDT$/.test(frozen.gateSymbol)
+        || frozen.gateSymbol !== `${match[1]}_USDT`)) {
+      throw new TypeError("Missing exact Gate symbol");
+    }
+  }
+  if (!WebSocketImpl) throw new Error("WebSocket is not available in this runtime");
+  // Building configurations is side-effect free; only this source gets a socket.
+  // Do not normalize an empty product list, which intentionally restores defaults.
+  const config = buildSourceConfigs([frozen]).find((entry) => entry.id === marketSource)!;
+  const connection = new ResilientSocket(config, WebSocketImpl, {
+    onQuotes: (quotes) => onQuotes(quotes.filter((quote): quote is Quote => (
+      quote.kind !== "utcOpen" && quote.asset === frozen.id && quote.marketSource === marketSource
+    ))),
+    onStatus: () => {},
+  }, now);
+  return {
+    start: () => connection.start(),
+    stop: () => connection.stop(),
+    reconnectNow: () => connection.reconnectNow(),
+  };
 }
 
 export class PriceFeed {

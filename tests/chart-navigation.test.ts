@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import type { Candle, CandleHistoryPage } from "../src/candle-history.ts";
 import { CandleHistoryError } from "../src/candle-history.ts";
 import { ChartNavigation, MAX_HISTORY_CANDLES } from "../src/chart-navigation.ts";
+import { candleBarGeometry, candleViewportBounds } from "../src/chart-viewport.ts";
 
 function candle(openTime: number): Candle {
   return { openTime, open: 100, high: 102, low: 99, close: 101 };
@@ -56,6 +57,155 @@ function fakeClock(): {
     pending: () => timers.size,
   };
 }
+
+test("recent candles replace known buckets and append sorted real buckets without backfilling history", () => {
+  const initial = [candle(10), candle(20)];
+  const changes: number[] = [];
+  const navigation = new ChartNavigation({ candles: initial, nextBefore: 10 }, {
+    loadPage: async () => page(0), onChange: (shift) => changes.push(shift),
+  });
+  const updated = { ...candle(20), high: 106, close: 105 };
+  const appended = { ...candle(25), low: 98, close: 100 };
+  navigation.mergeRecentCandles([candle(5), candle(15), candle(25), updated, appended]);
+  assert.deepEqual(navigation.candles.map((entry) => entry.openTime), [10, 20, 25]);
+  assert.deepEqual(navigation.candles[1], updated);
+  assert.deepEqual(navigation.candles[2], appended);
+  assert.notEqual(navigation.candles[1], updated);
+  assert.notEqual(navigation.candles[2], appended);
+  assert.deepEqual(initial, [candle(10), candle(20)]);
+  assert.deepEqual(changes, [0]);
+  const previous = navigation.candles;
+  navigation.mergeRecentCandles([updated, appended]);
+  assert.equal(navigation.candles, previous);
+  assert.deepEqual(changes, [0]);
+});
+
+test("new real buckets follow an aligned latest viewport without changing its scale", () => {
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => page(9_760), onChange: () => {},
+  });
+  navigation.mergeRecentCandles([candle(10_240), candle(10_243)]);
+  assert.deepEqual(navigation.viewport, { start: 122, count: 120 });
+  assert.deepEqual(navigation.candles.slice(-3).map((entry) => entry.openTime), [10_239, 10_240, 10_243]);
+});
+
+test("recent appends preserve historical and blank-margin anchors and allow drag to suppress following", () => {
+  for (const [start, followLatest] of [[25.5, true], [-50, true], [239, true], [120, false]] as const) {
+    const navigation = new ChartNavigation({ ...page(10_000), historyComplete: true }, {
+      loadPage: async () => { throw new Error("unexpected history request"); }, onChange: () => {},
+    });
+    navigation.setViewport({ start, count: 120 });
+    navigation.mergeRecentCandles([candle(10_240)], followLatest);
+    assert.deepEqual(navigation.viewport, { start, count: 120 });
+  }
+});
+
+test("a new tail initializes an empty chart and stays right aligned while a sparse series grows", () => {
+  const navigation = new ChartNavigation({ candles: [], nextBefore: 10_000 }, {
+    loadPage: async () => page(9_760), onChange: () => {},
+  });
+  navigation.mergeRecentCandles(page(10_000, 9).candles);
+  assert.deepEqual(navigation.viewport, { start: 0, count: 9 });
+  navigation.mergeRecentCandles([candle(10_009)]);
+  assert.deepEqual(navigation.viewport, { start: 0, count: 10 });
+  assert.equal(navigation.historyStartReached, false);
+});
+
+test("recent appends leave the exclusive older-history cursor unchanged", async () => {
+  const beforeValues: number[] = [];
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async (before) => { beforeValues.push(before); return page(9_760); }, onChange: () => {},
+  });
+  navigation.mergeRecentCandles([candle(9_999), candle(10_240)]);
+  navigation.pan(-200);
+  await settle();
+  assert.deepEqual(beforeValues, [10_000]);
+  assert.equal(navigation.candles.at(-1)?.openTime, 10_240);
+});
+
+test("tail eviction preserves surviving time anchors and reports the signed drag-index shift", () => {
+  const changes: number[] = [];
+  const navigation = new ChartNavigation({ ...page(0, MAX_HISTORY_CANDLES), historyComplete: true }, {
+    loadPage: async () => { throw new Error("unexpected history request"); },
+    onChange: (shift) => changes.push(shift),
+  });
+  assert.equal(navigation.historyStartReached, true);
+  navigation.setViewport({ start: 1_000.5, count: 120 });
+  changes.length = 0;
+  navigation.mergeRecentCandles([candle(MAX_HISTORY_CANDLES), candle(MAX_HISTORY_CANDLES + 1)]);
+  assert.equal(navigation.candles.length, MAX_HISTORY_CANDLES);
+  assert.equal(navigation.candles[0].openTime, 2);
+  assert.deepEqual(navigation.viewport, { start: 998.5, count: 120 });
+  assert.equal(navigation.candles[0].openTime + navigation.viewport.start, 1_000.5);
+  assert.deepEqual(changes, [-2]);
+  assert.equal(navigation.historyStartReached, false);
+  assert.match(navigation.historyMessage, /4800/);
+  assert.equal(navigation.canLoadOlder, false);
+});
+
+test("an aligned latest view follows rolling cache eviction", () => {
+  const navigation = new ChartNavigation(page(10_000, MAX_HISTORY_CANDLES), {
+    loadPage: async () => page(9_760), onChange: () => {},
+  });
+  navigation.mergeRecentCandles(page(10_000 + MAX_HISTORY_CANDLES, 3).candles);
+  assert.deepEqual(navigation.viewport, { start: MAX_HISTORY_CANDLES - 120, count: 120 });
+  assert.equal(navigation.candles.at(-1)?.openTime, 10_000 + MAX_HISTORY_CANDLES + 2);
+});
+
+test("a pending zoom retains its pointer time anchor while recent candles arrive", () => {
+  const request = deferred<CandleHistoryPage>();
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => request.promise, onChange: () => {},
+  });
+  navigation.setViewport({ start: 180, count: 120 });
+  const anchorTime = navigation.candles[0].openTime + 180 + 120 * 0.25;
+  navigation.zoom(0.2, 0.25);
+  navigation.mergeRecentCandles(page(10_240, 2).candles);
+  assert.equal(navigation.viewport.count, 242);
+  assert.equal(navigation.candles[0].openTime + navigation.viewport.start + navigation.viewport.count * 0.25,
+    anchorTime);
+  assert.equal(navigation.needsOlder, true);
+  navigation.mergeRecentCandles(page(10_242, 400).candles);
+  assert.equal(navigation.viewport.count, 600);
+  assert.equal(navigation.candles[0].openTime + navigation.viewport.start + navigation.viewport.count * 0.25,
+    anchorTime);
+  assert.equal(navigation.needsOlder, false);
+  navigation.cancel();
+});
+
+test("an older in-flight page cannot overflow a cache filled by a recent tail", async () => {
+  const request = deferred<CandleHistoryPage>();
+  const changes: number[] = [];
+  const navigation = new ChartNavigation(page(10_000, MAX_HISTORY_CANDLES - 10), {
+    loadPage: async () => request.promise, onChange: (shift) => changes.push(shift),
+  });
+  navigation.setViewport({ start: -1, count: 120 });
+  assert.equal(navigation.loadingOlder, true);
+  navigation.mergeRecentCandles(page(10_000 + MAX_HISTORY_CANDLES - 10, 20).candles, false);
+  assert.equal(navigation.candles.length, MAX_HISTORY_CANDLES);
+  const before = navigation.candles;
+  const viewport = navigation.viewport;
+  request.resolve({ ...page(9_760), historyComplete: true });
+  await settle();
+  assert.equal(navigation.candles, before);
+  assert.deepEqual(navigation.viewport, viewport);
+  assert.equal(navigation.historyStartReached, false);
+  assert.equal(navigation.loadingOlder, false);
+  assert.equal(changes.includes(-10), true);
+  assert.equal(changes.some((shift) => shift > 0), false);
+});
+
+test("cancelled navigation ignores recent updates without notifying or replacing its series", () => {
+  let changes = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => page(9_760), onChange: () => { changes += 1; },
+  });
+  const before = navigation.candles;
+  navigation.cancel();
+  navigation.mergeRecentCandles([candle(10_240)]);
+  assert.equal(navigation.candles, before);
+  assert.equal(changes, 0);
+});
 
 test("initial zoom-out reveals more loaded history and keeps the latest edge", () => {
   let requests = 0;
@@ -260,7 +410,7 @@ test("empty and sparse pages advance their scan cursor, with at most four pages 
   assert.equal(navigation.candles.length, 240);
   assert.equal(navigation.needsOlder, true);
   assert.equal(navigation.canLoadOlder, true);
-  assert.match(navigation.historyMessage, /继续加载/);
+  assert.match(navigation.historyMessage, /尚未确认历史起点.*继续查询/);
   navigation.continueLoading();
   await settle();
   assert.deepEqual(beforeValues, [10_000, 9_760, 9_520, 9_280, 9_040]);
@@ -304,7 +454,7 @@ test("history cache stops at its explicit limit and keeps the nearest older cand
   navigation.continueLoading();
   await settle();
   assert.equal(requests, 1);
-  assert.deepEqual(navigation.viewport, { start: 0, count: 120 });
+  assert.deepEqual(navigation.viewport, { start: -119, count: 120 });
 });
 
 test("a zero cursor honestly stops at the queryable history boundary", async () => {
@@ -317,7 +467,174 @@ test("a zero cursor honestly stops at the queryable history boundary", async () 
   assert.equal(navigation.candles.length, 480);
   assert.deepEqual(navigation.viewport, { start: 0, count: 480 });
   assert.equal(navigation.canLoadOlder, false);
-  assert.match(navigation.historyMessage, /时间边界/);
+  assert.equal(navigation.historyStartReached, true);
+  assert.match(navigation.historyMessage, /历史起点/);
+});
+
+test("confirmed origin stops demand and prefetch and keeps its status through pan and reset", async () => {
+  const clock = fakeClock();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    ...clock,
+    loadPage: async () => {
+      requests += 1;
+      return { ...page(9_760), historyComplete: true };
+    },
+    onChange: () => {},
+  });
+  navigation.startPrefetch();
+  assert.equal(navigation.historyStartReached, false);
+  navigation.pan(-500);
+  await settle();
+  assert.equal(navigation.historyStartReached, true);
+  assert.equal(navigation.canLoadOlder, false);
+  assert.equal(navigation.needsOlder, false);
+  assert.equal(navigation.historyMessage, "已到达历史起点");
+  navigation.pan(-500);
+  navigation.continueLoading();
+  navigation.reset();
+  await clock.advance(10_000);
+  assert.equal(requests, 1);
+  assert.equal(clock.pending(), 0);
+  assert.equal(navigation.historyMessage, "已到达历史起点");
+});
+
+test("confirmed empty older range establishes the first retained candle as the origin", async () => {
+  const navigation = new ChartNavigation(page(10_000, 8), {
+    loadPage: async () => ({ candles: [], nextBefore: 10_000, historyComplete: true }),
+    onChange: () => {},
+  });
+  navigation.pan(-10);
+  await settle();
+  assert.equal(navigation.candles[0].openTime, 10_000);
+  assert.equal(navigation.historyStartReached, true);
+  assert.equal(navigation.canLoadOlder, false);
+  assert.equal(navigation.viewport.count, 8);
+});
+
+test("short pages and four empty windows remain unconfirmed instead of inventing an origin", async () => {
+  let calls = 0;
+  const navigation = new ChartNavigation(page(10_000, 8), {
+    loadPage: async (before) => { calls += 1; return { candles: [], nextBefore: before - 240 }; },
+    onChange: () => {},
+  });
+  assert.equal(navigation.historyStartReached, false);
+  navigation.pan(-20);
+  await settle();
+  assert.equal(calls, 4);
+  assert.equal(navigation.historyStartReached, false);
+  assert.equal(navigation.canLoadOlder, true);
+  assert.equal(navigation.historyMessage, "尚未确认历史起点，可继续查询");
+});
+
+test("a confirmed origin discarded at the cache limit never marks the retained edge", async () => {
+  const navigation = new ChartNavigation(page(10_000, MAX_HISTORY_CANDLES - 10), {
+    loadPage: async () => ({ ...page(9_760), historyComplete: true }),
+    onChange: () => {},
+  });
+  navigation.pan(-MAX_HISTORY_CANDLES);
+  await settle();
+  assert.equal(navigation.candles[0].openTime, 9_990);
+  assert.equal(navigation.historyStartReached, false);
+  assert.equal(navigation.canLoadOlder, false);
+  assert.match(navigation.historyMessage, /4800.*上限/);
+  const truncatedInitial = new ChartNavigation({ ...page(1, MAX_HISTORY_CANDLES + 1), historyComplete: true }, {
+    loadPage: async () => { throw new Error("unexpected request"); }, onChange: () => {},
+  });
+  assert.equal(truncatedInitial.historyStartReached, false);
+});
+
+test("an origin exactly filling the cache is confirmed and takes priority over the limit", () => {
+  const navigation = new ChartNavigation({ ...page(1, MAX_HISTORY_CANDLES), historyComplete: true }, {
+    loadPage: async () => { throw new Error("unexpected request"); }, onChange: () => {},
+  });
+  assert.equal(navigation.historyStartReached, true);
+  assert.equal(navigation.historyMessage, "已到达历史起点");
+});
+
+test("confirmed all-empty history stops queries without creating a candle or flag", async () => {
+  const navigation = new ChartNavigation({ candles: [], nextBefore: 10_000 }, {
+    loadPage: async () => ({ candles: [], nextBefore: 9_760, historyComplete: true }),
+    onChange: () => {},
+  });
+  navigation.continueLoading();
+  await settle();
+  assert.equal(navigation.canLoadOlder, false);
+  assert.equal(navigation.historyStartReached, false);
+  assert.match(navigation.historyMessage, /暂无可查询/);
+});
+
+test("an explicitly unconfirmed zero cursor does not manufacture an origin", () => {
+  const navigation = new ChartNavigation({ ...page(0), historyComplete: false }, {
+    loadPage: async () => { throw new Error("unexpected request"); }, onChange: () => {},
+  });
+  assert.equal(navigation.canLoadOlder, false);
+  assert.equal(navigation.historyStartReached, false);
+  assert.match(navigation.historyMessage, /历史起点尚未确认/);
+});
+
+test("invalid query time does not prove that the oldest loaded candle is the origin", async () => {
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => { throw new CandleHistoryError("invalid-time", "invalid cursor"); },
+    onChange: () => {},
+  });
+  navigation.pan(-500);
+  await settle();
+  assert.equal(navigation.historyStartReached, false);
+  assert.equal(navigation.canLoadOlder, false);
+  assert.match(navigation.historyMessage, /时间无效/);
+});
+
+test("a late confirmed origin from a cancelled selection cannot establish a boundary", async () => {
+  const pending = deferred<CandleHistoryPage>();
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => pending.promise, onChange: () => {},
+  });
+  navigation.pan(-500);
+  navigation.cancel();
+  pending.resolve({ ...page(9_760), historyComplete: true });
+  await settle();
+  assert.equal(navigation.historyStartReached, false);
+  assert.equal(navigation.candles.length, 240);
+});
+
+test("origin metadata cooldown preserves candles and pauses demand and speculation", async () => {
+  for (const delay of [60_000, 600_000]) {
+    const clock = fakeClock();
+    let calls = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      ...clock,
+      loadPage: async (before) => {
+        calls += 1;
+        return { candles: [candle(before - 1)], nextBefore: before - 240,
+          ...(calls === 1 ? { olderRetryAfterMs: delay } : { historyComplete: true }) };
+      }, onChange: () => {},
+    });
+    navigation.startPrefetch(); navigation.pan(-500);
+    await settle();
+    assert.equal(calls, 1);
+    assert.equal(navigation.candles.length, 241);
+    assert.equal(navigation.historyStartReached, false);
+    assert.match(navigation.historyMessage, /请求受限/);
+    navigation.continueLoading(); await clock.advance(delay - 1);
+    navigation.continueLoading(); await settle(); assert.equal(calls, 1);
+    await clock.advance(1); navigation.continueLoading(); await settle();
+    assert.equal(calls, 2);
+    assert.equal(navigation.historyStartReached, true);
+  }
+});
+
+test("initial metadata cooldown does not discard the first page or start prefetch", async () => {
+  const clock = fakeClock();
+  let calls = 0;
+  const navigation = new ChartNavigation({ ...page(10_000, 80), olderRetryAfterMs: 60_000 }, {
+    ...clock, loadPage: async () => { calls += 1; return page(9_760); }, onChange: () => {},
+  });
+  navigation.startPrefetch(); await clock.advance(2_000);
+  assert.equal(calls, 0); assert.equal(navigation.candles.length, 80);
+  navigation.pan(-80); await settle();
+  assert.equal(calls, 0); assert.match(navigation.historyMessage, /请求受限/);
+  navigation.cancel();
 });
 
 test("a nonadvancing cursor cannot spin or silently declare history exhausted", async () => {
@@ -434,7 +751,7 @@ test("demand arriving during prefetch reuses its request and continues a bounded
   assert.deepEqual(requests, [10_000, 9_760, 9_520, 9_280]);
   assert.equal(navigation.candles.length, 1_200);
   assert.equal(navigation.needsOlder, true);
-  assert.match(navigation.historyMessage, /继续加载/);
+  assert.match(navigation.historyMessage, /尚未确认历史起点.*继续查询/);
   assert.equal(clock.pending(), 0);
 });
 
@@ -604,3 +921,268 @@ test("prefetch never starts on an empty initial range, a full cache, or a histor
   }
   assert.equal(requests, 0);
 });
+
+test("both data ends allow blank-space pan even when all data are visible or history cannot grow", () => {
+  let requests = 0;
+  for (const initial of [page(0, 1), page(0, 8), page(0), page(10_000, MAX_HISTORY_CANDLES)]) {
+    const navigation = new ChartNavigation(initial, {
+      loadPage: async () => { requests += 1; return page(0); },
+      onChange: () => {},
+    });
+    const count = navigation.viewport.count;
+    const geometry = candleBarGeometry(1_200, count);
+    navigation.pan(-1e300);
+    assert.deepEqual(navigation.viewport, { start: 1 - count, count });
+    assert.deepEqual(candleViewportBounds(navigation.viewport, navigation.candles.length), {
+      startIndex: 0, endIndex: 1,
+    });
+    navigation.pan(1e300);
+    assert.deepEqual(navigation.viewport, { start: initial.candles.length - 1, count });
+    assert.deepEqual(candleViewportBounds(navigation.viewport, navigation.candles.length), {
+      startIndex: initial.candles.length - 1, endIndex: initial.candles.length,
+    });
+    assert.deepEqual(candleBarGeometry(1_200, navigation.viewport.count), geometry);
+    navigation.pan(Number.POSITIVE_INFINITY);
+    assert.deepEqual(navigation.viewport, { start: initial.candles.length - count, count });
+    assert.equal(navigation.needsOlder, false);
+  }
+  assert.equal(requests, 0);
+});
+
+test("an extreme older drag bounds its demand and preserves the end candle while a page is pending", async () => {
+  const pending = deferred<CandleHistoryPage>();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => { requests += 1; return pending.promise; },
+    onChange: () => {},
+  });
+  navigation.pan(Number.NEGATIVE_INFINITY);
+  assert.deepEqual(navigation.viewport, { start: -119, count: 120 });
+  assert.equal(requests, 1);
+  const oldCandlePosition = 0.5 - navigation.viewport.start;
+  pending.resolve(page(9_760));
+  await settle();
+  assert.deepEqual(navigation.viewport, { start: 121, count: 120 });
+  assert.equal(240.5 - navigation.viewport.start, oldCandlePosition);
+  assert.equal(navigation.needsOlder, false);
+  assert.equal(requests, 1);
+});
+
+test("a sparse older response fills blank space without stretching or moving the loaded candles", async () => {
+  const pending = deferred<CandleHistoryPage>();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async (before) => {
+      requests += 1;
+      if (requests === 1) return pending.promise;
+      return { candles: [], nextBefore: before - 240 };
+    },
+    onChange: () => {},
+  });
+  navigation.setViewport({ start: -80.25, count: 120 });
+  pending.resolve({ candles: [candle(9_997), candle(9_999)], nextBefore: 9_760 });
+  await settle();
+  assert.equal(requests, 4);
+  assert.deepEqual(navigation.viewport, { start: -78.25, count: 120 });
+  assert.deepEqual(candleViewportBounds(navigation.viewport, 242), { startIndex: 0, endIndex: 42 });
+  assert.equal(navigation.needsOlder, true);
+  assert.match(navigation.historyMessage, /尚未确认历史起点.*继续查询/);
+});
+
+test("starting a drag while a large zoom waits uses the visible scale and clears hidden demand", async () => {
+  const pending = deferred<CandleHistoryPage>();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => { requests += 1; return pending.promise; },
+    onChange: () => {},
+  });
+  navigation.zoom(0.01);
+  assert.deepEqual(navigation.viewport, { start: 0, count: 240 });
+  navigation.pan(1e300);
+  assert.deepEqual(navigation.viewport, { start: 239, count: 240 });
+  assert.equal(navigation.needsOlder, false);
+  pending.resolve(page(9_760));
+  await settle();
+  assert.deepEqual(navigation.viewport, { start: 479, count: 240 });
+  assert.equal(requests, 1);
+});
+
+for (const action of ["reset", "zoom-in", "End"] as const) {
+  test(`${action} after an older blank-space drag wins over late history`, async () => {
+    const pending = deferred<CandleHistoryPage>();
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      loadPage: async () => { requests += 1; return pending.promise; },
+      onChange: () => {},
+    });
+    navigation.pan(-1e300);
+    if (action === "reset") navigation.reset();
+    else if (action === "zoom-in") navigation.zoom(2, 1);
+    else navigation.pan(Number.POSITIVE_INFINITY);
+    const current = navigation.viewport;
+    pending.resolve(page(9_760));
+    await settle();
+    assert.deepEqual(navigation.viewport, { start: current.start + 240, count: current.count });
+    assert.equal(navigation.needsOlder, false);
+    assert.equal(requests, 1);
+  });
+}
+
+test("prefetch prepends behind a newer blank-space pan without changing its scale or latest position", async () => {
+  const clock = fakeClock();
+  const pending = deferred<CandleHistoryPage>();
+  const navigation = new ChartNavigation(page(10_000), {
+    ...clock,
+    loadPage: async () => pending.promise,
+    onChange: () => {},
+  });
+  navigation.startPrefetch();
+  await clock.advance(1_000);
+  navigation.pan(1e300);
+  assert.deepEqual(navigation.viewport, { start: 239, count: 120 });
+  pending.resolve(page(9_760));
+  await settle();
+  assert.deepEqual(navigation.viewport, { start: 479, count: 120 });
+  assert.equal(navigation.candles.length - 0.5 - navigation.viewport.start, 0.5);
+  navigation.cancel();
+});
+
+test("zooming out in newer blank space still fulfills its requested scale from bounded history", async () => {
+  const pending = deferred<CandleHistoryPage>();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => { requests += 1; return pending.promise; },
+    onChange: () => {},
+  });
+  navigation.pan(1e300);
+  navigation.zoom(0.25, 0);
+  assert.equal(requests, 1);
+  assert.deepEqual(navigation.viewport, { start: 239, count: 240 });
+  pending.resolve(page(9_760));
+  await settle();
+  assert.deepEqual(navigation.viewport, { start: 479, count: 480 });
+  assert.equal(navigation.needsOlder, false);
+  assert.equal(requests, 1);
+});
+
+test("a progressive larger zoom retains its pointer anchor through blank space and successive pages", async () => {
+  const first = deferred<CandleHistoryPage>();
+  const second = deferred<CandleHistoryPage>();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async () => ++requests === 1 ? first.promise : second.promise,
+    onChange: () => {},
+  });
+  navigation.setViewport({ start: 180, count: 120 });
+  const anchor = navigation.candles[0].openTime + 180 + 120 * 0.25;
+  const visibleAnchor = (): number => navigation.candles[0].openTime
+    + navigation.viewport.start + navigation.viewport.count * 0.25;
+  navigation.zoom(0.2, 0.25);
+  assert.equal(navigation.viewport.count, 240);
+  assert.equal(visibleAnchor(), anchor);
+  first.resolve(page(9_760));
+  await settle();
+  assert.equal(requests, 2);
+  assert.equal(navigation.viewport.count, 480);
+  assert.equal(visibleAnchor(), anchor);
+  second.resolve(page(9_520));
+  await settle();
+  assert.equal(navigation.viewport.count, 600);
+  assert.equal(visibleAnchor(), anchor);
+  assert.equal(navigation.needsOlder, false);
+});
+
+test("an empty series remains empty under both pan directions and zoom", () => {
+  let requests = 0;
+  const navigation = new ChartNavigation({ candles: [], nextBefore: 10_000 }, {
+    loadPage: async () => { requests += 1; return page(9_760); },
+    onChange: () => {},
+  });
+  navigation.pan(Number.NEGATIVE_INFINITY);
+  navigation.pan(1e300);
+  navigation.zoom(0.01);
+  assert.deepEqual(navigation.viewport, { start: 0, count: 0 });
+  assert.equal(requests, 0);
+});
+
+for (const failure of ["http", "nonadvancing"] as const) {
+  test(`${failure} demand stops repeated drag retries at the same cursor until explicit continuation`, async () => {
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      loadPage: async (before) => {
+        requests += 1;
+        if (requests === 1) {
+          if (failure === "http") throw new CandleHistoryError("http", "unavailable", 503);
+          return { candles: [], nextBefore: before };
+        }
+        return page(before - 240);
+      },
+      onChange: () => {},
+    });
+    navigation.setViewport({ start: -1, count: 120 });
+    await settle();
+    const failureMessage = navigation.historyMessage;
+    assert.match(failureMessage, /重试/);
+    for (let move = 1; move <= 50; move += 1) {
+      navigation.setViewport({ start: -move, count: 120 });
+      await settle();
+    }
+    assert.equal(requests, 1);
+    assert.equal(navigation.historyMessage, failureMessage);
+    assert.deepEqual(navigation.viewport, { start: -50, count: 120 });
+    assert.equal(navigation.needsOlder, true);
+    navigation.continueLoading();
+    await settle();
+    assert.equal(requests, 2);
+    assert.deepEqual(navigation.viewport, { start: 190, count: 120 });
+    assert.equal(navigation.needsOlder, false);
+    assert.equal(navigation.historyMessage, "");
+  });
+}
+
+test("four sparse demand pages stay bounded while a held older drag keeps moving", async () => {
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    loadPage: async (before) => {
+      requests += 1;
+      return { candles: [candle(before - 1)], nextBefore: before - 240 };
+    },
+    onChange: () => {},
+  });
+  navigation.pan(-1e300);
+  await settle();
+  assert.equal(requests, 4);
+  assert.deepEqual(navigation.viewport, { start: -115, count: 120 });
+  for (let move = 0; move < 50; move += 1) {
+    navigation.setViewport({ start: -119, count: 120 });
+    await settle();
+  }
+  assert.equal(requests, 4);
+  assert.match(navigation.historyMessage, /尚未确认历史起点.*继续查询/);
+  navigation.continueLoading();
+  await settle();
+  assert.equal(requests, 8);
+  assert.deepEqual(navigation.viewport, { start: -115, count: 120 });
+});
+
+for (const retreat of ["pan", "reset"] as const) {
+  test(`${retreat} to loaded candles permits one fresh later demand after a paused failure`, async () => {
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      loadPage: async () => { requests += 1; throw new Error("offline"); },
+      onChange: () => {},
+    });
+    navigation.pan(-121);
+    await settle();
+    assert.equal(requests, 1);
+    if (retreat === "pan") navigation.setViewport({ start: 0, count: 120 });
+    else navigation.reset();
+    assert.equal(navigation.needsOlder, false);
+    navigation.setViewport({ start: -1, count: 120 });
+    await settle();
+    assert.equal(requests, 2);
+    navigation.pan(-1);
+    await settle();
+    assert.equal(requests, 2);
+  });
+}
