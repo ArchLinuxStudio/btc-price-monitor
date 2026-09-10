@@ -10,6 +10,8 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Current evidence:** See the dated verification snapshot in [`CURRENT_STATE.md`](CURRENT_STATE.md); query GitHub again for a future commit.
 
+**Runner warning:** The successful `v1.7.0` run `34436389439` reports that the Node 20 action runtimes in `actions/checkout@v4` and `actions/setup-node@v4` are deprecated and being forced to Node 24. This concerns the actions' own runtime, not the project's explicit `setup-node` selection of Node 20. Update those action majors in scoped CI maintenance and verify the matrix again; this warning did not fail the release.
+
 **Workaround:** Run the full command set in `AGENTS.md` locally before committing.
 
 ## Unsigned artifacts

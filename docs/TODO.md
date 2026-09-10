@@ -27,7 +27,7 @@ None. Current scoped chart improvements, package delivery, and verification stat
   - Done when the tag is checked against `package.json`, both root entries in `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`, with a regression test or demonstrated failing mismatch.
 
 - [ ] Add an ordinary main/PR quality workflow or extend CI coverage.
-  - Done when non-tag changes run the full TypeScript/frontend tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases.
+  - Done when non-tag changes run the full TypeScript/frontend tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases. Include the deprecated checkout/setup-node action runtimes recorded in `KNOWN_ISSUES.md` in the scoped CI upgrade, and verify the release matrix afterward.
 
 ## P3 — Known technical debt
 

@@ -4,20 +4,20 @@ Checkpoint date: 2026-09-10 (Asia/Shanghai)
 
 ## Current Objective
 
-Publish the completed chart feature and zoom refinement as `v1.7.0`. The user explicitly authorized source push and a new GitHub Release after repository restoration. Scope includes version synchronization, release checks, local Windows build/native smoke, commit/push/tag, all CI matrix builds and verification of five public assets. Installation and unrelated backlog fixes remain outside this request.
+The authorized source push and `v1.7.0` GitHub Release are complete and verified. This documentation checkpoint records the final result; await a new user scope. The release includes the full chart feature since `v1.6.2` and the final zoom reserve. Installation and unrelated backlog fixes were not performed.
 
 ## Current Status
 
-- Release preparation and local verification have passed. The next step is committing and pushing the reviewed changes, then creating/pushing the new `v1.7.0` tag.
+- Release preparation and local verification passed. Commit `88abeac779cd29047b7e64ecd66e49e3062a523a` and annotated tag `v1.7.0` have been pushed and verified against the live remote.
 - All six version fields in the five authoritative files are `1.7.0`; dependencies, native permissions, CSP and workflow code are unchanged.
-- The latest public Release is still `v1.6.2`, which predates the entire chart feature. New Release notes cover the full chart feature as well as the final zoom reserve, and disclose the existing Bybit mapping limitation.
-- No new release tag or public assets exist yet. Do not report publication complete until every CI job and all five asset/download checks pass.
+- [Release v1.7.0](https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.7.0) is published and marked latest. Its Chinese title/body match the prepared UTF-8 file and disclose the existing Bybit mapping limitation.
+- GitHub Actions run [34436389439](https://github.com/ArchLinuxStudio/btc-price-monitor/actions/runs/34436389439) succeeded: all four builds and the publication job passed, including both macOS 12 deployment-floor steps. All five public assets were downloaded and their names, sizes, file signatures and SHA-256 values verified against GitHub metadata and the CI publication log.
 
 ## Git Worktree Snapshot
 
-At release preparation, branch `main` tracks `origin/main`; HEAD and the live remote branch both resolve to `52d572654f5381bf0894a8800aa721e00d3613e0`. The latest remote tag `v1.6.2` resolves to `894dffbdfbcdb2c154976ebb65555cff5b0e49ef`. No existing tag was changed.
+The source release commit and peeled tag `v1.7.0` are `88abeac779cd29047b7e64ecd66e49e3062a523a`; the annotated tag object is `ac9f490a90f3e23037d58e28635289dfc0c12c90`. No existing tag was changed. The final documentation-only verification commit updates this file, `KNOWN_ISSUES.md` and `TODO.md` on `main`; source/tests/version files are unchanged from the public tag. Recheck live Git for that documentation commit and branch cleanliness rather than treating its self-referential hash as part of this file.
 
-The reviewed worktree contains 16 modified files, with no staged/untracked files before release staging:
+The release commit contains the 16 reviewed files below; before staging there were no staged/untracked or unrelated changes:
 
 | Files | Provenance |
 | --- | --- |
@@ -36,10 +36,11 @@ Ignored `artifacts/`, `dist/` and `src-tauri/target/` remain local. Prior named 
 - Synchronized `1.7.0` versions and reviewed Chinese Release notes with all five exact asset names and known limits.
 - Passed the full frontend and Rust release checks, six browser zoom scenarios and a bounded native Windows smoke.
 - Built a new Windows NSIS installer and verified its version, GPL license-page generation and local SHA-256; it has not been installed.
+- Pushed the source and new tag, completed all five CI jobs, published the latest Release with verified UTF-8 Chinese notes, and downloaded/verified all five public platform assets.
 
 ## In Progress
 
-Commit/push/tag, GitHub Actions matrix builds, public Release creation, UTF-8 notes and all-five-asset verification remain to be completed. No product implementation is pending.
+None. Source delivery, publication and release verification are complete. No installation or unrelated backlog work is in progress.
 
 ## Relevant Files
 
@@ -70,6 +71,7 @@ Quotes pass through `ChartCurrentPrice → ChartLiveCandles → ChartNavigation`
 - The separate Bybit symbol-selection defect remains open: a permitted official mapping differing from ticker plus `USDT` fails chart selection, including products whose active source is Gate. The `AMDSTOCKUSDT` example is an offline fixture, not evidence of a current online listing. It is disclosed in the Release notes; see `KNOWN_ISSUES.md` and `TODO.md`.
 - Charts support Coinbase/Bybit/Gate only, history is bounded and outage gaps are not fabricated. Packages remain unsigned and macOS unnotarized.
 - Full installed-artifact acceptance, macOS 12/Linux runtime acceptance and unrelated CSS/native-command debt remain incomplete. Do not expand this release task into those backlog fixes.
+- CI succeeded with an action-runtime deprecation annotation for checkout/setup-node; the scoped CI maintenance item in `KNOWN_ISSUES.md` / `TODO.md` records it. This was not a failing check.
 
 ## Verification State
 
@@ -84,21 +86,36 @@ Quotes pass through `ChartCurrentPrice → ChartLiveCandles → ChartNavigation`
 | Windows NSIS build | **Passed** | `artifacts/release-v1.7.0-windows-build.log` |
 | Version/license metadata | **Passed** | All six fields `1.7.0`; installer product/file version `1.7.0`; generated NSIS license file 35,152 bytes and non-empty `!define LICENSE` |
 | Native Windows smoke | **Passed, bounded scope** | Local release executable, isolated WebView2 profile; live Coinbase BTC 1h, 120/720 initial/prefetch, guide/last-close equality, 120→168 zoom, drag/crosshair, reset to 120, Escape hides chart while process/main remain alive. Unsupported Bitfinex source also showed its explicit state. `artifacts/release-v1.7.0-local/native-smoke.json` |
-| `git diff --check` | **Passed** | Rerun before staging |
+| `git diff --check` | **Passed** | Source commit and final documentation checkpoint |
 | Standalone frontend lint | **Not available** | Strict TypeScript is included above |
 | Full installed Windows artifact / all-provider/all-interval native acceptance | **Not verified** | Installer was not executed; bounded native smoke is not full acceptance |
-| macOS/Linux runtime and CI deployment floor | **Not verified yet** | Await this release's builds; build metadata alone cannot establish full runtime acceptance |
-| Public Release assets/downloads/UTF-8 notes | **Not verified yet** | Publication has not begun |
+| CI matrix and release job | **Passed: 5/5 jobs** | Run `34436389439`, source `88abeac`; all four targets and publication succeeded |
+| Both macOS deployment floors | **Passed** | Final DMGs mounted in CI; both shipped apps report `LSMinimumSystemVersion=12.0` and Mach-O `minos=12.0` |
+| macOS/Linux real runtime acceptance | **Not verified** | Build/deployment metadata is not full runtime acceptance |
+| Public Release assets/downloads | **Passed: 5/5** | Exact filenames, positive sizes, MZ/ELF/ar/koly file signatures, actual public downloads and SHA-256 equality with API/CI logs; downloaded Windows product/file version `1.7.0` |
+| Release title/body and latest status | **Passed** | UTF-8 title/body round-trip equals prepared Chinese source; latest API resolves to `v1.7.0`, non-draft/non-prerelease |
 
 Browser fixtures use 360/9/1 candles at 1440×900 and 640×400, DPR 2, including reserve limits, proportional geometry, anchor reversal, pan edges, End/reset and origin. Twenty history/metadata requests and six ticker fallback requests were mocked; no unexpected external requests or page/console errors. This rerun uses a distinct ignored harness/output so prior evidence is preserved.
 
-The native smoke's first detached launch disappeared without a Windows crash record; a retained launcher session stayed alive through the full repeated smoke and chart hide. Only the owned test process was cleaned up afterward; the pre-existing installed process and user watchlist were preserved. This is harness evidence, not a product workaround or proof of an application crash.
+Native smoke used a retained launcher session and isolated WebView2 profile. Only the owned test process was cleaned up afterward; the pre-existing installed process and user watchlist were preserved.
 
-Local named installer: `artifacts/release-v1.7.0-local/Crypto.Top_1.7.0_x64-setup.exe`, 1,246,302 bytes, SHA-256 `0358E01C5D5EB7BC86C30650315F541C8F4F3206EF516CF439758018CF3EB7EB`, `NotSigned`. Its adjacent `build-info.json` records the dirty `52d5726` preparation source. Public assets must come from the subsequent release tag via CI, not this local verification copy.
+Local named installer: `artifacts/release-v1.7.0-local/Crypto.Top_1.7.0_x64-setup.exe`, 1,246,302 bytes, SHA-256 `0358E01C5D5EB7BC86C30650315F541C8F4F3206EF516CF439758018CF3EB7EB`, `NotSigned`. Its adjacent `build-info.json` records the dirty `52d5726` preparation source. Public assets below were built separately in CI from tag `v1.7.0`; the local copy is not the public Windows binary.
+
+### Verified public assets
+
+Release published 2026-09-10 12:20:52 Asia/Shanghai; final downloads verified at 16:54:30 the same day. Evidence: `artifacts/release-v1.7.0-downloads/verification.json`, `artifacts/release-v1.7.0-api-final.json`, `artifacts/release-v1.7.0-actions.json`, the publication log and both macOS build logs. Anonymous HTTPS downloads used the existing Windows system proxy after direct CLI connections failed; no application network configuration or TLS policy was changed.
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `Crypto.Top_1.7.0_x64-setup.exe` | 1,248,901 | `b9e1f73f1be96bd4c1e0c92b92997d49d2817396f0c1c62e17f8ac3525585ce9` |
+| `Crypto-Top_1.7.0_linux-amd64.AppImage` | 79,890,936 | `6d0cde6bd81cd15431d26840ba4af3dd4d04768165e9e45d64470edf504944ca` |
+| `Crypto-Top_1.7.0_linux-amd64.deb` | 2,022,462 | `571dc093e3437d306986e00b0b5d57eb66aeb08ac714fe822ed3042abe4be5ac` |
+| `Crypto-Top_1.7.0_macos-aarch64.dmg` | 1,868,719 | `19f740c0fddba4a14e960b971c895b3bbb9931de7e60d34bf4207cfef1241754` |
+| `Crypto-Top_1.7.0_macos-x64.dmg` | 1,968,226 | `5d1210cd85fc37a4d45ae9b1ed9d7ec5f9928d7168592bbacc438c8adaf0f96f` |
 
 ## Next Recommended Action
 
-1. Review the final scoped diff and confirm live remote `main` has not advanced, then commit/push the 16 reviewed files.
-2. Create and push new tag `v1.7.0`; never move or overwrite existing tags. Wait for all four builds and the release job, including both macOS deployment-floor steps.
-3. Apply the prepared UTF-8 Chinese notes, verify exactly five expected public asset names, sizes, SHA-256 digests and real downloads; update this checkpoint with final commit/tag/run/Release evidence and push that documentation update.
-4. After publication, await the next user scope. Do not automatically install packages or fix unrelated TODOs.
+1. On restoration, check Git and the final documentation verification commit on `main`; preserve any later user changes. The source tag and assets above remain the release baseline.
+2. Await the next user scope. Do not repeat publication, install packages or start unrelated TODOs automatically.
+3. If installation/native acceptance is requested, use the verified public Windows asset or the appropriate real target system and preserve existing user state. Remaining acceptance criteria are in `TODO.md`.
+4. If a product fix is requested, read the relevant stable decision/source and update tests. Any later release must use a new version under `RELEASE.md`; never move or overwrite `v1.7.0`.
