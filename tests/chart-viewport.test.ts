@@ -9,6 +9,7 @@ import {
   createCandleViewport,
   isCandleViewportFull,
   isCandleViewportReset,
+  maximumCandleViewportCount,
   normalizeCandleViewport,
   panCandleViewport,
   prependCandleViewport,
@@ -71,7 +72,7 @@ test("normalizes count and continuous start without mutating input", () => {
   );
   assert.deepEqual(
     normalizeCandleViewport({ start: 20, count: Number.POSITIVE_INFINITY }, 100),
-    { start: 20, count: 100 },
+    { start: 20, count: 200 },
   );
   assert.deepEqual(
     normalizeCandleViewport({ start: 20, count: Number.NEGATIVE_INFINITY }, 100),
@@ -100,7 +101,7 @@ test("distinguishes the default reset view from the full loaded history", () => 
   assert.equal(isCandleViewportFull({ start: 0, count: 240 }, 240), true);
   assert.equal(isCandleViewportReset({ start: 100, count: 120 }, 240), false);
   assert.equal(isCandleViewportFull({ start: 0, count: 239 }, 240), false);
-  assert.equal(isCandleViewportFull({ start: -5, count: 500 }, 240), false);
+  assert.equal(isCandleViewportFull({ start: -5, count: 500 }, 240), true);
   assert.equal(isCandleViewportFull({ start: 5, count: 240 }, 240), false);
   for (const total of [0, 1, 12, 100, 120]) {
     assert.equal(isCandleViewportReset(createCandleViewport(total), total), true);
@@ -201,12 +202,12 @@ test("zoom clamps anchors, counts, boundaries, and extreme scales", () => {
     count: 12,
   });
   assert.deepEqual(zoomCandleViewport(viewport, 100, Number.MIN_VALUE, 0.5), {
-    start: 0,
-    count: 100,
+    start: -50,
+    count: 200,
   });
   assert.deepEqual(zoomCandleViewport({ start: 0, count: 100 }, 100, 0.5, 0), {
     start: 0,
-    count: 100,
+    count: 200,
   });
   assert.deepEqual(zoomCandleViewport(viewport, 100, 2, Number.NEGATIVE_INFINITY), {
     start: 25,
@@ -315,6 +316,43 @@ test("zooming in blank space retains a possible anchor and otherwise keeps an en
   });
 });
 
+test("fit-all can zoom into bounded blank space without stretching candle gaps", () => {
+  for (const total of [1, 9, 120, 240, 4_800]) {
+    const full = { start: 0, count: total };
+    for (const anchor of [0, 0.25, 0.5, 1]) {
+      const zoomed = zoomCandleViewport(full, total, 0.5, anchor);
+      assert.equal(zoomed.count, total * 2);
+      assert.equal(zoomed.start + zoomed.count * anchor, total * anchor);
+      assert.equal(isCandleViewportFull(zoomed, total), true);
+      assert.deepEqual(candleViewportBounds(zoomed, total), { startIndex: 0, endIndex: total });
+      assert.deepEqual(candleBarGeometry(1_200, zoomed.count), {
+        spacing: 600 / total, bodyWidth: 600 / total * 0.72,
+      });
+      assert.deepEqual(zoomCandleViewport(zoomed, total, 0.5, anchor), zoomed);
+      assert.deepEqual(zoomCandleViewport(zoomed, total, 2, anchor), full);
+      assert.equal(isCandleViewportReset(zoomed, total), false);
+      for (const delta of [-1e300, 1e300]) {
+        const panned = panCandleViewport(zoomed, total, delta);
+        const bounds = candleViewportBounds(panned, total);
+        assert.equal(bounds.endIndex - bounds.startIndex, 1);
+        assert.equal(panned.count, zoomed.count);
+      }
+    }
+  }
+});
+
+test("blank-space capacity is finite and preserves empty and reset semantics", () => {
+  for (const total of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(maximumCandleViewportCount(total), 0);
+  }
+  assert.equal(maximumCandleViewportCount(9.9), 18);
+  assert.equal(maximumCandleViewportCount(Number.MAX_VALUE), Number.MAX_SAFE_INTEGER);
+  assert.deepEqual(createCandleViewport(9), { start: 0, count: 9 });
+  assert.deepEqual(prependCandleViewport({ start: -240, count: 480 }, 240, 20), {
+    start: -220, count: 480,
+  });
+});
+
 test("all operations preserve finite clamped viewport invariants", () => {
   const totals = [0, 1, 11, 12, 13, 240, Number.NaN, Number.POSITIVE_INFINITY];
   const values = [
@@ -340,7 +378,7 @@ test("all operations preserve finite clamped viewport invariants", () => {
         assert.equal(Number.isFinite(normalized.count), true);
         assert.ok(normalized.start >= (safeTotal === 0 ? 0 : 1 - normalized.count));
         assert.ok(normalized.count >= Math.min(MIN_VISIBLE_CANDLES, safeTotal));
-        assert.ok(normalized.count <= safeTotal);
+        assert.ok(normalized.count <= maximumCandleViewportCount(safeTotal));
         assert.ok(normalized.start <= Math.max(0, safeTotal - 1));
         const bounds = candleViewportBounds(normalized, total);
         assert.ok(bounds.startIndex >= 0);

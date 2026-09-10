@@ -9,7 +9,7 @@ import {
 import type { Candle, CandleInterval } from "./candle-history.js";
 import { parseChartSelection, serializeChartSelection } from "./chart-selection.js";
 import type { ChartSelection } from "./chart-selection.js";
-import { ChartNavigation, MAX_HISTORY_CANDLES } from "./chart-navigation.js";
+import { ChartNavigation } from "./chart-navigation.js";
 import { projectChartCrosshair } from "./chart-crosshair.js";
 import type { ChartPlot } from "./chart-crosshair.js";
 import { layoutChartTimeAxis } from "./chart-time-axis.js";
@@ -286,8 +286,7 @@ function updateViewportControls(): void {
 
   elements.zoomIn.disabled = total === 0 || viewport.count <= minimum + tolerance;
   elements.zoomOut.disabled = total === 0
-    || viewport.count >= MAX_HISTORY_CANDLES - tolerance
-    || (viewport.count >= total - tolerance && !navigation?.canLoadOlder);
+    || viewport.count >= (navigation?.maximumViewportCount ?? 0) - tolerance;
   elements.resetView.disabled = total === 0 || (reset && !navigation?.needsOlder);
   elements.canvas.classList.toggle("is-pannable", total > 0);
   elements.viewCaption.textContent = total === 0

@@ -14,6 +14,9 @@ None. Current scoped chart improvements, package delivery, and verification stat
 
 ## P2 — Release quality and cross-platform confidence
 
+- [ ] Complete installed-artifact chart acceptance on Windows when installation is explicitly requested.
+  - The `1.7.0` installer build/metadata and bounded local release-executable smoke are complete; see `CURRENT_STATE.md`. Remaining work is installed-runtime evidence covering main/chart coexistence, live exact-source candles/price guide across supported providers and intervals, full-history extra zoom space, pan/reset and close-to-hide. Building and publishing do not themselves authorize replacing the installed application.
+
 - [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
   - Done when macOS bundle/deployment metadata reports the 12.0 floor and startup plus the fixed ES2025 output are exercised on macOS 12.x; tray visibility/actions (including About and its scoped GitHub opener), monitor/About/chart close-to-hide, chart/main dual-window work-area maximize and always-on-top interaction, all five candle intervals plus chart wheel/button/keyboard zoom, pointer-captured pan and reset, crosshair/axis markers and paced prefetch/cancellation, main-row mouse/keyboard activation/ordering and restart persistence, screen-bounded quote-height drag (fixed `208px` width, expansion to the available work-area/content limit, overflow behavior, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 

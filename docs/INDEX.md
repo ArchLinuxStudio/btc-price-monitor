@@ -19,6 +19,7 @@ Start here instead of reading every document. Repository documentation is the pe
 ## Selective reading routes
 
 - UI/layout change: `CURRENT_STATE.md` → `ARCHITECTURE.md` → compact-UI entries in `DECISIONS.md` → relevant UI tests.
+- Chart zoom/pan change: `CURRENT_STATE.md` → zoom/pan/blank-space decisions in `DECISIONS.md` → `src/chart-viewport.ts`, `src/chart-navigation.ts`, `src/chart.ts` and their focused tests. Read `MARKET_DATA.md` only if history/source semantics change.
 - Exchange or price semantics: `CURRENT_STATE.md` → `MARKET_DATA.md` → relevant entries in `DECISIONS.md` → `src/price-feed.ts` tests.
 - Watchlist/search/persistence: `CURRENT_STATE.md` → `ARCHITECTURE.md` → `src/watchlist.ts` and its tests.
 - Tray/window/native behavior: `CURRENT_STATE.md` → `ARCHITECTURE.md` → relevant decisions → `src-tauri/src/lib.rs`.
@@ -32,5 +33,6 @@ Start here instead of reading every document. Repository documentation is the pe
 - Current Git/verification snapshot: `CURRENT_STATE.md`, checked against live `git status` and rerun commands before relying on it.
 - Release workflow mechanics: `.github/workflows/build-desktop.yml`; `RELEASE.md` explains how and why to operate it.
 - Historical commits/releases: Git and GitHub, not a copied chronology in the docs.
+- Checkpoints: keep `CURRENT_STATE.md` focused on the present task, exact dirty work, latest applicable verification and next action. Retire superseded build/test chronology to existing Git history. Ignored `artifacts/` evidence is local convenience, not a second context system or files guaranteed to exist in another clone.
 
 `CODEX_CONTEXT.md` was retired during the 2026-08-22 checkpoint after its useful content was split into this system. Do not recreate another all-in-one thread transcript.

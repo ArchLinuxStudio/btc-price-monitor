@@ -4,6 +4,7 @@ import {
   DEFAULT_VISIBLE_CANDLES,
   MIN_VISIBLE_CANDLES,
   createCandleViewport,
+  maximumCandleViewportCount,
   normalizeCandleViewport,
 } from "./chart-viewport.js";
 import type { CandleViewport } from "./chart-viewport.js";
@@ -78,6 +79,11 @@ export class ChartNavigation {
       && Number.isSafeInteger(this.nextBefore) && this.nextBefore > 0;
   }
 
+  /** Visual zoom capacity is separate from the number of cached real candles. */
+  get maximumViewportCount(): number {
+    return maximumCandleViewportCount(this.canLoadOlder ? MAX_HISTORY_CANDLES : this.candleData.length);
+  }
+
   /** A page edge or cache limit alone never establishes the actual origin. */
   get historyStartReached(): boolean {
     return this.historyComplete && this.oldestRetained && this.candleData.length > 0;
@@ -111,7 +117,7 @@ export class ChartNavigation {
     const requestedAnchor = anchor ?? (atLatestBoundary ? 1 : 0.5);
     const ratio = Number.isNaN(requestedAnchor) ? 0.5 : Math.min(1, Math.max(0, requestedAnchor));
     const minimum = Math.min(MIN_VISIBLE_CANDLES, this.candleData.length);
-    const maximum = this.canLoadOlder ? MAX_HISTORY_CANDLES : this.candleData.length;
+    const maximum = this.maximumViewportCount;
     const count = Math.min(maximum, Math.max(minimum, current.count / scale));
     this.changeIntent({
       start: current.start + current.count * ratio - count * ratio,
@@ -184,7 +190,7 @@ export class ChartNavigation {
       };
       if (pending.count <= this.candleData.length || !this.canLoadOlder) {
         this.pendingZoomViewport = null;
-        this.desiredViewport = normalizeCandleViewport(pending, this.candleData.length);
+        this.desiredViewport = this.availableZoomViewport(pending);
       } else {
         this.pendingZoomViewport = pending;
         this.desiredViewport = this.availableZoomViewport(pending);
@@ -281,9 +287,10 @@ export class ChartNavigation {
 
   private availableZoomViewport(pending: CandleViewport): CandleViewport {
     const total = this.candleData.length;
+    const count = Math.min(pending.count, this.canLoadOlder ? total : this.maximumViewportCount);
     return normalizeCandleViewport({
-      start: pending.start + (pending.count - total) * this.pendingZoomAnchor,
-      count: total,
+      start: pending.start + (pending.count - count) * this.pendingZoomAnchor,
+      count,
     }, total);
   }
 
@@ -344,9 +351,9 @@ export class ChartNavigation {
         start: this.pendingZoomViewport.start + older.length,
         count: this.pendingZoomViewport.count,
       };
-      if (pending.count <= this.candleData.length) {
+      if (pending.count <= this.candleData.length || !this.canLoadOlder) {
         this.pendingZoomViewport = null;
-        this.desiredViewport = normalizeCandleViewport(pending, this.candleData.length);
+        this.desiredViewport = this.availableZoomViewport(pending);
       } else {
         this.pendingZoomViewport = pending;
         this.desiredViewport = this.availableZoomViewport(pending);
@@ -396,6 +403,9 @@ export class ChartNavigation {
         }
         if (this.needsOlder) this.message = "正在加载更早 K 线…";
         if (!this.canLoadOlder) {
+          if (this.pendingZoomViewport !== null) {
+            this.desiredViewport = this.availableZoomViewport(this.pendingZoomViewport);
+          }
           this.pendingZoomViewport = null;
           this.desiredViewport = this.viewport;
         }

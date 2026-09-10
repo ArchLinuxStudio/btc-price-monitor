@@ -4,226 +4,101 @@ Checkpoint date: 2026-09-10 (Asia/Shanghai)
 
 ## Current Objective
 
-The explicitly requested source delivery is complete: commit `5e9c281e766393bbddf94ac8aaabec22b5b310b3` was pushed to `origin/main` on 2026-09-10. It contains two-sided pan, confirmed history origin/status, clearer axes and synchronized current-candle/price guide, with the 252-test/browser/installer verification below. Await user feedback on the local candle-sync installer. Named artifacts remain local; no version, tag, Release or binary upload was performed.
+Publish the completed chart feature and zoom refinement as `v1.7.0`. The user explicitly authorized source push and a new GitHub Release after repository restoration. Scope includes version synchronization, release checks, local Windows build/native smoke, commit/push/tag, all CI matrix builds and verification of five public assets. Installation and unrelated backlog fixes remain outside this request.
 
 ## Current Status
 
-- `main` tracks `origin/main`. All subsequent chart fixes are committed/pushed in `5e9c281e766393bbddf94ac8aaabec22b5b310b3`, following the original chart source `625ac40` and documentation checkpoint `c2bb229`. This documentation checkpoint records the completed delivery; inspect Git for the current tip rather than reusing an old worktree list.
-- Both data edges allow blank space until one complete candle slot remains, with unchanged horizontal spacing. The date-axis flag now says “历史起点” and appears only after actual source-history completion is confirmed and its first candle is retained and visible. Completion stops demand/prefetch and removes the continue button. Date/price axes use brighter 12px semibold values and matching crosshair labels.
-- All source/package version fields remain `1.6.2`. Published tag `v1.6.2` points to older release source `894dffb` and therefore does **not** contain the chart work. Failed tags `v1.6.0`/`v1.6.1` and published `v1.6.2` are immutable.
-- The local unsigned installer at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` was rebuilt on 2026-09-10 at 00:04 (Asia/Shanghai) with the candle/price-guide synchronization correction and all preceding chart improvements. Its identical test copy is `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe`. Earlier named current-price, origin, pan, crosshair/prefetch and zoom copies remain preserved; their paths are recorded below. These are local dirty-tree builds, not the published `v1.6.2` Windows asset. The new installer was not executed. Earlier debug/native runtime evidence predates this correction.
-- User testing found line-to-candle divergence in the preceding current-price build. The correction synchronizes OHLC and guide, reconciles real tail buckets and preserves viewport/cursor/cache behavior. All 252 tests, three browser regressions and Windows build/metadata/license checks pass. Review findings for empty-history recovery and refresh-trigger tick replay are fixed and tested. The 223-test and older named-installer evidence predates this correction.
+- Release preparation and local verification have passed. The next step is committing and pushing the reviewed changes, then creating/pushing the new `v1.7.0` tag.
+- All six version fields in the five authoritative files are `1.7.0`; dependencies, native permissions, CSP and workflow code are unchanged.
+- The latest public Release is still `v1.6.2`, which predates the entire chart feature. New Release notes cover the full chart feature as well as the final zoom reserve, and disclose the existing Bybit mapping limitation.
+- No new release tag or public assets exist yet. Do not report publication complete until every CI job and all five asset/download checks pass.
 
 ## Git Worktree Snapshot
 
-The source delivery committed all 29 reviewed files (21 modified and eight new) in `5e9c281`. After its push, live `refs/heads/main` matched that full hash and `git status --short --branch` reported `## main...origin/main` with no staged, unstaged or untracked work. This follow-up documentation checkpoint records that verified source delivery. Check live Git before another task; the former 29-file dirty list is retired.
+At release preparation, branch `main` tracks `origin/main`; HEAD and the live remote branch both resolve to `52d572654f5381bf0894a8800aa721e00d3613e0`. The latest remote tag `v1.6.2` resolves to `894dffbdfbcdb2c154976ebb65555cff5b0e49ef`. No existing tag was changed.
 
-Local `artifacts/`, `dist/`, and `src-tauri/target/` remain ignored. The installer copies and verification evidence there were not committed or uploaded. Check actual Git state before starting new work; do not assume a later working tree is still clean.
+The reviewed worktree contains 16 modified files, with no staged/untracked files before release staging:
+
+| Files | Provenance |
+| --- | --- |
+| `src/chart-viewport.ts`, `src/chart-navigation.ts`, `src/chart.ts` | Completed zoom reserve from the previous task; preserved byte-for-byte during restoration/release preparation |
+| `tests/chart-viewport.test.ts`, `tests/chart-navigation.test.ts` | Existing zoom regressions, likewise preserved |
+| `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`, `docs/INDEX.md`, `docs/KNOWN_ISSUES.md`, `docs/TODO.md`, `docs/CURRENT_STATE.md` | Existing zoom/handoff documentation, with current release/acceptance state updates |
+| `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, `src-tauri/tauri.conf.json` | Version-only changes from `1.6.2` to `1.7.0` |
+
+Ignored `artifacts/`, `dist/` and `src-tauri/target/` remain local. Prior named installers are preserved. Evidence there is useful on this host but is not guaranteed in another clone.
 
 ## Completed
 
-- Quote rows now open the selected product/source in a reusable chart window by mouse or `Enter`/`Space`; row drag still suppresses its synthetic click and display-only actions do not reconnect `PriceFeed`.
-- Rust owns one pre-created hidden chart window, maximizes it to the main monitor's work area without exclusive fullscreen, leaves the `208px` main monitor visible, and hides/reuses the chart on close.
-- The local chart supports five intervals and exact active-source history for Coinbase, Bybit, and Gate only. Each page returns at most 240 candles; Coinbase/Gate scan 240-bucket windows, while Bybit end-only queries span sparse gaps. Older pages use exclusive boundaries and never substitute an unsupported source.
-- The default/reset viewport shows the latest 120 candles (or all available if fewer). Initial zoom-out works; further zoom-out or dragging beyond the loaded left edge loads more same-source history. Candle spacing and body width scale together, without the old 12px body-width cap.
-- `ChartNavigation` retains pending viewport intent and prepends older candles without changing the selected time anchor. It allows one request at a time, at most four pages per interaction batch, and a 4,800-candle cache. Empty ranges can be queried further; failures keep the current chart and expose retry. Reverse zoom, reset, End, product/interval changes, and hiding cannot be overwritten by obsolete requests.
-- Pointer/wheel, `＋/−`, drag, focused keyboard navigation, and reset remain supported, with a 12-candle minimum. Wide chart headers reserve space for the main monitor's default top-right position so it does not cover zoom controls.
-- Hover and drag use a crosshair cursor, dashed horizontal/vertical guides, pointer-price and real-candle UTC time axis markers. An independent transparent canvas handles pointer motion without repainting candles; the renderer shares its visible padded price range with pure projection math. Markers stay inside the stage and clear on leave/blur/cancel/hide/reload.
-- A one-second paced prefetch maintains 480 candles before the visible left edge, normally warming 240 to 720 cached candles without changing the latest-120 view. It shares demand's single flight, shifts drag/time anchors on prepend, and cancels timers with the selection lifecycle. Empty/nonadvancing/error responses or four insufficient sparse pages pause speculation; a successful demand page can resume it. HTTP 429/403 add a 60-second/10-minute older-request cooldown in that navigation instance.
-- Both pan edges retain one complete end-candle slot while permitting blank space. Oversized pending zoom preserves its anchor without changing the rendered pan scale; prepends preserve the current view and captured drag origin. Ignored movement beyond a boundary is discarded so reversing a held drag responds immediately.
-- A noninteractive flag marks the confirmed earliest retained candle at its actual date-axis position, with measured date-label collision avoidance. Ordinary cache edges receive dates without flags. Blank-space crosshairs follow the pointer with a price label and no time label. Continued pointer movement cannot repeatedly retry failed/nonadvancing demand or an unfinished four-page batch; explicit continuation or loaded-range/reset recovery permits another attempt.
-- Origin-aware same-source loading uses validated Coinbase trade-1/older-empty evidence, Gate creation-time buckets, or Bybit end-only empty results. Invalid/missing/contradictory evidence stays unknown; partially malformed chart pages preserve the old cursor for retry. Metadata rate limits preserve successful candles and signal a one-time cooldown. Confirmed completion and the cache cap remain distinct.
-- Date/price ticks and annotations now use matching 12px semibold fonts, brighter text and crosshair backgrounds, and expanded right/bottom margins. Compact 640×400 layout is covered by browser geometry checks and screenshots.
-- The current-price guide retains its dashed style and matching axis value. The synchronization correction derives that value from the actual last candle close, updates the current bucket with fresh quotes and reconciles real OHLC at rollover/recovery. Existing historical scales, crosshair overlay, source connection lifecycle and stale labeling remain intact; the previously accepted quote-only/static-candle boundary is superseded by the user's defect report.
-- CSP origins and narrow per-window capabilities remain unchanged except for the fixed chart commands/event required by this feature. No framework, bundler, chart library, or arbitrary window permission was added.
+- Recovered the repository context and preserved all pre-existing source/test work.
+- Confirmed the complete chart feature since `v1.6.2`, including two-sided pan, confirmed origin, axes/crosshair/prefetch and synchronized current-candle/price guide.
+- Completed bounded further zoom-out after all history fits, including sparse 1/9-candle series, terminal pages, cache completion, anchors and cancellation regressions.
+- Synchronized `1.7.0` versions and reviewed Chinese Release notes with all five exact asset names and known limits.
+- Passed the full frontend and Rust release checks, six browser zoom scenarios and a bounded native Windows smoke.
+- Built a new Windows NSIS installer and verified its version, GPL license-page generation and local SHA-256; it has not been installed.
 
 ## In Progress
 
-- Source delivery is complete; no implementation or packaging work remains. Await user testing of the new candle-sync installer. The earlier current-price installer exhibits the reported static-OHLC defect and should not be used to test this correction.
-- Packaged runtime acceptance of the current chart and macOS/Linux runtime coverage remain unverified. The user accepted the preceding basic zoom logic; this does not establish full packaged or cross-platform acceptance.
+Commit/push/tag, GitHub Actions matrix builds, public Release creation, UTF-8 notes and all-five-asset verification remain to be completed. No product implementation is pending.
 
 ## Relevant Files
 
-| Path | Current responsibility |
+| Path | Responsibility |
 | --- | --- |
-| `AGENTS.md` | Development entry point, non-negotiable product constraints, verification commands, and change discipline |
-| `docs/INDEX.md` | Documentation authority and selective reading routes |
-| `docs/ARCHITECTURE.md` / `docs/DECISIONS.md` | Stable module boundaries and the accepted exact-source, separate-window chart contract |
-| `docs/MARKET_DATA.md` | Authoritative provider, exact-symbol, real-USD/perpetual, and candle-source semantics |
-| `docs/TODO.md` / `docs/KNOWN_ISSUES.md` | Unauthorized backlog and real limitations/workarounds |
-| `docs/RELEASE.md` | Versioning, package/release procedure, immutable-tag recovery, and artifact rules |
-| `src/main.ts` / `src/index.html` | Quote-row mouse/keyboard activation, current-source selection snapshot, and drag-click suppression |
-| `src/chart.html` / `src/chart.css` / `src/chart.ts` | Maximized candle viewer, interval/viewport controls, visible-range canvas drawing, pointer/wheel/keyboard navigation, status/accessibility, and chart-window lifecycle |
-| `src/chart-viewport.ts` | Pure minimum-12 floating viewport normalization, one-complete-candle pan edges, anchored zoom, fractional pan, and real visible integer bounds |
-| `src/chart-crosshair.ts` / `tests/chart-crosshair.test.ts` | Real-candle and blank-margin crosshair projection, price mapping, edge/resize/prepend/invalid-input regressions |
-| `src/chart-time-axis.ts` / `tests/chart-time-axis.test.ts` | Real visible dates, optional confirmed-origin marker, and measured label collision avoidance |
-| `src/chart-current-price.ts` / `tests/chart-current-price.test.ts` | Single-product/source quote lifecycle, fallback/stale/timeout/cooldown behavior and race-condition tests |
-| `src/chart-live-candles.ts` / `tests/chart-live-candles.test.ts` | Quote/current-bucket synchronization, true tail refresh, snapshot/event ordering, replay/cooldown/cancellation, and shared last-close/guide state |
-| `src/chart-price-line.ts` / `tests/chart-price-line.test.ts` | Pure visible-price projection and off-scale/invalid/resize/precision regressions |
-| `src/price-feed.ts` | Existing feed plus narrow `createExactPriceSocket` factory reusing one selected provider's parsers and recovery |
-| `src/chart-navigation.ts` / `tests/chart-navigation.test.ts` | Separate pending zoom/pan intent, paced prefetch and bounded demand loading, stable prepend anchors, cancellation, sparse/error/cooldown recovery, automatic retry suppression, and behavioral regressions |
-| `src/candle-history.ts` / `src/chart-selection.ts` | Exact-source candle requests/parsers, lazy origin loader/completion and metadata cooldown signals, and validated versioned cross-window selection state |
-| `src-tauri/src/lib.rs` / `build.rs` / `tauri.conf.json` | Bounded selection slot, fixed chart commands/event, pre-created chart envelope, placement/maximize, and hide/reuse lifecycle |
-| `src-tauri/capabilities/main.json` / `chart.json` | Narrow, window-specific chart command/event permissions |
-| `scripts/frontend.ts` / `package.json` | Clean static emit and the authoritative TypeScript/test/build commands |
-| `tests/candle-history.test.ts` / `chart-selection.test.ts` / `chart-viewport.test.ts` / `ui.test.ts` | Current chart data, transfer, viewport, UI/native-configuration regressions |
+| `src/chart-viewport.ts` | Pure slot limits, anchored zoom/pan, geometry, real visible bounds and reset |
+| `src/chart-navigation.ts` | Shared visual count limit, pending zoom, terminal/cache completion, demand/prefetch and live tail merge |
+| `src/chart.ts` | Controls, rendering, input anchors and lifecycle |
+| `tests/chart-viewport.test.ts`, `tests/chart-navigation.test.ts` | Zoom reserve and history/navigation regressions |
+| `src/chart-live-candles.ts`, `src/chart-current-price.ts` | Quote lifecycle and synchronized last-close/guide state |
+| `src/candle-history.ts`, `src/chart-time-axis.ts`, `src/chart-crosshair.ts` | Exact-source history/origin, real date markers and blank-space inspection |
+| Five version files above | Authoritative release version fields |
+| `.github/workflows/build-desktop.yml`, `docs/RELEASE.md` | Four target builds, five assets and macOS 12 deployment-floor checks |
 
 ## Current Implementation
 
-The stable monitor, watchlist, About, sizing, tray, and market-feed design remains as documented in [`ARCHITECTURE.md`](ARCHITECTURE.md); the committed chart feature adds its own path without changing those contracts.
+`maximumCandleViewportCount(total)` allows up to `2 × total` finite visual slots. Open/reset remains the latest `min(120, total)` real candles and the zoom-in floor remains `min(12, total)`. `isCandleViewportFull` means all real candles are visible, including possible blank space, rather than exhausted zoom capacity.
 
-`src/main.ts` serializes a strict version-1 product/current-`DisplayQuote.marketSource` envelope and invokes only `show_chart_window`. Rust validates the opaque payload against a 4096-byte limit, stores one selection, shows/maximizes the pre-created chart window on the main monitor's work area, and emits `chart-selection-changed`. The main monitor is not hidden. Closing the chart hides it and restores the main window.
+`ChartNavigation.maximumViewportCount` is shared by navigation and the minus-button limit. While older history is queryable, larger zoom intent stays pending at the available-data scale. Completion, query boundaries or a full cache project that intent into the available reserve around its original anchor, including empty terminal pages and older/live cache completion. The reserve creates no candles and does not raise the 4,800-real-candle cache or network budget.
 
-`src/candle-history.ts` supports semantically exact Coinbase real-USD spot and Bybit/Gate stock-related USDT-perpetual history for five intervals. Pages return at most 240 valid candles and an exclusive `nextBefore` cursor. Coinbase/Gate retain bounded time-window scans; Bybit uses `end` without `start` and the oldest returned timestamp as its cursor. Only a valid Bybit empty list covers every earlier timestamp. The array-returning `fetchCandleHistory` interface remains compatible. Unsupported sources are rejected before `fetch`.
+Pan start stays `[1 - count, total - 1]`; real visible bounds drive extrema, dates, summaries and crosshairs. Reverse zoom, drag, End and reset supersede pending intent. Only an aligned latest edge follows live appends. Origin requires confirmed source completion with the actual first candle retained.
 
-`createCandleHistoryLoader` freezes selection/interval and lazily confirms Coinbase/Gate origin after the first short/empty page. Verified Coinbase trade ID 1 plus an empty older query, or matching Gate contract `create_time`, defines a conservative interval-bucket lower bound; candles are still scanned through it. Missing, failed, future or contradictory metadata remains unknown. Ordinary full pages make one request. Metadata 429/403 preserve the received page and carry a one-time `olderRetryAfterMs`; chart pages with partially invalid rows fail without advancing the navigation cursor. `historyComplete` stops loading, and navigation exposes `historyStartReached` only when completion is proven and cache trimming retained the actual oldest candle.
-
-`src/chart-viewport.ts` owns pure continuous candle-unit math, a latest-120 default/reset, a 12-candle minimum, and proportional candle geometry. `src/chart-navigation.ts` owns loaded history and pending navigation intent. It serially fetches up to four older pages per batch, preserves time anchors on prepend, and caps the cache at 4,800 candles with a visible limit message. A small reverse zoom immediately uses the rendered viewport instead of an unseen pending range. `src/chart.ts` synchronizes the canvas and drag origin with that state; drawing remains animation-frame coalesced and clipped, with visible-range price/time axes and accessible summaries. Product/interval changes or hiding cancel obsolete work; resize preserves candle position. Above 960px width, the header reserves 248px at the right for the monitor's default placement; arbitrary user-moved overlap is not prevented.
-
-The frontend remains strict TypeScript (`ES2025` target/library, native `ES2022` modules) emitted as local unbundled files. The chart introduces no provider, dependency, general native window permission, or CSP-origin expansion.
-
-For a rendered viewport of `count` candle slots and `total` loaded candles, pan start is clamped to `[1 - count, total - 1]`. Visible integer bounds include only real candles. Pending zoom requests larger than available history are retained separately and projected around their original anchor; pan, reset, End, or reverse zoom can replace them immediately. Captured drags rebase at a clamped boundary, while history prepends shift the drag origin with the candles. After failed/nonadvancing demand or an unfinished four-page batch, ordinary pointer updates do not retry until explicit continuation or loaded-range/reset recovery.
-
-`chart-time-axis.ts` lays out measured real-date labels; a null marker width leaves ordinary first-candle dates intact while origin is unconfirmed. When navigation confirms the retained origin, its visible center gets “历史起点” with priority over colliding dates. Both axes use 12px semibold `#b9c5d7` ticks with matching measured crosshair fonts, 104px right margin (96px below 520px width), and 40px bottom margin. Crosshair projection returns a null candle index in blank margins, retaining pointer guides and price while suppressing a fabricated UTC label.
-
-The crosshair is a separate, animation-frame-coalesced transparent canvas plus noninteractive axis markers. `chart-crosshair.ts` snaps only to visible real candle centers and maps pointer height with the renderer's padded extrema; UTC labels use that candle's actual timestamp. `ChartNavigation.startPrefetch()` runs after instance assignment, including empty initial pages (which do not trigger speculative fetches until manual recovery supplies data). Its 480-candle left buffer is paced at one second between speculative pages and yields to demand. Empty/nonadvancing/error pages and four insufficient sparse pages pause speculation. HTTP 429/403 cooldowns apply only to the current navigation instance, not globally to all provider traffic or deliberate interval/reopen reloads. See `DECISIONS.md` and `MARKET_DATA.md` for the accepted policy and official limits.
-
-`ChartCurrentPrice` retains one exact-source quote connection plus same-source ticker fallback. `ChartLiveCandles` consumes that state and updates only an existing matching last bucket's close/high/low after validating freshness, identity and event/snapshot ordering; the open remains provider-supplied. It derives the guide price from the same candle and schedules an atomic candle/guide frame. Interval changes replace the synchronizer while retaining the quote connection; selection/source/hide/close cancels both old paths.
-
-`fetchRecentCandleHistory` strictly loads real recent OHLC with no origin metadata. A serialized recent-tail request runs at rollover/recovery or every 30 seconds, with at least five seconds between starts, an eight-second deadline and 429/403 cooldowns. Request-time quote extrema and last values replay into actual matching buckets. Missing buckets stay missing; the last close remains displayed with “同步 K 线…”. `ChartNavigation.mergeRecentCandles` replaces known buckets and appends later actual buckets without changing the older cursor. Right-aligned views follow, historical/drag/blank views retain anchors, and live cache eviction sends negative index offsets and invalidates a discarded origin. The concurrent older-page path now explicitly handles zero remaining capacity.
+Quotes pass through `ChartCurrentPrice → ChartLiveCandles → ChartNavigation`; the price guide derives from the actual last candle close and shares its render frame. Do not restore the rejected independent-live-line/static-OHLC approach. Stable constraints remain in `DECISIONS.md` and `MARKET_DATA.md`.
 
 ## Current Problems
 
-- One confirmed chart-selection defect: `src/chart-selection.ts` requires a Bybit symbol to equal `${ticker}USDT`, while the existing catalog/persistence contract permits an exact official symbol that differs from the underlying ticker. The existing AMD / `AMDSTOCKUSDT` repository fixture passes catalog parsing but throws `TypeError: Invalid chart product` when opening its chart; the same product is rejected even with a valid active Gate mapping. Main quotes are unaffected. This is an offline fixture reproduction, not evidence that the example is currently listed online. See `KNOWN_ISSUES.md`; no product fix was made during takeover.
-- No known flaky test. The current selection tests do not cover this valid noncanonical Bybit mapping.
-- The requested first chart slice intentionally has history adapters only for the exact active Coinbase, Bybit, or Gate source. If a clicked USD quote is currently displayed from Kraken, Bitstamp, Bitfinex, or has no source yet, the chart reports that limitation instead of substituting Coinbase; broader exact-source coverage requires a separate product request and provider/CORS work.
-- The previous current-price installer has static-candle divergence; the source correction is verified. Quote-only extrema are periodically reconciled with source OHLC. Prolonged outages can leave a real gap beyond the bounded recent page; no candle is interpolated. Until an actual new bucket arrives, “同步 K 线…” keeps the guide attached to the last real close.
-- The shipped DMGs passed metadata/deployment-target gates at exactly macOS 12.0, but startup and ES2025 output have not been exercised on a real macOS 12.x system. Representative Linux WebKitGTK runtime acceptance is also incomplete.
-- Real native mouse ordering/edge scrolling and beyond-eight/work-area height dragging are not fully smoke-tested across Windows, macOS, and Linux; compact About/opener behavior and chart/main maximize/always-on-top/close-to-hide plus chart pointer/wheel navigation likewise lack current macOS/Linux packaged-runtime coverage.
-- Published artifacts are unsigned; Windows signing and macOS Developer ID/notarization remain future release-quality work.
-- Known non-blocking technical debt includes the isolated extra `}` in `src/styles.css` and the unused native `minimize_window` command. Do not fix either without a separately authorized maintenance task.
-- Further limitations and their workarounds are in [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md); executable but unauthorized follow-up items are in [`TODO.md`](TODO.md).
+- No failing release check or product blocker was found for this scope.
+- The separate Bybit symbol-selection defect remains open: a permitted official mapping differing from ticker plus `USDT` fails chart selection, including products whose active source is Gate. The `AMDSTOCKUSDT` example is an offline fixture, not evidence of a current online listing. It is disclosed in the Release notes; see `KNOWN_ISSUES.md` and `TODO.md`.
+- Charts support Coinbase/Bybit/Gate only, history is bounded and outage gaps are not fabricated. Packages remain unsigned and macOS unnotarized.
+- Full installed-artifact acceptance, macOS 12/Linux runtime acceptance and unrelated CSS/native-command debt remain incomplete. Do not expand this release task into those backlog fixes.
 
 ## Verification State
 
-Source-push verification on 2026-09-10:
+| Check | State | Evidence / scope |
+| --- | --- | --- |
+| `npm.cmd ci` | **Passed** | `artifacts/release-v1.7.0-npm-ci.log` |
+| Strict application/test TypeScript | **Passed** | Fresh `npm.cmd run check` for `1.7.0` |
+| Node suite | **Passed: 258/258** | Same command; `artifacts/release-v1.7.0-frontend-check.log` |
+| Frontend build | **Passed** | Clean static emit in check and Windows build |
+| Rust fmt/test/check/Clippy | **Passed; 7 Rust tests** | Locked checks and `-D warnings`; `artifacts/release-v1.7.0-rust-*.log`, `release-v1.7.0-clippy.log` |
+| Browser zoom regression | **Passed: 6 scenarios** | Fresh run; `artifacts/release-v1.7.0-zoom/results.json` |
+| Windows NSIS build | **Passed** | `artifacts/release-v1.7.0-windows-build.log` |
+| Version/license metadata | **Passed** | All six fields `1.7.0`; installer product/file version `1.7.0`; generated NSIS license file 35,152 bytes and non-empty `!define LICENSE` |
+| Native Windows smoke | **Passed, bounded scope** | Local release executable, isolated WebView2 profile; live Coinbase BTC 1h, 120/720 initial/prefetch, guide/last-close equality, 120→168 zoom, drag/crosshair, reset to 120, Escape hides chart while process/main remain alive. Unsupported Bitfinex source also showed its explicit state. `artifacts/release-v1.7.0-local/native-smoke.json` |
+| `git diff --check` | **Passed** | Rerun before staging |
+| Standalone frontend lint | **Not available** | Strict TypeScript is included above |
+| Full installed Windows artifact / all-provider/all-interval native acceptance | **Not verified** | Installer was not executed; bounded native smoke is not full acceptance |
+| macOS/Linux runtime and CI deployment floor | **Not verified yet** | Await this release's builds; build metadata alone cannot establish full runtime acceptance |
+| Public Release assets/downloads/UTF-8 notes | **Not verified yet** | Publication has not begun |
 
-- Live remote `main` matched local `c2bb229` before delivery. Independent scope review confirmed all 29 source/test/document files belong to the completed chart fixes; no unrelated configuration, dependency, version or artifact changes were included. Credential-pattern checks found no matches. Files were staged explicitly; staged `git diff --check` passed with no unstaged work.
-- `git push origin main:main` advanced the remote to `5e9c281e766393bbddf94ac8aaabec22b5b310b3`. A subsequent live `git ls-remote --heads origin refs/heads/main` confirmed that exact source commit and the worktree was clean. No force push, version change, tag, Release or binary upload occurred.
-- Local installers, browser fixtures/logs, `dist/` and Rust outputs remain ignored. No product changes followed the final 252-test/browser/installer verification below; those results apply to the pushed source. Tests/builds and native acceptance were not unnecessarily repeated for this source-only delivery.
+Browser fixtures use 360/9/1 candles at 1440×900 and 640×400, DPR 2, including reserve limits, proportional geometry, anchor reversal, pan edges, End/reset and origin. Twenty history/metadata requests and six ticker fallback requests were mocked; no unexpected external requests or page/console errors. This rerun uses a distinct ignored harness/output so prior evidence is preserved.
 
-Synchronization correction verified on 2026-09-10:
+The native smoke's first detached launch disappeared without a Windows crash record; a retained launcher session stayed alive through the full repeated smoke and chart hide. Only the owned test process was cleaned up afterward; the pre-existing installed process and user watchlist were preserved. This is harness evidence, not a product workaround or proof of an application crash.
 
-- `npm.cmd run check` passed strict application/test TypeScript, 252/252 Node tests (18 candle-sync, 69 navigation, 29 history plus existing suites), and clean frontend emit. Log: `artifacts/candle-sync-check-2026-09-10.log`. The 77-test focused pre-edit baseline also passed. Tests include trigger-only rollover/recovery, trigger extrema, delayed snapshot replay, stale/invalid/wrong-source data, empty history, timeout/abort/cooldowns, signed cache trimming and concurrent older requests.
-- Direct Chromium regression passed at 1440×900 and 640×400, DPR 2: exact displayed candle-close/axis-value equality and horizontal-line/body-close alignment in all five intervals; same source connection across interval switches; 1m rollover adds the actual bucket and preserves the trigger's high plus later low/close; absent buckets retain the previous candle with synchronization status; request retries are paced; historical candle geometry, pointer-only crosshair redraw, compact axis bounds and close cancellation remain correct. Harness: `artifacts/current-candle-sync-smoke.mjs`, 16 mocked HTTP requests, no page errors or console warnings; results/screenshots: `artifacts/current-candle-sync-2026-09-10/`.
-- Existing history-origin and crosshair/prefetch Chromium regressions passed with all prior business assertions retained, respectively 13 history/metadata and 11 candle requests (720 cached, 330 zoomed). Their scripts append `-candle-sync.mjs` to the prior current-price fixture names; evidence: `artifacts/chart-origin-current-price-candle-sync-retry-2026-09-09/` and `artifacts/chart-existing-regression-current-price-candle-sync-retry-2026-09-09/`. There were no unexpected external requests. The successful runs used stable emitted assets; an initial run overlapping clean emit did not initialize and is not a product failure or passing evidence.
-- Independent source review identified and verified fixes for empty-history first-quote recovery and the refresh-trigger tick replay race. Final `git diff --check` passed. No Rust source, capability, CSP origin, dependency or version changed.
-- `npm.cmd run build:windows` passed clean frontend emit, optimized Rust compilation and x64 NSIS packaging; only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-candle-sync-2026-09-10.log`.
-- Test copy: `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe`, 1,245,720 bytes, product/file version `1.6.2`, Authenticode `NotSigned`, built `2026-09-10T00:04:13+08:00` from the worktree on `c2bb229`. SHA-256 `32FC994E17EFF2D5CDCB0DC5C20BB8EFAE363D1EFC27FFB3ACB70A9A25848533`; canonical output and copy match. Adjacent `build-info.json` and `SHA256SUMS.txt` record provenance. Generated NSIS license-page metadata and decoded bundled GPL text match the source. Installer execution/native acceptance remains unverified; no installation, commit, push, tag, release or version change occurred.
-
-First current-price guide verification on 2026-09-09 (historical; did not test line-to-candle equality):
-
-- `npm.cmd run check` passed strict application/test TypeScript, 223/223 Node tests (including 13 exact-source current-quote and five price-projection cases), and clean frontend emit. Log: `artifacts/current-price-check-2026-09-09.log`. The focused pre-edit baseline was 44 tests.
-- Deterministic Chromium current-price regression passed at 1440×900 and 640×400, DPR 2: same-source subscription, cold-start price, red/green values, precise dashed-line/axis alignment, tick/hover overlay-only rendering, historical off-scale preservation and return-to-latest scale, interval connection reuse, stale/recovery state, crosshair overlap, product switch, rejected old callbacks, close cancellation, hide/reopen and continued quotes. Harness: `artifacts/current-price-smoke.mjs`; screenshots/results: `artifacts/current-price-browser-2026-09-09/`, 12 mocked HTTP requests including five ticker requests. No page errors or console warnings. Final fixture routes all HTTP explicitly; no live provider is used as deterministic evidence.
-- Existing origin and crosshair/prefetch browser regressions also passed against this source at both sizes/DPR 2, with respectively 13 history/metadata and 11 candle requests. Current-price WebSockets were inert and ticker fallback returned a separately counted 503; no unexpected external requests occurred. Harnesses: `artifacts/chart-origin-current-price.mjs`, `artifacts/chart-existing-regression-current-price.mjs`; evidence directories have the matching `-2026-09-09` suffix. All earlier origin, pan, zoom, buffered loading and cancellation assertions remain intact.
-- Independent source review found no blocking issue; final `git diff --check` passed. No Rust source, capability, CSP origin, dependency or version changed.
-- `npm.cmd run build:windows` passed clean frontend emit, optimized Rust compilation and x64 NSIS packaging. Only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-current-price-2026-09-09.log`.
-- Test copy: `artifacts/local-test-2026-09-09-190254/Crypto.Top_1.6.2_current-price-test_x64-setup.exe`, 1,242,961 bytes, product/file version `1.6.2`, Authenticode `NotSigned`, built `2026-09-09T19:01:39+08:00` from the worktree on `c2bb229`. SHA-256 `9C634D6B7F334DCEED2562A5802189E531B02288F5033FC3884C714D6546FA81`; canonical output and copy match. Adjacent `build-info.json` and `SHA256SUMS.txt` record provenance. Generated NSIS license-page metadata and decoded bundled GPL text match the source. The installer was not executed; no installed process, commit, push, tag, release or version was changed. Packaged/native current-price acceptance remains unverified.
-
-Earlier 205-test and installer evidence below applies to the completed origin correction, before this feature.
-
-History-origin/status/axis correction verification on 2026-09-09:
-
-- `npm.cmd run check`: passed strict application/test TypeScript, 205/205 Node tests (28 history, 59 navigation, 11 time-axis, plus existing crosshair/viewport/UI/provider tests), and clean frontend emit. Log: `artifacts/chart-origin-check-2026-09-09.log` (ignored). The 83 focused pre-edit baseline tests also passed.
-- Deterministic Chromium origin regression passed at 1440×900 and 640×400, DPR 2: no flag at an ordinary page edge or while earlier data are pending; confirmed source origin shows the flag and hides continuation; oldest-at-right pan retains one candle and makes no further request; metadata failure leaves origin unconfirmed and probes only once; brighter axis text, crosshair labels and marker stay within bounds. No page errors/console warnings. Harness `artifacts/chart-origin-smoke.mjs`, 13 mock requests, results/screenshots `artifacts/chart-origin-2026-09-09/` (ignored).
-- Existing crosshair/prefetch Chromium regression passed against the final correction: 120/240 warms to 120/720, buffered zoom reaches 330, hover does not repaint candles, labels/anchors/drag scale remain stable, quiet failures pause requests, empty-page recovery and close cancellation work. Harness `artifacts/chart-existing-regression-origin.mjs`, 11 candle requests, output `artifacts/chart-existing-regression-origin-2026-09-09/` (ignored).
-- Read-only live HTTP probes returned 200 with `Access-Control-Allow-Origin: *` for Coinbase BTC trade `after=2&limit=1` (trade ID 1, timestamp `2014-12-01T05:33:56.761199Z`), `after=1&limit=1` (empty), and Gate `MU_USDT` contract metadata (`create_time=1770370069`). Evidence: `artifacts/origin-api-headers-2026-09-09.json`. These are HTTP/header checks, not a native WebView or packaged-runtime acceptance test.
-- Independent source review found no blocking issue; final `git diff --check` passed. No Rust source, capabilities, CSP origins, dependencies or versions changed.
-- `npm.cmd run build:windows` passed clean frontend emit, optimized Rust build and x64 NSIS packaging; only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-chart-origin-2026-09-09.log` (ignored).
-- Test copy: `artifacts/local-test-2026-09-09-135253/Crypto.Top_1.6.2_history-origin-test_x64-setup.exe`, 1,239,687 bytes, product/file version `1.6.2`, Authenticode `NotSigned`, built `2026-09-09T13:52:36+08:00` from the worktree on `c2bb229`. SHA-256 `299EC114A13EDD684C87293567CD043AFB5D07DEFCFE72C38817CC1E6CB9CAF1`; canonical output and copy match. Adjacent `build-info.json` and `SHA256SUMS.txt` record provenance. Generated NSIS license-page metadata and decoded bundled GPL text match the source. Installer execution/native acceptance remains unverified; no installed process was changed, and no commit, push, tag, release or version change occurred.
-
-Prior evidence below is historical, including the now-rejected loaded-cache flag semantics.
-
-Two-sided-pan/start-marker verification on 2026-09-08:
-
-- `npm.cmd run check`: passed strict application/test TypeScript checks, 183/183 Node tests (48 navigation, 16 viewport, 10 crosshair, and 10 time-axis cases), and clean frontend emit. Log: `artifacts/chart-edges-check.log` (ignored). There is no separate lint script.
-- Deterministic Chromium regression passed at `1440×900` and `640×400`, DPR 2: both one-complete-candle edges, unchanged horizontal body width, overshoot clamping with immediate held-drag reversal, blank-space guides/price with no time label, origin flag/UTC accessibility/collision layout, failed-demand retry suppression, delayed history prepend during captured drag, End/reset, interval changes, and sparse nine-candle exhausted history that still pans both ways. No page errors or console warnings. Harness: `artifacts/chart-edge-smoke.mjs`; results/screenshots: `artifacts/chart-pan-edges-2026-09-08/` (ignored).
-- Existing crosshair/prefetch regression also passed against the new source: hover does not repaint candles, initial 120/240 warms to 120/720 with paced requests, buffered zoom reaches 330, anchors remain stable, quiet errors pause prefetch, empty history can recover, and close cancels queued work. Harness: `artifacts/chart-existing-regression-edges.mjs`; results/screenshots: `artifacts/chart-existing-regression-edges-2026-09-08/` (ignored).
-- `git diff --check` passed, and independent source review found no blocking issue. No Rust, capability, CSP, dependency, or version change was needed. The previous Rust checks below are historical; current packaged/native runtime acceptance has not been performed.
-- `npm.cmd run build:windows`: passed clean frontend emit, optimized Rust build, and x64 NSIS packaging. Only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-chart-edges-2026-09-08.log` (ignored).
-- New test copy: `artifacts/local-test-2026-09-08-233649/Crypto.Top_1.6.2_pan-edges-test_x64-setup.exe`, 1,236,939 bytes, product/file version `1.6.2`, Authenticode `NotSigned`, built at `2026-09-08T23:36:17+08:00` from the worktree on `c2bb229`. SHA-256: `95743C44322E2B142F86144DEC290F3A48F3CE1F25CD3E01B63D82C23553E871`; canonical output and test copy match. `build-info.json` and `SHA256SUMS.txt` are alongside it. All six source/lock/config version fields remain `1.6.2`; generated NSIS metadata includes the license page, and the decoded bundled GPL text matches `LICENSE`.
-- The installer was not executed and no installed process was changed. No commit, push, tag, release, or source-version change occurred for this task. The prior named installers below are historical and do not include the pan/start-marker changes.
-
-Source-push preflight on 2026-09-08:
-
-- Delivery completed: `git push origin main:main` advanced the remote from `d68af6d` to `625ac40`. A subsequent live `git ls-remote --heads origin refs/heads/main` returned the complete source commit hash above, matching local `HEAD`; the worktree was clean after that source push. No force push, version change, tag, release, or binary upload was performed.
-- Reviewed the complete documented 30-file feature scope and staged it explicitly; installers/logs remain ignored. No unrelated changes or credential-pattern matches were found. The existing remote is `https://github.com/ArchLinuxStudio/btc-price-monitor.git`, and live `refs/heads/main` matched local `d68af6d` before the source commit.
-- Fresh `cargo fmt --all --manifest-path src-tauri/Cargo.toml -- --check`, `cargo test --locked --manifest-path src-tauri/Cargo.toml` (7/7), `cargo check --locked --manifest-path src-tauri/Cargo.toml`, and `cargo clippy --locked --all-targets --manifest-path src-tauri/Cargo.toml -- -D warnings`: passed. Only the documented benign MSVC import-library message appeared during test compilation; Clippy emitted no warnings.
-- At that source-push checkpoint, the 152-test frontend check, browser regression, and local NSIS build evidence below applied with no further product changes. Staged `git diff --check` passed with no unstaged work. The later pan/start-marker changes are verified separately above.
-
-Crosshair/prefetch verification on 2026-09-08 (historical; the named test copy is preserved):
-
-- `npm.cmd run check`: passed strict application/test TypeScript checks, 152/152 Node tests (including 32 navigation and 8 crosshair projection cases), and clean frontend emit. Log: `artifacts/crosshair-prefetch-check.log` (ignored). There is no separate lint script.
-- Deterministic Chromium regression passed at `1440×900` and `640×400`, device pixel ratio 2: crosshair cursor during hover/drag, both dashed guides, actual UTC candle/time and continuous pointer-price labels, top/bottom alignment, unclipped markers, no candle-layer redraw on hover, and clearing on leave/interval/close. Initial 120/240 warmed to 120/720 with >=1-second page spacing, unchanged candle geometry/time/price anchors, immediate zoom-out to 330 from the buffer, preserved drag scale after a quiet prefetch failure, no automatic error retries, empty-page manual recovery enabling prefetch, and close cancelling its queued request. No page errors/console warnings. Harness and results/screenshots: `artifacts/chart-crosshair-prefetch-smoke.mjs` and `artifacts/chart-crosshair-prefetch-2026-09-08/` (ignored).
-- `git diff --check`: passed. No Rust, capability, CSP, dependency, or version change was needed for these two improvements. Earlier native evidence below applies to the preceding zoom implementation, not the current crosshair/prefetch runtime.
-- `npm.cmd run build:windows`: passed clean frontend build, optimized Rust build, and x64 NSIS packaging. Only the documented benign MSVC import-library message appeared. Log: `artifacts/local-installer-crosshair-prefetch-2026-09-08.log` (ignored).
-- New test copy: `artifacts/local-test-2026-09-08-131009/Crypto.Top_1.6.2_crosshair-prefetch-test_x64-setup.exe`, 1,235,631 bytes, product/file version `1.6.2`, Authenticode `NotSigned`. SHA-256: `B51F4EF2D2D87B20C440A008CF51BF0D5BCF6FE9D928302C4E821045A3FC8F77`; canonical output and copy match. `build-info.json` and `SHA256SUMS.txt` are alongside it. Generated NSIS license-page metadata and the decoded packaged GPL license match the source. The installer was not run; no installed process was changed, and no commit, push, tag, release, or source-version change occurred.
-
-Earlier zoom-only installer verification on 2026-09-08 (historical; the canonical NSIS output has since been replaced above):
-
-- `npm.cmd run build:windows`: passed the clean frontend build, optimized Rust build, and x64 NSIS packaging. Build log: `artifacts/local-installer-build-2026-09-08.log` (ignored). Only the documented benign MSVC import-library message appeared.
-- Test copy: `artifacts/local-test-2026-09-08-081230/Crypto.Top_1.6.2_zoom-test_x64-setup.exe`, 1,232,936 bytes, product/file version `1.6.2`, Authenticode `NotSigned`.
-- SHA-256: `42DE2A845A5D339055FC1424F31707AA24DDBE17EF268B77E30CF134527655D7`. Original and copied installers have identical hashes. `build-info.json` and `SHA256SUMS.txt` are alongside the test copy.
-- All six source/lock/config version fields agree at `1.6.2`. Freshly generated NSIS metadata includes the GPL license page and its nonempty `license_file` matches the source `LICENSE` after decoding.
-- The installer has not been executed or installed; user acceptance remains pending. Source versions, commits, tags, and published Releases were not changed.
-
-Final zoom verification on Windows on 2026-09-08:
-
-- `npm.cmd run check`: passed strict application/test TypeScript checks, 129/129 Node tests (18 history-page, 17 navigation, and 13 viewport tests), and clean frontend emit. Log: `artifacts/zoom-final-check.log` (ignored).
-- `cargo build --locked --manifest-path src-tauri/Cargo.toml`: passed for the current debug executable; only the documented benign MSVC import-library message appeared. No Rust, capability, CSP, dependency, or version change was needed for this zoom correction.
-- Deterministic browser regression passed at `1440×900` and `640×400`: initial 120 → 168 → 330 visible candles with 480 loaded, monotonically smaller spacing/body width on zoom-out, larger bodies on zoom-in, wheel navigation, drag/prepend without scale jumps, reset, error/retry to 960 loaded candles, interval changes ignoring older responses, and wide-toolbar clearance. Screenshots and measurements: `artifacts/chart-zoom-2026-09-08/`; harness: `artifacts/chart-zoom-smoke.mjs` (all ignored). No page errors or console warnings were observed.
-- Real Windows Tauri debug runtime loaded Coinbase UNI hourly history: initial 120/240 → 168/240 → 236/240 → 330/480, with the visible start moving earlier. Native wheel zoom-in, latest-120 reset, main/chart coexistence, and Escape close-to-hide restoring the main window passed. This is real provider/WebView evidence, not an installer or cross-platform test.
-- `git diff --check`: passed after final documentation updates. Existing dirty work was preserved; no commit, push, version change, tag, release, or installation was performed.
-
-The following earlier evidence is retained for provenance; it is not a claim that the old full Rust or installer checks were repeated for this frontend-only correction.
-
-Takeover verification on Windows on 2026-09-07:
-
-- Git and the chart-related dirty source/diff were reviewed against this handoff: `main` and the local `origin/main` ref still equal `d68af6d`, with the same 16 modified tracked files, 10 untracked files, and no staged changes. No remote fetch was performed.
-- `npm.cmd run typecheck`: passed strict application/test TypeScript checks.
-- `node --import=tsx --test --test-reporter=dot tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/ui.test.ts`: passed, 33/33 tests.
-- `cargo test --locked --manifest-path src-tauri/Cargo.toml chart_selection_is_bounded_by_utf8_bytes`: passed, 1/1 selected Rust test; only the documented benign MSVC import-library message appeared.
-- `git diff --check`: passed after the takeover documentation update.
-- A separate offline probe reused the AMD / `AMDSTOCKUSDT` fixture from `tests/watchlist.test.ts`: catalog parsing succeeds, but chart selection creation throws and parsing rejects it for both Bybit and a Gate-mapped version of the product. This confirms an uncovered product defect despite the passing suite.
-- Product source was preserved. Only `CURRENT_STATE.md`, `KNOWN_ISSUES.md`, and `TODO.md` were updated to record the finding and verification. No full suite, frontend emit, installer build/execution, or runtime acceptance was repeated.
-
-Full verification retained from the preceding 2026-09-07 checkpoint, not rerun in this takeover:
-
-- `npm.cmd run check`: passed; strict application/test TypeScript checks, 102/102 Node tests including 9 viewport-math cases, and a clean frontend emit.
-- `cargo fmt --all --manifest-path src-tauri\Cargo.toml -- --check`: passed.
-- `cargo test --locked --manifest-path src-tauri\Cargo.toml`: passed, 7/7 Rust tests; only the documented benign MSVC import-library message appeared.
-- `cargo check --locked --manifest-path src-tauri\Cargo.toml`: passed.
-- `cargo clippy --locked --all-targets --manifest-path src-tauri\Cargo.toml -- -D warnings`: passed with no Clippy warnings.
-- `git diff --check`: passed after the documentation edits; only expected LF-to-CRLF working-copy notices were printed.
-- There is no standalone frontend lint script. Strict TypeScript checking is part of `npm.cmd run check`; Rust linting is the Clippy command above.
-
-Build/runtime evidence retained from 2026-09-02:
-
-- `npm.cmd run build:windows` passed. The installer still existed and was rehashed on 2026-09-07 at `src-tauri/target/release/bundle/nsis/Crypto Top_1.6.2_x64-setup.exe` (1,229,641 bytes, SHA-256 `89BDF998A0DD76F8066861B27BF38041671FEEE5CE9CF9DCEE9727A9670A6614`, unsigned, version `1.6.2`). It was not rebuilt, run, or installed during this documentation-only checkpoint.
-- A deterministic browser fixture previously rendered 180 candles at `1440×900` and `640×400` and verified button/wheel zoom, pointer-anchored zoom, drag and keyboard pan, Home/End, reset, interval reset, ARIA state, and no console warnings/errors. It was not rerun on 2026-09-07 and does not prove Tauri multi-window behavior or live-provider CORS.
-- Published `v1.6.2` at `894dffb` passed Actions run `33468480211` with all five platform assets and both macOS 12 gates. That immutable release predates the chart work; Git/GitHub and `docs/RELEASE.md` remain authoritative for its detailed evidence.
-
-Not verified for this unreleased slice: installer execution; a packaged-Windows click-through of main/chart coexistence, live Coinbase/Bybit/Gate history, viewport interactions, and close paths; real macOS 12/WebKit or Linux WebKitGTK runtime behavior; signing or notarization.
+Local named installer: `artifacts/release-v1.7.0-local/Crypto.Top_1.7.0_x64-setup.exe`, 1,246,302 bytes, SHA-256 `0358E01C5D5EB7BC86C30650315F541C8F4F3206EF516CF439758018CF3EB7EB`, `NotSigned`. Its adjacent `build-info.json` records the dirty `52d5726` preparation source. Public assets must come from the subsequent release tag via CI, not this local verification copy.
 
 ## Next Recommended Action
 
-Await feedback on `artifacts/local-test-2026-09-10-000446/Crypto.Top_1.6.2_candle-sync-test_x64-setup.exe` or a new explicitly scoped task. Source delivery is complete; do not repeat it. Do not publish a release, change versions or take on the unrelated Bybit mapping defect without new scope.
-
-If the next request is to validate this slice, first run a manual packaged-Windows click-through of main/chart coexistence, live exact-source history, zoom/pan/reset, and chart close-to-hide behavior. If the next request is to release it, obtain explicit authorization, choose a new SemVer version, and follow `docs/RELEASE.md`; never reuse or move an existing tag.
-
-## New Thread Bootstrap
-
-1. Read `AGENTS.md`, `docs/INDEX.md`, and this file; then inspect current `git status --short --branch` and recent commits instead of reusing the retired dirty-file list.
-2. Chart, corrected zoom, crosshair, and paced prefetch are implemented, verified, and committed/pushed in `625ac40`. Preserve any subsequent user changes; the newest local test installer path is recorded above.
-3. The completed chart fixes were pushed in `5e9c281` on 2026-09-10 and the remote source hash was verified. The candle-sync build passes 252 tests, direct all-interval/1m rollover checks, existing browser regressions and NSIS verification; await testing feedback. Do not repeat the delivery, independently pick a TODO, discard changes, change versions, tag, publish, install or release.
-4. Once work is authorized, read only the directly relevant decisions/domain docs and source files, then run the smallest relevant baseline verification before changing code.
+1. Review the final scoped diff and confirm live remote `main` has not advanced, then commit/push the 16 reviewed files.
+2. Create and push new tag `v1.7.0`; never move or overwrite existing tags. Wait for all four builds and the release job, including both macOS deployment-floor steps.
+3. Apply the prepared UTF-8 Chinese notes, verify exactly five expected public asset names, sizes, SHA-256 digests and real downloads; update this checkpoint with final commit/tag/run/Release evidence and push that documentation update.
+4. After publication, await the next user scope. Do not automatically install packages or fix unrelated TODOs.

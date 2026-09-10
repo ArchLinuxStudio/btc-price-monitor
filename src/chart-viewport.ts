@@ -20,13 +20,19 @@ function minimumVisibleCount(total: number): number {
   return Math.min(MIN_VISIBLE_CANDLES, total);
 }
 
+/** Leave up to one series-width of blank space after all candles fit. */
+export function maximumCandleViewportCount(total: number): number {
+  return Math.min(Number.MAX_SAFE_INTEGER, normalizedTotal(total) * 2);
+}
+
 function normalizedCount(count: number, total: number): number {
   if (total === 0) return 0;
   const minimum = minimumVisibleCount(total);
+  const maximum = maximumCandleViewportCount(total);
   if (Number.isNaN(count)) return total;
-  if (count === Number.POSITIVE_INFINITY) return total;
+  if (count === Number.POSITIVE_INFINITY) return maximum;
   if (count === Number.NEGATIVE_INFINITY) return minimum;
-  return Math.min(total, Math.max(minimum, count));
+  return Math.min(maximum, Math.max(minimum, count));
 }
 
 function clampedStart(start: number, minimum: number, maximum: number): number {
@@ -52,7 +58,7 @@ export function createCandleViewport(
   initialCount = DEFAULT_VISIBLE_CANDLES,
 ): CandleViewport {
   const safeTotal = normalizedTotal(total);
-  const count = normalizedCount(initialCount, safeTotal);
+  const count = Math.min(safeTotal, normalizedCount(initialCount, safeTotal));
   return {
     start: safeTotal - count,
     count,
@@ -61,8 +67,8 @@ export function createCandleViewport(
 
 /**
  * Allows blank space at either end while keeping one complete candle slot in
- * view. Fractional offsets and scale are retained; invalid counts fall back to
- * the full series and invalid starts use a deterministic boundary.
+ * view. The scale can include up to twice the loaded series' candle slots.
+ * NaN counts fall back to the full series; invalid starts use a fixed boundary.
  */
 export function normalizeCandleViewport(
   viewport: CandleViewport,
@@ -87,7 +93,7 @@ export function isCandleViewportReset(viewport: CandleViewport, total: number): 
     && Math.abs(normalized.count - reset.count) <= tolerance;
 }
 
-/** Returns whether every loaded candle is visible, excluding blank-space pans. */
+/** Returns whether every loaded candle is visible, allowing extra blank slots. */
 export function isCandleViewportFull(viewport: CandleViewport, total: number): boolean {
   const safeTotal = normalizedTotal(total);
   const normalized = normalizeCandleViewport(viewport, safeTotal);

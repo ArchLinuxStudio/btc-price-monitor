@@ -42,7 +42,7 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Impact:** Chart activation fails for this permitted product shape; main quotes and the watchlist remain usable. The chart-selection tests cover only Bybit symbols equal to ticker plus `USDT`; the 33 focused chart/UI tests passed at the 2026-09-07 takeover despite this uncovered defect.
 
-**Current action:** Recorded during takeover; the pan-boundary/start-marker task does not include this separate selection-mapping fix.
+**Current action:** Remains a separate, unimplemented correctness item in `TODO.md`; no current delivery or documentation checkpoint authorizes this fix.
 
 **Next direction:** In a scoped correctness change, reuse the catalog/persistence Bybit symbol validation contract, retain the exact stored symbol, and add catalog-to-selection round-trip and exact-history-request regressions. Preserve Gate's canonical mapping rule, strict envelope/class validation, and unsupported-source rejection.
 
@@ -56,11 +56,11 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Next direction:** Add a provider only with a product request, current official exact-symbol/history semantics, target-WebView CORS evidence or a narrowly allowlisted native proxy, and parser/security tests. Never “solve” this limitation with cross-source substitution, a guessed symbol, or wildcard CSP.
 
-## Current-price line and last-candle synchronization
+## Current-candle synchronization: remaining data and acceptance limits
 
-**Reported defect:** The first current-price implementation streamed a separate quote line while the candle series remained its initial history snapshot. The line therefore diverged from the newest candle close, visibly on 1m charts. The 223-test and first-browser checks covered axis geometry, not this required equality; their pass did not rule out the defect.
+**Resolved regression:** The first current-price implementation streamed a separate quote line while candles remained at the initial history snapshot. It diverged from the newest candle close, visibly on 1m charts. Earlier axis-geometry tests missed this equality. The source correction is complete; do not treat it as an open implementation task or restore the old split. Its regression-prevention contract is in `DECISIONS.md`.
 
-**Correction:** Synchronize fresh same-bucket quotes into the actual latest candle, derive the guide from its close, and reconcile provider OHLC at rollover/recovery and periodically. Missing new buckets are not fabricated: retain the previous close with “同步 K 线…” until an actual candle arrives. Direct line-to-body/close equality and rollover/race regressions are required; see `CURRENT_STATE.md` for progress and verification.
+**Current behavior:** Real matching-bucket quotes and source OHLC reconciliation keep the latest candle and guide aligned. Missing new buckets retain the last actual close with “同步 K 线…”. Current verification and the distinction between source and packaged acceptance belong in `CURRENT_STATE.md`.
 
 **Remaining boundary:** Quote updates only contain observed last prices, so the source's recent OHLC refresh repairs missed extrema and closed buckets. After a prolonged outage the bounded recent page may leave a real history gap; never interpolate it. No valid quote means no guide, and stale values say “报价滞后”. Packaged and macOS/Linux live-provider acceptance remains incomplete.
 
@@ -68,7 +68,7 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Current behavior:** Zoom-out and older-direction pan request same-source history in pages of at most 240 candles (240 time buckets for Coinbase/Gate; end-only across gaps for Bybit). A batch scans at most four pages, with one request in flight, and the chart caches at most 4,800 candles. At the cache limit the chart displays that limit; it does not claim to contain every candle the exchange has.
 
-**Sparse history:** An empty page advances the scanned time range without manufacturing candles or declaring the entire instrument exhausted. If four pages are insufficient, the user can continue loading. Network failures retain the existing chart and allow retry.
+**Sparse history:** An empty Coinbase/Gate bounded window advances the scanned range without fabricating candles or alone proving the instrument exhausted. A valid Bybit end-only empty result covers all earlier timestamps and can confirm completion. If four pages remain insufficient and origin is unconfirmed, the user can continue loading. Network failures retain the chart and allow retry. Provider proof rules are authoritative in `MARKET_DATA.md`.
 
 **Pan/start semantics:** Both edges permit blank space until one complete end-candle slot remains. The 2026-09-08 cache-first “已加载起点” marker was rejected by the user and corrected on 2026-09-09: only the confirmed earliest retained candle gets “历史起点”. Confirmed completion removes the continue action and stops both demand and prefetch. Blank space has no fabricated candle/time marker. A failed/nonadvancing demand page or unfinished four-page batch pauses automatic continuation until explicit retry or loaded-range/reset recovery; retain the held-pointer retry regression.
 
@@ -76,7 +76,7 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Advance buffer:** The selected chart targets a 480-candle left buffer, refilling by whole pages (usually 720 total at the initial latest-120 view, with 600 candles before that view), with a one-second delay between speculative pages. Empty/nonadvancing/error responses or four insufficient sparse pages pause prefetch; successful demand can resume it. HTTP 429/403 pause older requests for 60 seconds/10 minutes in the current navigation instance. This is not a provider-wide limiter across deliberate chart reloads, main feeds, or other applications. Sparse history and fast navigation beyond the buffer can still require a visible load; the chart does not promise an offline copy of all exchange history.
 
-**Verification:** Initial zoom-out, progressive older-history loading, proportional spacing, and request cancellation are covered by the 2026-09-08 tests/browser/native evidence in `CURRENT_STATE.md`. The earlier all-240 initial viewport and fixed 12px body-width behavior have been replaced; do not restore them as a workaround.
+**Zoom distinction:** The 4,800-candle limit bounds real cached data, not visual slots. The completed extra-space refinement permits further compression after all retained history fits; see the zoom-reserve decision in `DECISIONS.md` and current tests/evidence in `CURRENT_STATE.md`. Do not restore the earlier all-240 initial viewport, full-series zoom ceiling or fixed 12px body-width cap as workarounds.
 
 ## Stock-related products are exchange derivatives, not shares
 

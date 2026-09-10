@@ -457,6 +457,109 @@ test("history cache stops at its explicit limit and keeps the nearest older cand
   assert.deepEqual(navigation.viewport, { start: -119, count: 120 });
 });
 
+test("completed history and a full cache allow extra zoom without requesting more data", async () => {
+  for (const initial of [page(0, 1), page(0, 9), page(0), page(10_000, MAX_HISTORY_CANDLES)]) {
+    let requests = 0;
+    const clock = fakeClock();
+    const navigation = new ChartNavigation(initial, {
+      ...clock,
+      loadPage: async () => { requests += 1; return page(0); }, onChange: () => {},
+    });
+    const total = initial.candles.length;
+    const reset = navigation.viewport;
+    navigation.startPrefetch();
+    navigation.setViewport({ start: 0, count: total });
+    navigation.zoom(0.8);
+    assert.deepEqual(navigation.viewport, { start: -total * 0.25, count: total * 1.25 });
+    navigation.zoom(0.01);
+    assert.equal(navigation.maximumViewportCount, total * 2);
+    assert.deepEqual(navigation.viewport, { start: -total, count: total * 2 });
+    navigation.zoom(0.5);
+    assert.deepEqual(navigation.viewport, { start: -total, count: total * 2 });
+    navigation.zoom(2);
+    assert.deepEqual(navigation.viewport, { start: 0, count: total });
+    navigation.continueLoading();
+    navigation.reset();
+    assert.deepEqual(navigation.viewport, reset);
+    await clock.advance(10_000);
+    assert.equal(requests, 0);
+    assert.equal(clock.pending(), 0);
+    assert.equal(navigation.historyStartReached, initial.nextBefore === 0);
+  }
+});
+
+test("pending zoom resolves around its anchor when the final page is empty or partial", async () => {
+  for (const added of [0, 60]) {
+    for (const requestedCount of [400, 2_400]) {
+      const pending = deferred<CandleHistoryPage>();
+      let requests = 0;
+      const navigation = new ChartNavigation(page(10_000), {
+        loadPage: async () => { requests += 1; return pending.promise; }, onChange: () => {},
+      });
+      const anchor = 0.25;
+      const anchorTime = 10_000 + navigation.viewport.start + navigation.viewport.count * anchor;
+      navigation.zoom(navigation.viewport.count / requestedCount, anchor);
+      assert.equal(navigation.viewport.count, 240);
+      pending.resolve({ ...page(10_000 - added, added), historyComplete: true });
+      await settle();
+      const count = Math.min(requestedCount, (240 + added) * 2);
+      assert.equal(navigation.viewport.count, count);
+      assert.equal(navigation.candles[0].openTime + navigation.viewport.start + count * anchor, anchorTime);
+      assert.equal(navigation.needsOlder, false);
+      assert.equal(navigation.historyStartReached, true);
+      navigation.continueLoading();
+      await settle();
+      assert.equal(requests, 1);
+    }
+  }
+});
+
+test("pending zoom gets its blank reserve when either older pages or a live append fills the cache", async () => {
+  for (const live of [false, true]) {
+    const pending = deferred<CandleHistoryPage>();
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000, MAX_HISTORY_CANDLES - 10), {
+      loadPage: async () => { requests += 1; return pending.promise; }, onChange: () => {},
+    });
+    const anchor = 0.25;
+    const anchorTime = 10_000 + navigation.viewport.start + navigation.viewport.count * anchor;
+    navigation.zoom(0.01, anchor);
+    if (live) navigation.mergeRecentCandles(page(10_000 + MAX_HISTORY_CANDLES - 10, 20).candles);
+    pending.resolve(page(9_760));
+    await settle();
+    assert.equal(navigation.candles.length, MAX_HISTORY_CANDLES);
+    assert.equal(navigation.viewport.count, MAX_HISTORY_CANDLES * 2);
+    assert.equal(navigation.candles[0].openTime + navigation.viewport.start + navigation.viewport.count * anchor,
+      anchorTime);
+    assert.equal(navigation.canLoadOlder, false);
+    assert.equal(navigation.needsOlder, false);
+    assert.equal(navigation.historyStartReached, false);
+    assert.match(navigation.historyMessage, /4800.*上限/);
+    assert.equal(requests, 1);
+  }
+});
+
+test("live appends retain the expanded scale and follow only an aligned latest edge", () => {
+  for (const initial of [page(0), page(10_000, MAX_HISTORY_CANDLES)]) {
+    for (const anchor of [0.5, 1]) {
+      const navigation = new ChartNavigation(initial, {
+        loadPage: async () => { throw new Error("unexpected request"); }, onChange: () => {},
+      });
+      const total = initial.candles.length;
+      navigation.setViewport({ start: 0, count: total });
+      navigation.zoom(0.5, anchor);
+      const before = navigation.viewport;
+      const startTime = navigation.candles[0].openTime + before.start;
+      const nextTime = navigation.candles.at(-1)!.openTime + 1;
+      navigation.mergeRecentCandles([candle(nextTime)]);
+      assert.equal(navigation.viewport.count, before.count);
+      assert.equal(navigation.candles[0].openTime + navigation.viewport.start,
+        startTime + (anchor === 1 ? 1 : 0));
+      assert.equal(navigation.needsOlder, false);
+    }
+  }
+});
+
 test("a zero cursor honestly stops at the queryable history boundary", async () => {
   const navigation = new ChartNavigation(page(240), {
     loadPage: async () => page(0),
@@ -465,7 +568,7 @@ test("a zero cursor honestly stops at the queryable history boundary", async () 
   navigation.zoom(0.1);
   await settle();
   assert.equal(navigation.candles.length, 480);
-  assert.deepEqual(navigation.viewport, { start: 0, count: 480 });
+  assert.deepEqual(navigation.viewport, { start: -480, count: 960 });
   assert.equal(navigation.canLoadOlder, false);
   assert.equal(navigation.historyStartReached, true);
   assert.match(navigation.historyMessage, /历史起点/);
