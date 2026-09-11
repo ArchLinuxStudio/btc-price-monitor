@@ -12,12 +12,10 @@
     <main class="chart-shell" aria-labelledby="chart-symbol">
       <header class="chart-header">
         <div class="instrument">
-          <span class="market-badge" id="market-badge">行情</span>
           <div class="instrument-copy">
             <h1 id="chart-symbol">K线图</h1>
-            <p id="product-name">等待主界面选择标的</p>
           </div>
-          <span class="source-name" id="source-name">—</span>
+          <span class="market-badge" id="market-badge">行情</span>
         </div>
 
         <div class="chart-actions">
@@ -28,11 +26,9 @@
             <button type="button" data-interval="1h" aria-pressed="true">1h</button>
             <button type="button" data-interval="1d" aria-pressed="false">1d</button>
           </div>
-          <div class="view-toolbar" role="group" aria-label="K 线图缩放">
-            <button id="zoom-out" type="button" aria-label="缩小 K 线图，显示更多 K 线" disabled>−</button>
-            <button class="reset-view" id="reset-view" type="button" aria-label="恢复最近 120 根 K 线的默认视图" disabled>重置</button>
-            <button id="zoom-in" type="button" aria-label="放大 K 线图，显示更少 K 线" disabled>＋</button>
-          </div>
+          <span class="chart-type" role="img" aria-label="蜡烛 K 线图">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v4m0 9v5m8-18v7m0 7v4M5.5 7h5v9h-5zm8 3h5v7h-5z" /></svg>
+          </span>
           <button class="close-chart" id="close-chart" type="button" aria-label="关闭 K 线图并返回行情窗口">
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="m3.5 3.5 9 9m0-9-9 9" />
@@ -41,7 +37,23 @@
         </div>
       </header>
 
-      <section class="chart-stage" id="chart-stage" aria-busy="true">
+      <div class="chart-workspace">
+        <nav class="chart-tool-rail" aria-label="K 线图工具">
+          <button id="toggle-crosshair" type="button" aria-label="显示十字线" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v6m0 6v6M3 12h6m6 0h6" /><circle cx="12" cy="12" r="1" /></svg>
+          </button>
+          <button id="toggle-grid" type="button" aria-label="显示网格" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16m8-16v16M4 8h16M4 16h16" /></svg>
+          </button>
+          <span class="tool-divider" aria-hidden="true"></span>
+          <button id="go-to-start" type="button" aria-label="查看最早已加载 K 线" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14m13-13-6 6 6 6m-6-6h9" /></svg>
+          </button>
+          <button id="go-to-latest" type="button" aria-label="查看最新 K 线" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M6 6l6 6-6 6m6-6H3" /></svg>
+          </button>
+        </nav>
+        <section class="chart-stage" id="chart-stage" aria-busy="true">
         <canvas
           id="candle-canvas"
           role="application"
@@ -50,6 +62,23 @@
           aria-label="等待 K 线数据"
           aria-describedby="chart-summary chart-navigation-help"
         ></canvas>
+        <div class="chart-legend" id="chart-legend" hidden>
+          <div class="legend-instrument">
+            <span id="product-name">等待主界面选择标的</span>
+            <span class="legend-separator" aria-hidden="true">·</span>
+            <span id="legend-interval">1小时</span>
+            <span class="legend-separator" aria-hidden="true">·</span>
+            <span class="source-name" id="source-name">—</span>
+          </div>
+          <div class="legend-values" id="legend-values">
+            <span><span class="ohlc-label">开</span><span id="legend-open">—</span></span>
+            <span><span class="ohlc-label">高</span><span id="legend-high">—</span></span>
+            <span><span class="ohlc-label">低</span><span id="legend-low">—</span></span>
+            <span><span class="ohlc-label">收</span><span id="legend-close">—</span></span>
+            <span class="legend-time" id="legend-time">最新 K 线</span>
+          </div>
+        </div>
+        <span class="axis-currency" id="axis-currency" aria-label="价格单位">USD</span>
         <div id="history-start-marker" role="img" aria-label="已确认的历史起点" hidden>
           <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14V2m0 1h8l-2 3 2 3H4" /></svg>
           <span id="history-start-label" aria-hidden="true"></span>
@@ -71,7 +100,15 @@
           <span id="history-message" role="status" aria-live="polite"></span>
           <button id="load-older" type="button" aria-label="继续加载更早的同源 K 线" hidden>继续加载</button>
         </div>
-      </section>
+        <div class="view-toolbar" role="group" aria-label="K 线图缩放">
+          <button id="zoom-out" type="button" aria-label="缩小 K 线图，显示更多 K 线" disabled>−</button>
+          <button class="reset-view" id="reset-view" type="button" aria-label="恢复最近 120 根 K 线的默认视图" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 7m-1-7V4m0 6h6" /></svg>
+          </button>
+          <button id="zoom-in" type="button" aria-label="放大 K 线图，显示更少 K 线" disabled>＋</button>
+        </div>
+        </section>
+      </div>
 
       <footer class="chart-footer">
         <span id="interval-caption">每根 1 小时</span>

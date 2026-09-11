@@ -754,7 +754,7 @@ test("a nonadvancing cursor cannot spin or silently declare history exhausted", 
   assert.match(navigation.historyMessage, /未返回更早.*重试/);
 });
 
-test("prefetch warms a bounded left buffer at one page per second without moving the visible candles", async () => {
+test("prefetch warms a bounded left buffer at 250ms per page without moving the visible candles", async () => {
   const clock = fakeClock();
   const requests: number[] = [];
   const changes: number[] = [];
@@ -767,13 +767,13 @@ test("prefetch warms a bounded left buffer at one page per second without moving
   navigation.startPrefetch();
   navigation.startPrefetch();
   assert.equal(clock.pending(), 1);
-  await clock.advance(999);
+  await clock.advance(249);
   assert.deepEqual(requests, []);
   await clock.advance(1);
   assert.deepEqual(requests, [10_000]);
   assert.deepEqual(navigation.viewport, { start: 360, count: 120 });
   assert.equal(navigation.historyMessage, "");
-  await clock.advance(1_000);
+  await clock.advance(250);
   assert.deepEqual(requests, [10_000, 9_760]);
   assert.equal(navigation.candles.length, 720);
   assert.deepEqual(navigation.viewport, { start: 600, count: 120 });
@@ -799,10 +799,71 @@ test("approaching the buffered left edge schedules more history before any candl
   assert.deepEqual(navigation.viewport, { start: 450, count: 120 });
   assert.equal(requests, 0);
   const firstVisible = navigation.candles[450].openTime;
-  await clock.advance(1_000);
+  await clock.advance(250);
   assert.equal(requests, 1);
   assert.deepEqual(navigation.viewport, { start: 690, count: 120 });
   assert.equal(navigation.candles[690].openTime, firstVisible);
+  assert.equal(clock.pending(), 0);
+});
+
+test("zoom-out prefetch tracks two visible screens and caps its buffer without stopping after four dense pages", async () => {
+  const clock = fakeClock();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000, 720), {
+    ...clock,
+    loadPage: async (before) => { requests += 1; return page(before - 240); },
+    onChange: () => {},
+  });
+  navigation.startPrefetch();
+  navigation.zoom(0.25);
+  assert.equal(navigation.viewport.count, 480);
+  await clock.advance(750);
+  assert.equal(requests, 3);
+  assert.equal(navigation.viewport.start, 960);
+  assert.equal(clock.pending(), 0);
+
+  navigation.zoom(0.5);
+  assert.equal(navigation.viewport.count, 960);
+  await clock.advance(1_500);
+  assert.equal(requests, 9);
+  assert.equal(navigation.viewport.start, 1_920);
+  assert.equal(clock.pending(), 0);
+
+  navigation.zoom(0.5);
+  assert.equal(navigation.viewport.count, 1_920);
+  await clock.advance(1_000);
+  assert.equal(requests, 13);
+  assert.equal(navigation.viewport.start, 1_920);
+  assert.equal(navigation.candles.length, 3_840);
+  assert.equal(navigation.candles.at(-1)?.openTime, 10_719);
+  assert.equal(clock.pending(), 0);
+  await clock.advance(100_000);
+  assert.equal(requests, 13);
+});
+
+test("prefetch spacing starts after a slow response completes and never overlaps requests", async () => {
+  const clock = fakeClock();
+  const first = deferred<CandleHistoryPage>();
+  const started: number[] = [];
+  const navigation = new ChartNavigation(page(10_000), {
+    ...clock,
+    loadPage: async (before) => {
+      started.push(clock.now());
+      return started.length === 1 ? first.promise : page(before - 240);
+    },
+    onChange: () => {},
+  });
+  navigation.startPrefetch();
+  await clock.advance(1_250);
+  assert.deepEqual(started, [250]);
+  assert.equal(clock.pending(), 0);
+  first.resolve(page(9_760));
+  await settle();
+  await clock.advance(249);
+  assert.deepEqual(started, [250]);
+  await clock.advance(1);
+  assert.deepEqual(started, [250, 1_500]);
+  assert.equal(navigation.candles.length, 720);
   assert.equal(clock.pending(), 0);
 });
 
@@ -826,7 +887,7 @@ test("foreground demand bypasses a queued prefetch delay and cancels that timer"
   assert.equal(requests, 1);
 });
 
-test("demand arriving during prefetch reuses its request and continues a bounded foreground batch", async () => {
+test("demand arriving during prefetch reuses its request and continues paced foreground batches", async () => {
   const clock = fakeClock();
   const pending = deferred<CandleHistoryPage>();
   const requests: number[] = [];
@@ -844,7 +905,7 @@ test("demand arriving during prefetch reuses its request and continues a bounded
     onChange: () => {},
   });
   navigation.startPrefetch();
-  await clock.advance(1_000);
+  await clock.advance(250);
   navigation.zoom(0.01);
   assert.equal(requests.length, 1);
   assert.match(navigation.historyMessage, /正在加载/);
@@ -854,8 +915,236 @@ test("demand arriving during prefetch reuses its request and continues a bounded
   assert.deepEqual(requests, [10_000, 9_760, 9_520, 9_280]);
   assert.equal(navigation.candles.length, 1_200);
   assert.equal(navigation.needsOlder, true);
-  assert.match(navigation.historyMessage, /尚未确认历史起点.*继续查询/);
+  assert.match(navigation.historyMessage, /正在加载/);
+  assert.equal(clock.pending(), 1);
+  assert.equal(navigation.loadingOlder, true);
+  await clock.advance(499);
+  assert.equal(requests.length, 4);
+  await clock.advance(1);
+  assert.equal(requests.length, 8);
+  assert.equal(peakInFlight, 1);
+  navigation.cancel();
   assert.equal(clock.pending(), 0);
+});
+
+test("dense history automatically fulfills a large zoom in paced batches up to the real cache limit", async () => {
+  const clock = fakeClock();
+  const started: number[] = [];
+  const renderedCounts: number[] = [];
+  let inFlight = 0;
+  let peakInFlight = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    ...clock,
+    loadPage: async (before) => {
+      started.push(clock.now());
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      await settle();
+      inFlight -= 1;
+      return page(before - 240);
+    },
+    onChange: (added) => {
+      if (added > 0) renderedCounts.push(navigation.viewport.count);
+    },
+  });
+  navigation.zoom(0.01);
+  for (let pageNumber = 0; pageNumber < 4; pageNumber += 1) await settle();
+  assert.deepEqual(renderedCounts, [480, 720, 960, 1_200]);
+  assert.equal(started.length, 4);
+  assert.equal(clock.pending(), 1);
+  await clock.advance(499);
+  assert.equal(started.length, 4);
+  for (let batch = 0; batch < 4; batch += 1) {
+    await clock.advance(batch === 0 ? 1 : 500);
+    for (let pageNumber = 0; pageNumber < 4; pageNumber += 1) await settle();
+  }
+  assert.equal(started.length, 19);
+  assert.equal(peakInFlight, 1);
+  assert.deepEqual(started, [
+    0, 0, 0, 0, 500, 500, 500, 500, 1_000, 1_000, 1_000, 1_000,
+    1_500, 1_500, 1_500, 1_500, 2_000, 2_000, 2_000,
+  ]);
+  assert.equal(navigation.candles.length, MAX_HISTORY_CANDLES);
+  assert.deepEqual(navigation.viewport, { start: -4_800, count: 9_600 });
+  assert.equal(navigation.needsOlder, false);
+  assert.equal(navigation.loadingOlder, false);
+  assert.equal(clock.pending(), 0);
+  await clock.advance(100_000);
+  assert.equal(started.length, 19);
+});
+
+for (const action of ["reset", "zoom-in", "End", "loaded-pan", "cancel"] as const) {
+  test(`${action} cancels a queued dense-history batch without restoring the old zoom`, async () => {
+    const clock = fakeClock();
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      ...clock,
+      loadPage: async (before) => { requests += 1; return page(before - 240); },
+      onChange: () => {},
+    });
+    navigation.zoom(0.01);
+    await settle();
+    assert.equal(requests, 4);
+    assert.equal(clock.pending(), 1);
+    if (action === "reset") navigation.reset();
+    else if (action === "zoom-in") navigation.zoom(2);
+    else if (action === "End") navigation.pan(Number.POSITIVE_INFINITY);
+    else if (action === "loaded-pan") navigation.setViewport({ start: 100, count: 120 });
+    else navigation.cancel();
+    const visible = navigation.viewport;
+    assert.equal(clock.pending(), 0);
+    assert.equal(navigation.loadingOlder, false);
+    await clock.advance(10_000);
+    assert.equal(requests, 4);
+    assert.deepEqual(navigation.viewport, visible);
+  });
+}
+
+test("a queued dense batch honors a replacement historical range without bypassing its pacing", async () => {
+  const clock = fakeClock();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000), {
+    ...clock,
+    loadPage: async (before) => { requests += 1; return page(before - 240); },
+    onChange: () => {},
+  });
+  navigation.zoom(0.01);
+  await settle();
+  navigation.setViewport({ start: -100, count: 120 });
+  assert.match(navigation.historyMessage, /正在加载/);
+  const firstVisible = navigation.candles[0].openTime + navigation.viewport.start;
+  await clock.advance(499);
+  assert.equal(requests, 4);
+  await clock.advance(1);
+  assert.equal(requests, 5);
+  assert.deepEqual(navigation.viewport, { start: 140, count: 120 });
+  assert.equal(navigation.candles[0].openTime + navigation.viewport.start, firstVisible);
+  assert.equal(navigation.needsOlder, false);
+  assert.equal(clock.pending(), 0);
+});
+
+test("a live append reaching the cache cap cancels queued older work and resolves the pending scale", async () => {
+  const clock = fakeClock();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000, 3_600), {
+    ...clock,
+    loadPage: async (before) => { requests += 1; return page(before - 240); },
+    onChange: () => {},
+  });
+  navigation.zoom(0.01);
+  await settle();
+  assert.equal(requests, 4);
+  assert.equal(clock.pending(), 1);
+  navigation.mergeRecentCandles(page(13_600).candles);
+  assert.equal(navigation.candles.length, MAX_HISTORY_CANDLES);
+  assert.equal(navigation.viewport.count, 9_600);
+  assert.equal(clock.pending(), 0);
+  await clock.advance(10_000);
+  assert.equal(requests, 4);
+});
+
+for (const failure of ["sparse", "empty", "duplicate", "nonadvancing", "network"] as const) {
+  test(`${failure} history stops dense automatic continuation and repeated gestures cannot restart it`, async () => {
+    const clock = fakeClock();
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      ...clock,
+      loadPage: async (before) => {
+        requests += 1;
+        if (requests !== 8) return page(before - 240);
+        if (failure === "network") throw new Error("offline");
+        return {
+          candles: failure === "sparse" ? [candle(before - 1)]
+            : failure === "duplicate" ? page(before).candles : [],
+          nextBefore: failure === "nonadvancing" ? before : before - 240,
+        };
+      },
+      onChange: () => {},
+    });
+    navigation.zoom(0.01);
+    await settle();
+    await clock.advance(500);
+    assert.equal(requests, 8);
+    assert.equal(navigation.needsOlder, true);
+    assert.equal(clock.pending(), 0);
+    for (let gesture = 0; gesture < 50; gesture += 1) {
+      navigation.setViewport({ start: -119, count: 120 });
+      navigation.zoom(0.9);
+      await settle();
+    }
+    await clock.advance(10_000);
+    assert.equal(requests, 8);
+    assert.equal(clock.pending(), 0);
+    navigation.continueLoading();
+    await settle();
+    assert.equal(requests, 9);
+    assert.equal(navigation.needsOlder, false);
+  });
+}
+
+for (const status of [429, 403]) {
+  test(`HTTP ${status} during an automatic batch stops all continuation until explicit retry after cooldown`, async () => {
+    const clock = fakeClock();
+    const cooldown = status === 403 ? 600_000 : 60_000;
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      ...clock,
+      loadPage: async (before) => {
+        requests += 1;
+        if (requests === 5) throw new CandleHistoryError("http", "rate limited", status);
+        return page(before - 240);
+      },
+      onChange: () => {},
+    });
+    navigation.zoom(0.01);
+    await settle();
+    await clock.advance(500);
+    assert.equal(requests, 5);
+    assert.equal(clock.pending(), 0);
+    assert.match(navigation.historyMessage, /请求受限/);
+    await clock.advance(cooldown - 1);
+    navigation.continueLoading();
+    assert.equal(requests, 5);
+    await clock.advance(1);
+    assert.equal(requests, 5);
+    navigation.continueLoading();
+    await settle();
+    assert.equal(requests, 9);
+    navigation.cancel();
+    assert.equal(clock.pending(), 0);
+  });
+}
+
+test("origin metadata cooldown on the fourth full page prevents a healthy batch from scheduling continuation", async () => {
+  for (const delay of [60_000, 600_000]) {
+    const clock = fakeClock();
+    let requests = 0;
+    const navigation = new ChartNavigation(page(10_000), {
+      ...clock,
+      loadPage: async (before) => {
+        requests += 1;
+        return { ...page(before - 240), ...(requests === 4 ? { olderRetryAfterMs: delay } : {}) };
+      },
+      onChange: () => {},
+    });
+    navigation.zoom(0.01);
+    await settle();
+    assert.equal(requests, 4);
+    assert.equal(navigation.candles.length, 1_200);
+    assert.equal(clock.pending(), 0);
+    assert.equal(navigation.loadingOlder, false);
+    assert.match(navigation.historyMessage, /请求受限/);
+    await clock.advance(delay - 1);
+    navigation.continueLoading();
+    assert.equal(requests, 4);
+    await clock.advance(1);
+    assert.equal(requests, 4);
+    navigation.continueLoading();
+    await settle();
+    assert.equal(requests, 8);
+    assert.equal(navigation.loadingOlder, true);
+    navigation.cancel();
+  }
 });
 
 for (const action of ["reset", "zoom-in", "End"] as const) {
@@ -868,7 +1157,7 @@ for (const action of ["reset", "zoom-in", "End"] as const) {
       onChange: () => {},
     });
     navigation.startPrefetch();
-    await clock.advance(1_000);
+    await clock.advance(250);
     navigation.zoom(0.01);
     if (action === "reset") navigation.reset();
     else if (action === "zoom-in") navigation.zoom(2);
@@ -971,6 +1260,28 @@ test("sparse prefetch performs no more than four paced pages per refill", async 
   assert.equal(requests, 4);
 });
 
+test("dense prefetch pages do not reset the four-sparse-page budget within the same refill", async () => {
+  const clock = fakeClock();
+  let requests = 0;
+  const navigation = new ChartNavigation(page(10_000, 1_200), {
+    ...clock,
+    loadPage: async (before) => {
+      requests += 1;
+      return requests % 2 === 0 ? page(before - 240)
+        : { candles: [candle(before - 1)], nextBefore: before - 240 };
+    },
+    onChange: () => {},
+  });
+  navigation.setViewport({ start: 240, count: 960 });
+  navigation.startPrefetch();
+  await clock.advance(100_000);
+  assert.equal(requests, 7);
+  assert.equal(navigation.candles.length, 1_924);
+  assert.deepEqual(navigation.viewport, { start: 964, count: 960 });
+  assert.equal(clock.pending(), 0);
+  assert.equal(navigation.needsOlder, false);
+});
+
 for (const status of [429, 403]) {
   test(`HTTP ${status} pauses speculative work and repeated manual retries until the cooldown expires`, async () => {
     const clock = fakeClock();
@@ -986,7 +1297,7 @@ for (const status of [429, 403]) {
       onChange: () => {},
     });
     navigation.startPrefetch();
-    await clock.advance(1_000);
+    await clock.advance(250);
     navigation.zoom(0.25);
     navigation.continueLoading();
     navigation.pan(-1);
@@ -1140,7 +1451,7 @@ test("prefetch prepends behind a newer blank-space pan without changing its scal
     onChange: () => {},
   });
   navigation.startPrefetch();
-  await clock.advance(1_000);
+  await clock.advance(250);
   navigation.pan(1e300);
   assert.deepEqual(navigation.viewport, { start: 239, count: 120 });
   pending.resolve(page(9_760));

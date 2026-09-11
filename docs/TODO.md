@@ -2,6 +2,8 @@
 
 This is an executable backlog, not authorization to start work. A future agent must still follow the user's requested scope.
 
+Standing validation preference: automated checks must not take over desktop windows, focus, mouse or keyboard or interrupt computer use. Provide local installers for user-performed interactive/native acceptance; do not install or drive the app for testing. Runtime coverage stays unverified until user feedback, rather than blocking delivery on desktop-control tests.
+
 ## P0 — Blocking
 
 None. Current scoped chart improvements, package delivery, and verification state are recorded in `CURRENT_STATE.md`. A separate confirmed chart-selection defect is listed below.
@@ -14,10 +16,10 @@ None. Current scoped chart improvements, package delivery, and verification stat
 
 ## P2 — Release quality and cross-platform confidence
 
-- [ ] Complete installed-artifact chart acceptance on Windows when installation is explicitly requested.
+- [ ] Provide a local Windows installer and collect the user's installed-artifact chart acceptance when that validation is requested.
   - The `1.7.0` installer build/metadata and bounded local release-executable smoke are complete; see `CURRENT_STATE.md`. Remaining work is installed-runtime evidence covering main/chart coexistence, live exact-source candles/price guide across supported providers and intervals, full-history extra zoom space, pan/reset and close-to-hide. Building and publishing do not themselves authorize replacing the installed application.
 
-- [ ] Run real runtime smoke tests on supported macOS and Linux environments after the next relevant release candidate.
+- [ ] Collect user-performed runtime acceptance on supported macOS and Linux environments after the next relevant release candidate.
   - Done when macOS bundle/deployment metadata reports the 12.0 floor and startup plus the fixed ES2025 output are exercised on macOS 12.x; tray visibility/actions (including About and its scoped GitHub opener), monitor/About/chart close-to-hide, chart/main dual-window work-area maximize and always-on-top interaction, all five candle intervals plus chart wheel/button/keyboard zoom, pointer-captured pan and reset, crosshair/axis markers and paced prefetch/cancellation, main-row mouse/keyboard activation/ordering and restart persistence, screen-bounded quote-height drag (fixed `208px` width, expansion to the available work-area/content limit, overflow behavior, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
 
 - [ ] Add signing/notarization before broad end-user distribution.
@@ -32,7 +34,7 @@ None. Current scoped chart improvements, package delivery, and verification stat
 ## P3 — Known technical debt
 
 - [ ] Resolve the isolated extra `}` at `src/styles.css:349` in a separately authorized maintenance change.
-  - Done when the token is removed, UI/static tests pass, and the native 208px layout is smoke-tested; consider adding a CSS syntax checker to prevent recurrence.
+  - Done when the token is removed and non-disruptive UI/static checks pass; any native 208px visual acceptance is performed by the user using a local installer. Consider adding a CSS syntax checker to prevent recurrence.
 
 - [ ] Remove or deliberately restore the unused `minimize_window` IPC command.
   - Done when `src-tauri/src/lib.rs`, `src-tauri/build.rs`, permissions, architecture docs, and tests agree on the reduced command surface; closing must still hide to tray.

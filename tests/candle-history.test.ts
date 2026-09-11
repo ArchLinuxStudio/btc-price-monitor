@@ -716,6 +716,37 @@ test("Coinbase confirms origin only after scanning through verified trade 1's in
   assert.ok(calls.every((url) => !new URL(url).searchParams.has("before")));
 });
 
+for (const source of ["coinbase", "gate"] as const) {
+  test(`${source} delivers nonempty short history without waiting for origin metadata`, async () => {
+    const now = Date.parse("2026-09-01T12:00:00Z");
+    let metadataCalls = 0;
+    const load = createCandleHistoryLoader({
+      product: source === "coinbase" ? BTC_PRODUCT : MU_PRODUCT,
+      marketSource: source, interval: "1m", now: () => now,
+      fetchImpl: async (url) => {
+        const query = new URL(url);
+        if (query.pathname.endsWith("/trades") || query.pathname.includes("/contracts/")) {
+          metadataCalls += 1;
+          throw new Error("Origin metadata must not delay a page containing usable candles");
+        }
+        const end = source === "coinbase"
+          ? Date.parse(query.searchParams.get("end")!)
+          : Number(query.searchParams.get("to")) * 1_000;
+        const time = Math.floor(end / 60_000) * 60_000;
+        return response(source === "coinbase"
+          ? [[time / 1_000, 99, 105, 100, 104]]
+          : [{ t: time / 1_000, o: 100, h: 105, l: 99, c: 104 }]);
+      },
+    });
+    const first = await load();
+    const second = await load(first.nextBefore);
+    assert.equal(first.candles.length, 1);
+    assert.equal(second.candles.length, 1);
+    assert.equal(second.historyComplete, undefined);
+    assert.equal(metadataCalls, 0);
+  });
+}
+
 test("regular complete pages defer origin metadata and a later probe cannot contradict cached candles", async () => {
   const now = Date.parse("2026-09-01T12:00:00Z");
   const oldest = now - 239 * 60_000;
@@ -758,16 +789,23 @@ test("Coinbase does not trust missing trade 1, invalid/future time, or a nonempt
     { first: [valid], earlier: {} },
   ];
   for (const entry of cases) {
+    let metadataCalls = 0;
     const load = createCandleHistoryLoader({
       product: BTC_PRODUCT, marketSource: "coinbase", interval: "1m", now: () => now,
       fetchImpl: async (url) => {
         const query = new URL(url);
+        if (query.pathname.endsWith("/trades")) metadataCalls += 1;
         return response(query.pathname.endsWith("/trades")
           ? query.searchParams.get("after") === "2" ? entry.first : entry.earlier
           : [[(now - 60_000) / 1_000, 99, 105, 100, 104]]);
       },
     });
-    assert.equal((await load()).historyComplete, undefined);
+    const first = await load();
+    assert.equal(first.historyComplete, undefined);
+    assert.equal(metadataCalls, 0);
+    const second = await load(first.nextBefore);
+    assert.equal(second.historyComplete, undefined);
+    assert.ok(metadataCalls > 0);
   }
 });
 
@@ -785,10 +823,14 @@ test("Gate uses exact contract creation bucket, including candles before the cre
     },
   });
   const first = await load();
-  assert.equal(first.historyComplete, true);
+  assert.equal(first.historyComplete, undefined);
   assert.equal(first.candles[0].openTime, firstBucket);
-  assert.equal(new URL(calls[1]).pathname, "/api/v4/futures/usdt/contracts/MU_USDT");
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 1);
+  const second = await load(first.nextBefore);
+  assert.equal(second.candles.length, 0);
+  assert.equal(second.historyComplete, true);
+  assert.equal(new URL(calls[2]).pathname, "/api/v4/futures/usdt/contracts/MU_USDT");
+  assert.equal(calls.length, 3);
 });
 
 test("Gate refuses wrong-contract, missing, invalid, future, or contradicted creation timestamps", async () => {
@@ -803,14 +845,24 @@ test("Gate refuses wrong-contract, missing, invalid, future, or contradicted cre
     { name: "MU_USDT", create_time: (oldest + 60_000) / 1_000 },
   ];
   for (const metadata of cases) {
+    let metadataCalls = 0;
     const load = createCandleHistoryLoader({
       product: MU_PRODUCT, marketSource: "gate", interval: "1m", now: () => now,
-      fetchImpl: async (url) => response(new URL(url).pathname.includes("/contracts/") ? metadata
-        : [{ t: oldest / 1_000, o: 100, h: 105, l: 99, c: 104 }]),
+      fetchImpl: async (url) => {
+        if (new URL(url).pathname.includes("/contracts/")) {
+          metadataCalls += 1;
+          return response(metadata);
+        }
+        return response([{ t: oldest / 1_000, o: 100, h: 105, l: 99, c: 104 }]);
+      },
     });
     const page = await load();
     assert.equal(page.candles.length, 1);
     assert.equal(page.historyComplete, undefined);
+    assert.equal(metadataCalls, 0);
+    const second = await load(page.nextBefore);
+    assert.equal(second.historyComplete, undefined);
+    assert.equal(metadataCalls, 1);
   }
 });
 
@@ -832,10 +884,13 @@ test("origin metadata failures retain candles and do not retry on later empty pa
     });
     const first = await load();
     assert.equal(first.candles.length, 1);
-    assert.equal(first.olderRetryAfterMs, status === 429 ? 60_000 : status === 403 ? 600_000 : undefined);
+    assert.equal(first.olderRetryAfterMs, undefined);
+    assert.equal(metadataCalls, 0);
     const second = await load(first.nextBefore);
     assert.equal(second.historyComplete, undefined);
-    assert.equal(second.olderRetryAfterMs, undefined);
+    assert.equal(second.olderRetryAfterMs, status === 429 ? 60_000 : status === 403 ? 600_000 : undefined);
+    const third = await load(second.nextBefore);
+    assert.equal(third.olderRetryAfterMs, undefined);
     assert.equal(metadataCalls, 1);
   }
 });

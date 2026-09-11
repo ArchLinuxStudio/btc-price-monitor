@@ -543,9 +543,10 @@ export function createCandleHistoryLoader(options: FetchCandleHistoryOptions): (
     }
     oldestObserved = Math.min(oldestObserved, page.candles[0]?.openTime ?? Number.POSITIVE_INFINITY);
     if (target.source === "bybit" || contradicted) return page;
-    // Ordinary full pages remain one request. Probe only when a short/empty
-    // range first makes the true origin relevant; failures never discard data.
-    if (lowerBound === null && page.candles.length < CANDLE_HISTORY_LIMIT) {
+    // Deliver every nonempty page immediately, even in a sparse interval.
+    // Only an empty range needs an origin probe; cached proof still applies
+    // to later pages, and probe failures never discard candle data.
+    if (lowerBound === null && page.candles.length === 0) {
       lowerBound = fetchHistoryLowerBound(target, resolveFetch(frozen.fetchImpl), signal).catch((error: unknown) => {
         if (signal?.aborted || isAbortError(error)) throw error;
         if (error instanceof CandleHistoryError && (error.status === 429 || error.status === 403)) {

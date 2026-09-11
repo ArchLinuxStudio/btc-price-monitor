@@ -1,4 +1,4 @@
-import { CandleHistoryError } from "./candle-history.js";
+import { CANDLE_HISTORY_LIMIT, CandleHistoryError } from "./candle-history.js";
 import type { Candle, CandleHistoryPage } from "./candle-history.js";
 import {
   DEFAULT_VISIBLE_CANDLES,
@@ -11,8 +11,10 @@ import type { CandleViewport } from "./chart-viewport.js";
 
 export const MAX_HISTORY_CANDLES = 4_800;
 const MAX_PAGES_PER_BATCH = 4;
-const PREFETCH_BUFFER_CANDLES = 480;
-const PREFETCH_DELAY_MS = 1_000;
+const MIN_PREFETCH_BUFFER_CANDLES = 480;
+const MAX_PREFETCH_BUFFER_CANDLES = 1_920;
+const PREFETCH_DELAY_MS = 250;
+const DEMAND_CONTINUATION_DELAY_MS = 500;
 
 function schedule(callback: () => void, delay: number): () => void {
   const timer = setTimeout(callback, delay);
@@ -46,6 +48,7 @@ export class ChartNavigation {
   private prefetchPaused = false;
   private prefetchPages = 0;
   private cancelPrefetchTimer: (() => void) | null = null;
+  private cancelDemandTimer: (() => void) | null = null;
   private blockedUntil = 0;
   private readonly options: ChartNavigationOptions;
 
@@ -71,7 +74,7 @@ export class ChartNavigation {
   }
 
   get loadingOlder(): boolean {
-    return this.olderLoading;
+    return this.olderLoading || this.cancelDemandTimer !== null;
   }
 
   get canLoadOlder(): boolean {
@@ -143,6 +146,7 @@ export class ChartNavigation {
 
   reset(): void {
     if (this.cancelled) return;
+    this.clearDemandTimer();
     this.pendingZoomViewport = null;
     this.demandPaused = false;
     this.desiredViewport = createCandleViewport(this.candleData.length);
@@ -220,16 +224,22 @@ export class ChartNavigation {
       this.pendingZoomViewport = { start: -DEFAULT_VISIBLE_CANDLES, count: DEFAULT_VISIBLE_CANDLES };
     }
     if (!this.needsOlder) {
+      this.clearDemandTimer();
       this.demandPaused = false;
       this.schedulePrefetch();
       return;
     }
     this.clearPrefetchTimer();
     if (this.isCoolingDown) {
+      this.clearDemandTimer();
       this.options.onChange(0);
       return;
     }
     if (this.demandPaused && !explicit) return;
+    // A new gesture may update the queued range, but must not remove the
+    // brief pause between healthy batches. Explicit continuation has priority.
+    if (this.cancelDemandTimer !== null && !explicit) return;
+    this.clearDemandTimer();
     this.demandPaused = false;
     void this.loadOlderBatch();
   }
@@ -239,6 +249,7 @@ export class ChartNavigation {
     this.cancelled = true;
     this.revision += 1;
     this.clearPrefetchTimer();
+    this.clearDemandTimer();
     this.controller?.abort();
     this.controller = null;
     this.olderLoading = false;
@@ -263,7 +274,7 @@ export class ChartNavigation {
     if (!this.needsOlder) {
       this.demandPaused = false;
       this.message = "";
-    } else if (this.olderLoading) {
+    } else if (this.loadingOlder) {
       this.message = "正在加载更早 K 线…";
     } else if (!this.demandPaused) {
       this.message = "";
@@ -308,7 +319,27 @@ export class ChartNavigation {
   private get needsPrefetch(): boolean {
     return this.prefetchEnabled && !this.prefetchPaused && this.canLoadOlder
       && this.candleData.length > 0 && !this.needsOlder && !this.isCoolingDown
-      && this.viewport.start < PREFETCH_BUFFER_CANDLES;
+      && this.viewport.start < this.prefetchBuffer;
+  }
+
+  private get prefetchBuffer(): number {
+    return Math.min(MAX_PREFETCH_BUFFER_CANDLES,
+      Math.max(MIN_PREFETCH_BUFFER_CANDLES, Math.ceil(this.viewport.count * 2)));
+  }
+
+  private clearDemandTimer(): void {
+    this.cancelDemandTimer?.();
+    this.cancelDemandTimer = null;
+  }
+
+  private scheduleDemandContinuation(): void {
+    if (this.cancelled || !this.needsOlder || this.isCoolingDown) return;
+    this.clearPrefetchTimer();
+    this.cancelDemandTimer = (this.options.schedule ?? schedule)(() => {
+      this.cancelDemandTimer = null;
+      if (!this.cancelled && !this.olderLoading && !this.demandPaused
+        && this.needsOlder && !this.isCoolingDown) void this.loadOlderBatch();
+    }, DEMAND_CONTINUATION_DELAY_MS);
   }
 
   private clearPrefetchTimer(): void {
@@ -317,7 +348,8 @@ export class ChartNavigation {
   }
 
   private schedulePrefetch(): void {
-    if (this.viewport.start >= PREFETCH_BUFFER_CANDLES) this.prefetchPages = 0;
+    if (!this.needsOlder) this.clearDemandTimer();
+    if (this.viewport.start >= this.prefetchBuffer) this.prefetchPages = 0;
     if (!this.needsPrefetch) {
       this.clearPrefetchTimer();
       return;
@@ -369,6 +401,8 @@ export class ChartNavigation {
     this.olderLoading = true;
     this.message = this.needsOlder ? "正在加载更早 K 线…" : "";
     this.options.onChange(0);
+    let densePages = 0;
+    let continueDenseDemand = false;
 
     try {
       for (let pageNumber = 0; pageNumber < MAX_PAGES_PER_BATCH; pageNumber += 1) {
@@ -390,14 +424,16 @@ export class ChartNavigation {
         this.historyComplete = page.historyComplete === true
           || (page.historyComplete !== false && page.nextBefore === 0);
         const prepended = this.prependPage(page);
+        const densePage = prepended >= CANDLE_HISTORY_LIMIT && page.nextBefore < before;
+        if (densePage) densePages += 1;
         if (prepended === 0) {
           this.prefetchPaused = true;
         } else if (satisfiedDemand) {
           this.prefetchPaused = false;
           this.prefetchPages = 0;
-        } else {
+        } else if (!densePage) {
           this.prefetchPages += 1;
-          if (this.prefetchPages >= MAX_PAGES_PER_BATCH && this.viewport.start < PREFETCH_BUFFER_CANDLES) {
+          if (this.prefetchPages >= MAX_PAGES_PER_BATCH && this.viewport.start < this.prefetchBuffer) {
             this.prefetchPaused = true;
           }
         }
@@ -412,7 +448,8 @@ export class ChartNavigation {
         this.updateBoundaryMessage();
         this.options.onChange(prepended);
       }
-      if (this.needsOlder && this.message === "正在加载更早 K 线…") {
+      continueDenseDemand = densePages === MAX_PAGES_PER_BATCH && this.needsOlder && !this.isCoolingDown;
+      if (this.needsOlder && !continueDenseDemand && this.message === "正在加载更早 K 线…") {
         this.message = "尚未确认历史起点，可继续查询";
       } else if (!this.needsOlder && this.message === "正在加载更早 K 线…") {
         this.message = "";
@@ -438,9 +475,10 @@ export class ChartNavigation {
       if (!this.cancelled && revision === this.revision) {
         this.controller = null;
         this.olderLoading = false;
-        // Pointer moves keep updating the same held drag. They must not turn a
-        // failed cursor or an exhausted four-page batch into a retry loop.
-        this.demandPaused = this.needsOlder;
+        // Only four fully productive pages may continue automatically. Sparse
+        // scans and failures remain paused even while a held drag keeps moving.
+        this.demandPaused = this.needsOlder && !continueDenseDemand;
+        if (continueDenseDemand) this.scheduleDemandContinuation();
         this.options.onChange(0);
         this.schedulePrefetch();
       }

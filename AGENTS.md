@@ -50,8 +50,9 @@ There is no standalone lint script. `npm.cmd run check` performs strict applicat
 
 - Update tests with changes to market semantics, persistence, UI constraints, native commands, CSP, or release behavior.
 - Keep product code and documentation changes scoped. Do not reformat unrelated files.
+- Do not run UI tests that take over the user's desktop windows, focus, mouse or keyboard, or otherwise interrupt normal computer use. Use non-disruptive automated checks; for interactive/native acceptance, provide a local installer for the user to validate themselves. Do not launch the installer or drive the installed app for testing unless the user later explicitly requests that interaction. This standing preference supersedes older native-smoke requirements.
 - Never commit credentials, API keys, certificates, private keys, or values returned by Git Credential Manager.
 - Do not create commits, push, tag, edit a GitHub Release, or publish artifacts unless the user explicitly authorizes that action.
 - The user has authorized installing ordinary Rust/Node/native prerequisites needed for in-scope development. Diagnose or install normal missing tooling instead of handing routine setup back to the user; still ask before unrelated or materially risky system changes.
-- A source push is not a release. Follow [`docs/RELEASE.md`](docs/RELEASE.md) for versioning and five-platform-asset verification.
+- A source push is not a release. Follow [`docs/RELEASE.md`](docs/RELEASE.md) for versioning, five-platform delivery and publication status. Per the user's standing preference, do not download or independently verify GitHub-built attachments unless explicitly requested in a later task.
 - When state changes, update `docs/CURRENT_STATE.md`; when an accepted design changes, update `docs/DECISIONS.md`; when work is completed, remove it from `docs/TODO.md`.

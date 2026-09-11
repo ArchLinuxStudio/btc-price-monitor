@@ -17,6 +17,7 @@ import { ChartCurrentPrice } from "./chart-current-price.js";
 import type { ChartCurrentPriceState } from "./chart-current-price.js";
 import { ChartLiveCandles } from "./chart-live-candles.js";
 import { projectChartPriceLine } from "./chart-price-line.js";
+import { chartPriceTicks } from "./chart-price-axis.js";
 import {
   MIN_VISIBLE_CANDLES,
   candleBarGeometry,
@@ -81,16 +82,33 @@ const elements = {
   zoomIn: document.querySelector<HTMLButtonElement>("#zoom-in")!,
   resetView: document.querySelector<HTMLButtonElement>("#reset-view")!,
   symbol: document.querySelector<HTMLHeadingElement>("#chart-symbol")!,
-  productName: document.querySelector<HTMLParagraphElement>("#product-name")!,
+  productName: document.querySelector<HTMLElement>("#product-name")!,
   marketBadge: document.querySelector<HTMLSpanElement>("#market-badge")!,
   sourceName: document.querySelector<HTMLSpanElement>("#source-name")!,
   summary: document.querySelector<HTMLParagraphElement>("#chart-summary")!,
   historyMessage: document.querySelector<HTMLSpanElement>("#history-message")!,
   loadOlder: document.querySelector<HTMLButtonElement>("#load-older")!,
+  legend: document.querySelector<HTMLElement>("#chart-legend")!,
+  legendInterval: document.querySelector<HTMLElement>("#legend-interval")!,
+  legendValues: document.querySelector<HTMLElement>("#legend-values")!,
+  legendOpen: document.querySelector<HTMLElement>("#legend-open")!,
+  legendHigh: document.querySelector<HTMLElement>("#legend-high")!,
+  legendLow: document.querySelector<HTMLElement>("#legend-low")!,
+  legendClose: document.querySelector<HTMLElement>("#legend-close")!,
+  legendTime: document.querySelector<HTMLElement>("#legend-time")!,
+  axisCurrency: document.querySelector<HTMLElement>("#axis-currency")!,
+  toggleCrosshair: document.querySelector<HTMLButtonElement>("#toggle-crosshair")!,
+  toggleGrid: document.querySelector<HTMLButtonElement>("#toggle-grid")!,
+  goToStart: document.querySelector<HTMLButtonElement>("#go-to-start")!,
+  goToLatest: document.querySelector<HTMLButtonElement>("#go-to-latest")!,
 };
 
 const intervalValues = new Set<CandleInterval>(CANDLE_INTERVALS.map(({ value }) => value));
 const AXIS_FONT = '600 12px ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+const CHART_COLORS = Object.freeze({
+  grid: "#242832", border: "#2a2e39", text: "#b2b5be",
+  up: "#26a69a", down: "#ef5350", muted: "#787b86", crosshair: "#9598a1",
+});
 const marketSourceNames: Readonly<Record<MarketSource, string>> = Object.freeze({
   coinbase: "Coinbase",
   kraken: "Kraken",
@@ -143,6 +161,8 @@ let crosshairPointer: { readonly clientX: number; readonly clientY: number } | n
 let crosshairScale: { readonly plot: ChartPlot; readonly low: number; readonly high: number } | null = null;
 let removeSelectionListener: (() => void) | null = null;
 let resizeObserver: ResizeObserver | null = null;
+let crosshairEnabled = true;
+let gridEnabled = true;
 
 function tauriApi(): TauriApi | null {
   const tauri = (globalThis as TauriGlobal).__TAURI__;
@@ -166,6 +186,7 @@ function intervalLabel(interval: CandleInterval): string {
 function updateIntervalUi(): void {
   const label = intervalLabel(selectedInterval);
   elements.intervalCaption.textContent = `每根 ${label}`;
+  elements.legendInterval.textContent = label;
   for (const button of elements.intervalButtons) {
     const interval = button.dataset.interval;
     const selected = interval === selectedInterval;
@@ -182,14 +203,16 @@ function updateInstrumentUi(nextSelection: ChartSelection | null): void {
     elements.productName.textContent = "等待主界面选择标的";
     elements.marketBadge.textContent = "行情";
     elements.sourceName.textContent = "—";
+    elements.axisCurrency.textContent = "USD";
     return;
   }
 
   const { product, marketSource } = nextSelection;
   const perpetual = product.marketType === "perpetual";
-  elements.symbol.textContent = product.symbol;
+  elements.symbol.textContent = perpetual ? product.symbol : `${product.symbol}USD`;
   elements.productName.textContent = product.name;
   elements.marketBadge.textContent = perpetual ? "USDT永续" : "USD现货";
+  elements.axisCurrency.textContent = perpetual ? "USDT" : "USD";
   const supportedSource = candleSourceLabel(marketSource);
   elements.sourceName.textContent = supportedSource
     ?? (marketSource ? `${marketSourceNames[marketSource]} · 暂无K线` : "等待行情源");
@@ -250,8 +273,8 @@ function ensureCurrentPrice(): void {
 }
 
 function chartPlot(width: number, height: number): ChartPlot {
-  const left = 16;
-  const top = 22;
+  const left = 8;
+  const top = 76;
   const right = width < 520 ? 96 : 104;
   const bottom = 40;
   return {
@@ -288,6 +311,8 @@ function updateViewportControls(): void {
   elements.zoomOut.disabled = total === 0
     || viewport.count >= (navigation?.maximumViewportCount ?? 0) - tolerance;
   elements.resetView.disabled = total === 0 || (reset && !navigation?.needsOlder);
+  elements.goToStart.disabled = total === 0;
+  elements.goToLatest.disabled = total === 0;
   elements.canvas.classList.toggle("is-pannable", total > 0);
   elements.viewCaption.textContent = total === 0
     ? "显示 0 / 0 根 · UTC+0"
@@ -523,6 +548,20 @@ function drawTimeLabel(candle: Candle): string {
     .replace(/\//g, "-");
 }
 
+/** Shows real OHLC for the inspected candle, or the latest bar when not inspecting. */
+function updateLegend(index: number | null = candles.length - 1, inspecting = false): void {
+  elements.legend.hidden = candles.length === 0;
+  const candle = index === null ? undefined : candles[index];
+  elements.legendValues.dataset.direction = !candle ? "none" : candle.close >= candle.open ? "up" : "down";
+  elements.legendOpen.textContent = candle ? formatUsdPrice(candle.open) : "—";
+  elements.legendHigh.textContent = candle ? formatUsdPrice(candle.high) : "—";
+  elements.legendLow.textContent = candle ? formatUsdPrice(candle.low) : "—";
+  elements.legendClose.textContent = candle ? formatUsdPrice(candle.close) : "—";
+  elements.legendTime.textContent = inspecting
+    ? candle ? `${drawTimeLabel(candle)} UTC` : "空白区域"
+    : "最新 K 线";
+}
+
 function drawCandles(): void {
   drawFrame = null;
   crosshairScale = null;
@@ -574,19 +613,39 @@ function drawCandles(): void {
   context.font = AXIS_FONT;
   context.textBaseline = "middle";
   context.lineWidth = 1;
-  for (let index = 0; index <= 4; index += 1) {
-    const ratio = index / 4;
-    const y = plot.top + plot.height * ratio;
-    const price = priceHigh - priceRange * ratio;
+  const startLabel = `历史起点 · ${drawTimeLabel(candles[0])}`;
+  const axis = layoutChartTimeAxis(viewport, candles.length, plot,
+    (index) => context.measureText(drawTimeLabel(candles[index])).width,
+    navigation?.historyStartReached ? Math.ceil(context.measureText(startLabel).width) + 30 : null);
+  if (gridEnabled) {
+    context.strokeStyle = CHART_COLORS.grid;
     context.beginPath();
-    context.strokeStyle = "#202733";
-    context.moveTo(plot.left, Math.round(y) + 0.5);
-    context.lineTo(plot.left + plot.width, Math.round(y) + 0.5);
+    for (const tick of axis.ticks) {
+      const x = Math.round(plot.left + (tick.index + 0.5 - viewport.start) / viewport.count * plot.width) + 0.5;
+      context.moveTo(x, plot.top);
+      context.lineTo(x, plot.top + plot.height);
+    }
     context.stroke();
-    context.fillStyle = "#b9c5d7";
+  }
+  for (const price of chartPriceTicks(priceLow, priceHigh, plot.height)) {
+    const y = priceY(price);
+    if (gridEnabled) {
+      context.beginPath();
+      context.strokeStyle = CHART_COLORS.grid;
+      context.moveTo(plot.left, Math.round(y) + 0.5);
+      context.lineTo(plot.left + plot.width, Math.round(y) + 0.5);
+      context.stroke();
+    }
+    context.fillStyle = CHART_COLORS.text;
     context.textAlign = "left";
     context.fillText(formatUsdPrice(price), plot.left + plot.width + 9, y);
   }
+  context.strokeStyle = CHART_COLORS.border;
+  context.beginPath();
+  context.moveTo(plot.left + plot.width + 0.5, 0);
+  context.lineTo(plot.left + plot.width + 0.5, plot.top + plot.height + 0.5);
+  context.lineTo(0, plot.top + plot.height + 0.5);
+  context.stroke();
 
   const { spacing: slotWidth, bodyWidth } = candleBarGeometry(plot.width, viewport.count);
   context.lineWidth = Math.min(1, bodyWidth);
@@ -601,7 +660,7 @@ function drawCandles(): void {
     const closeY = priceY(candle.close);
     const highY = priceY(candle.high);
     const lowY = priceY(candle.low);
-    const color = candle.close >= candle.open ? "#3dd49a" : "#f16b75";
+    const color = candle.close >= candle.open ? CHART_COLORS.up : CHART_COLORS.down;
 
     context.strokeStyle = color;
     context.fillStyle = color;
@@ -615,10 +674,6 @@ function drawCandles(): void {
   }
   context.restore();
 
-  const startLabel = `历史起点 · ${drawTimeLabel(candles[0])}`;
-  const axis = layoutChartTimeAxis(viewport, candles.length, plot,
-    (index) => context.measureText(drawTimeLabel(candles[index])).width,
-    navigation?.historyStartReached ? Math.ceil(context.measureText(startLabel).width) + 30 : null);
   if (axis.startMarker) {
     const marker = axis.startMarker;
     elements.historyStartLabel.textContent = startLabel;
@@ -629,7 +684,7 @@ function drawCandles(): void {
     elements.historyStart.style.setProperty("--start-anchor", `${marker.x - marker.left}px`);
     elements.historyStart.hidden = false;
   }
-  context.fillStyle = "#b9c5d7";
+  context.fillStyle = CHART_COLORS.text;
   context.textBaseline = "top";
   for (const tick of axis.ticks) {
     context.textAlign = "center";
@@ -661,11 +716,11 @@ function drawCurrentPrice(): void {
   const position = projectChartPriceLine(price, plot, crosshairScale);
   if (!position) return;
   const rising = price >= candles[candles.length - 1].open;
-  const color = stale || syncing ? "#8793a5" : rising ? "#3dd49a" : "#f16b75";
+  const color = stale || syncing ? CHART_COLORS.muted : rising ? CHART_COLORS.up : CHART_COLORS.down;
   if (position.lineY !== null) {
     context.strokeStyle = color;
     context.lineWidth = 1;
-    context.setLineDash([4, 4]);
+    context.setLineDash([2, 3]);
     context.beginPath();
     context.moveTo(plot.left, position.lineY);
     context.lineTo(plot.left + plot.width, position.lineY);
@@ -702,6 +757,7 @@ function schedulePriceLine(): void {
 function drawCrosshair(): void {
   if (crosshairFrame !== null) cancelAnimationFrame(crosshairFrame);
   crosshairFrame = null;
+  updateLegend();
   const bounds = elements.canvas.getBoundingClientRect();
   const pixelRatio = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
   const backingWidth = Math.max(1, Math.round(bounds.width * pixelRatio));
@@ -716,15 +772,16 @@ function drawCrosshair(): void {
   if (!context) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, bounds.width, bounds.height);
-  if (!crosshairPointer || !crosshairScale || document.visibilityState === "hidden") return;
+  if (!crosshairEnabled || !crosshairPointer || !crosshairScale || document.visibilityState === "hidden") return;
   const { plot } = crosshairScale;
   const position = projectChartCrosshair({
     x: crosshairPointer.clientX - bounds.left,
     y: crosshairPointer.clientY - bounds.top,
   }, plot, viewport, candles.length, crosshairScale);
   if (!position) return;
+  updateLegend(position.index, true);
 
-  context.strokeStyle = "#8994a5";
+  context.strokeStyle = CHART_COLORS.crosshair;
   context.lineWidth = 1;
   context.setLineDash([4, 4]);
   context.beginPath();
@@ -764,7 +821,7 @@ function clearCrosshair(): void {
 }
 
 function trackCrosshair(event: PointerEvent): void {
-  if (!event.isPrimary || event.pointerType === "touch") return;
+  if (!crosshairEnabled || !event.isPrimary || event.pointerType === "touch") return;
   crosshairPointer = { clientX: event.clientX, clientY: event.clientY };
   scheduleCrosshair();
 }
@@ -948,6 +1005,21 @@ elements.intervalToolbar.addEventListener("keydown", (event) => {
 elements.zoomOut.addEventListener("click", () => zoomViewport(1 / 1.4));
 elements.zoomIn.addEventListener("click", () => zoomViewport(1.4));
 elements.resetView.addEventListener("click", resetViewport);
+elements.toggleCrosshair.addEventListener("click", () => {
+  crosshairEnabled = !crosshairEnabled;
+  elements.toggleCrosshair.setAttribute("aria-pressed", String(crosshairEnabled));
+  clearCrosshair();
+});
+elements.toggleGrid.addEventListener("click", () => {
+  gridEnabled = !gridEnabled;
+  elements.toggleGrid.setAttribute("aria-pressed", String(gridEnabled));
+  scheduleDraw();
+});
+elements.goToStart.addEventListener("click", () => {
+  cancelPan();
+  navigation?.setViewport({ start: 0, count: viewport.count });
+});
+elements.goToLatest.addEventListener("click", () => panViewport(Number.POSITIVE_INFINITY));
 elements.canvas.addEventListener("wheel", handleCanvasWheel, { passive: false });
 elements.canvas.addEventListener("pointerdown", handlePointerDown);
 elements.canvas.addEventListener("pointermove", handlePointerMove);

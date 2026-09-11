@@ -12,7 +12,7 @@
     "frontend:build": "tsx scripts/frontend.ts",
     "frontend:watch": "tsx scripts/frontend.ts --watch",
     "typecheck": "tsc --project tsconfig.app.json && tsc --project tsconfig.test.json",
-    "test": "node --import=tsx --test tests/price-format.test.ts tests/watchlist.test.ts tests/price-feed.test.ts tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/chart-navigation.test.ts tests/chart-crosshair.test.ts tests/chart-time-axis.test.ts tests/chart-current-price.test.ts tests/chart-live-candles.test.ts tests/chart-price-line.test.ts tests/ui.test.ts",
+    "test": "node --import=tsx --test tests/price-format.test.ts tests/watchlist.test.ts tests/price-feed.test.ts tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/chart-navigation.test.ts tests/chart-crosshair.test.ts tests/chart-time-axis.test.ts tests/chart-price-axis.test.ts tests/chart-current-price.test.ts tests/chart-live-candles.test.ts tests/chart-price-line.test.ts tests/ui.test.ts",
     "check": "npm run typecheck && npm test && npm run frontend:build",
     "icon": "tauri icon assets/app-icon.svg"
   },
