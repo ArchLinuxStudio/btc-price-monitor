@@ -4,13 +4,13 @@ Checkpoint date: 2026-09-11 (Asia/Shanghai)
 
 ## Current Objective
 
-Restyle the K-line window to closely resemble TradingView's dark chart interface, as requested after the completed history-loading fix. Preserve exact-source data, smooth-history work, native monitor/window constraints and the static architecture. Deliver a local Windows installer for user-performed visual acceptance; do not install it, control the desktop, commit, push or publish a Release.
+Complete the user's newly authorized source push for the TradingView-style chart, smooth-history fix and recorded validation preferences. The implementation and local Windows installer are complete. Preserve exact-source data, native monitor/window constraints and the static architecture; user-performed visual acceptance remains pending. This source-push request does not include a new Release.
 
 ## Current Status
 
-The TradingView-style chart implementation, source review, stable docs and local Windows installer are complete. Strict TypeScript, 286 Node tests and clean frontend emit pass. Six headless browser scenarios pass at 1440x900 and 640x400, including the OHLC legend/controls and existing zoom/origin behavior. Live-price regression passes across all five intervals, rollover, delayed/empty responses and close cancellation. All browser tests are headless and do not take over the desktop. The installer is ready for user-performed acceptance; it has not been launched. All source work remains uncommitted, including the preserved history-loading fix.
+The TradingView-style chart implementation, source review, stable docs and local Windows installer are complete. Strict TypeScript, 286 Node tests and clean frontend emit pass. Six headless browser scenarios pass at 1440x900 and 640x400, including the OHLC legend/controls and existing zoom/origin behavior. Live-price regression passes across all five intervals, rollover, delayed/empty responses and close cancellation. All browser tests are headless and do not take over the desktop. The installer is ready for user-performed acceptance; it has not been launched. Source commit `ef1d7a7fdd58375c738e0fdada2d2352800932e7` includes the restyle, preserved history-loading fix, tests and standing preferences, and has been pushed to `origin/main`; `git ls-remote` confirmed the matching remote commit. This documentation checkpoint follows that source delivery.
 
-The prior release task is complete: [v1.7.0](https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.7.0), source/tag commit `88abeac779cd29047b7e64ecd66e49e3062a523a`, was published with successful [CI run 34436389439](https://github.com/ArchLinuxStudio/btc-price-monitor/actions/runs/34436389439). Its source and packaged binaries do not include this local history-loading fix. Version fields remain `1.7.0`.
+The prior release task is complete: [v1.7.0](https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.7.0), source/tag commit `88abeac779cd29047b7e64ecd66e49e3062a523a`, was published with successful [CI run 34436389439](https://github.com/ArchLinuxStudio/btc-price-monitor/actions/runs/34436389439). Its source and packaged binaries do not include the newer history-loading fix or restyle now on `main`. Version fields remain `1.7.0`. No tag, new Release or artifact upload is part of this source push; the existing desktop workflow runs only on version-tag pushes or manual dispatch, so a `main` push does not trigger it.
 
 Standing user preference: do not download or independently verify GitHub-built attachments unless explicitly requested later. `AGENTS.md`, `RELEASE.md` and `DECISIONS.md` record this; existing CI checks remain unchanged. Earlier attachment verification is historical evidence, not a task to repeat.
 
@@ -18,12 +18,13 @@ Additional standing preference recorded after this fix: do not perform UI tests 
 
 ## Git Worktree Snapshot
 
-Branch `main` at `81fc6ffa0b40d67fa28c7ee734e19e84985ddd5f`, matching the local `origin/main` reference. At the start of this visual task, the completed history-loading fix and its tests/docs plus the GitHub-attachment and non-disruptive-testing preference edits were already uncommitted; all are preserved. No staged changes were present.
+The source-delivery commit is `ef1d7a7fdd58375c738e0fdada2d2352800932e7` on `main`, based on `81fc6ffa0b40d67fa28c7ee734e19e84985ddd5f`. Fetch showed no divergence before committing, the normal fast-forward push succeeded, and a subsequent remote query confirmed the source commit. The worktree was clean immediately after that push; this follow-up documentation commit records the result. Use live Git to determine the current tip and any later changes.
 
-The prior history-loading task changed `src/chart-navigation.ts`, `src/candle-history.ts`, their tests and stable docs; preference updates also touched AGENTS/RELEASE/TODO. This restyle adds `src/chart.html`, `src/chart.css`, `src/chart.ts`, new `src/chart-price-axis.ts` and its test, plus the test command in `package.json`. No staging, commit, push or version change has occurred. Check live Git before continuing; documentation cannot predict later edits. Ignored `artifacts/` and emitted `dist/` are local evidence/output, not portable project context.
+The delivered 18-file change includes `src/chart-navigation.ts`, `src/candle-history.ts`, their tests and stable docs; preference updates to AGENTS/RELEASE/TODO; the restyled `src/chart.html`, `src/chart.css`, `src/chart.ts`; new `src/chart-price-axis.ts` and its test; and the test command in `package.json`. The six changed product source files matched the local installer's recorded source hashes before committing. No version or dependency change occurred. Ignored `artifacts/` and emitted `dist/` remain local evidence/output and were not committed or uploaded.
 
 ## Completed
 
+- Completed the explicitly authorized source commit and push, with a separate read-only source review finding no push blockers. Verified remote `main` against the source commit and checked the staged diff. Existing passing validation was retained because the product sources match the verified package; no desktop tests, installer launch or redundant build was performed.
 - Restyled the chart into a flat dark workspace with a 46px header, 44px left tool rail, five interval controls, in-chart instrument/OHLC legend, axis currency, and a floating bottom zoom/reset group. Kept the 248px default-monitor clearance at widths of at least 960px.
 - Added functional crosshair/grid toggles and earliest/latest navigation controls. OHLC uses the actual hovered candle, returns to the latest candle on leave, and clears values in blank history margins. Hover updates the overlay/legend without repainting the candle canvas.
 - Aligned candle/current-price colors to green `#26a69a` and red `#ef5350`, with subdued gray crosshair/axes and a flat `#131722` pane. Added bounded nice price ticks and vertical grid lines without altering price scale, candle geometry or history semantics.
@@ -40,7 +41,7 @@ The prior history-loading task changed `src/chart-navigation.ts`, `src/candle-hi
 
 ## In Progress
 
-None for the requested implementation. User installation/visual acceptance is pending. Preserve all existing uncommitted work; no unrelated TODO is being implemented.
+None for the requested implementation or source delivery. User installation/visual acceptance is pending. No unrelated TODO is being implemented.
 
 ## Relevant Files
 
@@ -90,6 +91,7 @@ The existing `2 x retained real count` maximum visual zoom reserve, latest-120 r
 | Existing browser zoom/origin regression | **Passed: 6 scenarios** | `artifacts/history-loading-2026-09-10/zoom-regression/results.json`; 360/9/1 candles, 1440x900 and 640x400, DPR 2; 26 mocked history/metadata requests, no page/console errors |
 | Delayed-response browser navigation | **Passed: 4 scenarios** | `artifacts/history-loading-2026-09-10/browser/results.json`; 400ms mocked candle responses, 1,200ms per metadata response; large zoom, wide buffer, reverse/reset/drag/End, short-page origin; one history flight, no page/console errors |
 | `git diff --check` | **Passed** | Final product-code/documentation checkpoint |
+| Source delivery | **Passed** | `ef1d7a7` pushed to `origin/main`; remote ref equality confirmed; staged diff check and six packaged-source hash comparisons passed |
 | Standalone frontend lint | **Not available** | Strict TypeScript included above |
 | User installation/native visual acceptance | **Pending user** | Local package is for user-performed verification; do not launch installer or desktop-control tests |
 | macOS/Linux runtime acceptance | **Not verified** | No suitable real target acceptance in this local Windows task |
@@ -101,6 +103,6 @@ Local deliverable: `artifacts/tradingview-preview-2026-09-11/Crypto.Top_1.7.0_tr
 
 ## Next Recommended Action
 
-1. On restoration, check live Git and preserve the completed restyle, smooth-history fix and user preferences. The local implementation/checks/package for this scope are complete.
+1. On restoration, check live Git. The restyle, smooth-history fix, tests and standing preferences are delivered in `ef1d7a7` on `main`; this checkpoint records the source-push result. Do not recommit or repush those changes as unfinished work.
 2. Await the user's visual feedback from the local installer. Do not install it, take over the desktop, repeat completed checks without a new reason or start unrelated TODOs automatically.
 3. A later authorized release must use a new version under `RELEASE.md`; never overwrite `v1.7.0`. Preserve the standing preference against downloading or independently verifying GitHub-built attachments.
