@@ -6,7 +6,7 @@ The requested development is complete: tray settings, opt-in login startup, per-
 
 ## Source and release status
 
-- Source delivery is being finalized on `main`. At handoff start, `git fetch origin` confirmed local `HEAD` and `origin/main` both at `7a15250f4c104d933cb1526b3244cbd245527524`, with no divergence. This delivery includes all settings/metrics/temperature/installer changes and earlier handoff documentation edits.
+- Source implementation and handoff documents were committed as [`4af3c2d`](https://github.com/ArchLinuxStudio/btc-price-monitor/commit/4af3c2dbce171f9b49daf96b59a77714455a0923) and pushed to `origin/main` on 2026-11-15. A live `git ls-remote` confirmed that exact source commit on the remote; this documentation-only checkpoint records the result. The delivery includes all settings/metrics/temperature/installer changes and earlier handoff edits, based on `7a15250`. Inspect live Git before new work.
 - Internal version remains `1.7.0`. No version bump, tag, Release, workflow dispatch or artifact publication is part of this request. The workflow runs only on `v*` tags or manual dispatch; ordinary source pushes do not run release CI.
 - The last release recorded by the repository is [v1.7.0](https://github.com/ArchLinuxStudio/btc-price-monitor/releases/tag/v1.7.0), source/tag `88abeac779cd29047b7e64ecd66e49e3062a523a`. It predates chart improvements (`ef1d7a7`) and this thread's features. Publication was not re-queried for this source handoff. A future release must inspect remote state and use a new version under `RELEASE.md`.
 - Generated `dist/`, native outputs, dependency binaries and `artifacts/` stay ignored. Local evidence/installers are not guaranteed in a fresh clone; their absence is not missing source.
