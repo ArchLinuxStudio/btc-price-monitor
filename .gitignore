@@ -10,6 +10,10 @@
 /src-tauri/icons/icon.png
 /dist/
 /artifacts/
+/native/temperature-helper/bin/
+/native/temperature-helper/obj/
+/src-tauri/resources/temperature-helper/
+/src-tauri/resources/pawnio/
 .env
 .env.*
 !.env.example

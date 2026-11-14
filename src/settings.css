@@ -1,0 +1,244 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, "SF Pro Display", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0b0e14;
+  color: #f7f8fb;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 90% -10%, rgba(109, 93, 252, 0.2), transparent 55%),
+    linear-gradient(155deg, #151923 0%, #090b10 100%);
+}
+
+.settings-shell {
+  padding: 16px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.app-name {
+  color: #8f99ad;
+  font-size: 12px;
+}
+
+h2 {
+  margin: 0 0 6px;
+  color: #a8b0bf;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.setting-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-name {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.setting-description {
+  color: #a8b0bf;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  flex: 0 0 auto;
+}
+
+.toggle input {
+  position: absolute;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.toggle-track {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 1px solid #687185;
+  border-radius: 999px;
+  background: #353c4a;
+  transition: background-color 140ms ease;
+}
+
+.toggle-track::after {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #f7f8fb;
+  transition: transform 140ms ease;
+}
+
+.toggle input:checked + .toggle-track {
+  border-color: #a99cff;
+  background: #7965e8;
+}
+
+.toggle input:checked + .toggle-track::after {
+  transform: translateX(16px);
+}
+
+.toggle input:indeterminate + .toggle-track::after {
+  transform: translateX(8px);
+  opacity: 0.6;
+}
+
+.toggle input:focus-visible + .toggle-track,
+button:focus-visible {
+  outline: 2px solid #b0a6ff;
+  outline-offset: 4px;
+}
+
+.toggle input:disabled {
+  cursor: default;
+}
+
+.toggle input:disabled + .toggle-track {
+  opacity: 0.55;
+}
+
+.settings-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#settings-status {
+  flex: 1;
+  margin: 0;
+  color: #8f99ad;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+#settings-status.is-error {
+  color: #ffb4b4;
+}
+
+button {
+  flex: 0 0 auto;
+  padding: 1px 0;
+  border: 0;
+  background: transparent;
+  color: #c4bcff;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+button:hover {
+  color: #eeeaff;
+}
+
+.temperature-settings {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.temperature-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.temperature-header h2 {
+  margin: 0;
+}
+
+.temperature-status {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.temperature-status div {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.temperature-status dt {
+  color: #a8b0bf;
+}
+
+.temperature-status dd {
+  margin: 0;
+}
+
+#temperature-description {
+  margin: 6px 0 0;
+  color: #8f99ad;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle-track,
+  .toggle-track::after {
+    transition: none;
+  }
+}

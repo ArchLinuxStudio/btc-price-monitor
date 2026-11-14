@@ -1,9 +1,15 @@
 {
+  "build": {
+    "beforeBuildCommand": "npm run frontend:build && npm run temperature:build && npm run pawnio:prepare",
+    "beforeDevCommand": "npm run temperature:build && npm run frontend:watch"
+  },
   "bundle": {
+    "resources": { "resources/temperature-helper/": "temperature-helper/", "../native/pawnio/NOTICE.txt": "licenses/PawnIO-NOTICE.txt" },
     "targets": ["nsis"],
     "windows": {
       "nsis": {
-        "installMode": "currentUser",
+        "installMode": "perMachine",
+        "installerHooks": "windows/hooks.nsh",
         "displayLanguageSelector": false
       }
     }

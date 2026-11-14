@@ -9,10 +9,12 @@
     "dev": "npm run frontend:build && tauri dev",
     "build": "tauri build",
     "build:windows": "tauri build --bundles nsis",
+    "temperature:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-temperature-helper.ps1",
+    "pawnio:prepare": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-pawnio.ps1",
     "frontend:build": "tsx scripts/frontend.ts",
     "frontend:watch": "tsx scripts/frontend.ts --watch",
     "typecheck": "tsc --project tsconfig.app.json && tsc --project tsconfig.test.json",
-    "test": "node --import=tsx --test tests/price-format.test.ts tests/watchlist.test.ts tests/price-feed.test.ts tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/chart-navigation.test.ts tests/chart-crosshair.test.ts tests/chart-time-axis.test.ts tests/chart-price-axis.test.ts tests/chart-current-price.test.ts tests/chart-live-candles.test.ts tests/chart-price-line.test.ts tests/ui.test.ts",
+    "test": "node --import=tsx --test tests/price-format.test.ts tests/watchlist.test.ts tests/price-feed.test.ts tests/candle-history.test.ts tests/chart-selection.test.ts tests/chart-viewport.test.ts tests/chart-navigation.test.ts tests/chart-crosshair.test.ts tests/chart-time-axis.test.ts tests/chart-price-axis.test.ts tests/chart-current-price.test.ts tests/chart-live-candles.test.ts tests/chart-price-line.test.ts tests/settings.test.ts tests/system-metrics.test.ts tests/temperature-status.test.ts tests/windows-installer.test.ts tests/ui.test.ts",
     "check": "npm run typecheck && npm test && npm run frontend:build",
     "icon": "tauri icon assets/app-icon.svg"
   },

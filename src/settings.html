@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>设置 — Crypto Top</title>
+    <link rel="stylesheet" href="settings.css" />
+    <script type="module" src="./settings.js"></script>
+  </head>
+  <body>
+    <main class="settings-shell" aria-labelledby="settings-heading">
+      <header class="settings-header">
+        <h1 id="settings-heading">设置</h1>
+        <span class="app-name">Crypto Top</span>
+      </header>
+      <section id="general-settings" aria-labelledby="general-heading" aria-busy="true">
+        <h2 id="general-heading">常规</h2>
+        <label class="setting-row" for="autostart-toggle">
+          <span class="setting-copy">
+            <span id="autostart-label" class="setting-name">开机自动启动</span>
+            <span id="autostart-description" class="setting-description">登录电脑后自动启动 Crypto Top</span>
+          </span>
+          <span class="toggle">
+            <input id="autostart-toggle" type="checkbox" aria-labelledby="autostart-label" aria-describedby="autostart-description" disabled />
+            <span class="toggle-track" aria-hidden="true"></span>
+          </span>
+        </label>
+      </section>
+      <div class="settings-feedback">
+        <p id="settings-status" role="status" aria-live="polite" aria-atomic="true">正在读取开机启动设置…</p>
+        <button id="retry-settings" type="button" hidden>重新读取</button>
+      </div>
+      <section class="temperature-settings" aria-labelledby="temperature-heading">
+        <div class="temperature-header">
+          <h2 id="temperature-heading">温度监控</h2>
+        </div>
+        <dl class="temperature-status">
+          <div><dt>CPU</dt><dd id="cpu-temperature-status">正在检测…</dd></div>
+          <div><dt>内存</dt><dd id="memory-temperature-status">正在检测…</dd></div>
+        </dl>
+        <p id="temperature-description">正在检测 CPU 和内存温度传感器…</p>
+      </section>
+    </main>
+  </body>
+</html>

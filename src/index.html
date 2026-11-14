@@ -70,6 +70,35 @@
         <div class="manager-list" id="manager-list"></div>
       </section>
 
+      <section class="system-metrics" id="system-metrics" aria-label="本机系统状态，每秒刷新" aria-describedby="system-metrics-help">
+        <div class="system-metric-traffic">
+          <div class="system-metric system-metric-network" id="system-upload" role="group" aria-label="本机上传速率不可用">
+            <span class="system-metric-label" aria-hidden="true">↑</span>
+            <span class="system-metric-value" id="upload-rate" aria-hidden="true">—</span>
+          </div>
+          <div class="system-metric system-metric-network" id="system-download" role="group" aria-label="本机下载速率不可用">
+            <span class="system-metric-label" aria-hidden="true">↓</span>
+            <span class="system-metric-value" id="download-rate" aria-hidden="true">—</span>
+          </div>
+        </div>
+        <div class="system-metric" id="system-cpu" role="group" aria-label="CPU 使用率、温度不可用">
+          <span class="system-metric-label" aria-hidden="true">CPU</span>
+          <span class="system-metric-value" id="cpu-usage" aria-hidden="true">—</span>
+          <span class="system-metric-temperature" id="cpu-temperature" aria-hidden="true">—</span>
+        </div>
+        <div class="system-metric" id="system-memory" role="group" aria-label="内存使用率、温度不可用">
+          <span class="system-metric-label" aria-hidden="true">内存</span>
+          <span class="system-metric-value" id="memory-usage" aria-hidden="true">—</span>
+          <span class="system-metric-temperature" id="memory-temperature" aria-hidden="true">—</span>
+        </div>
+        <div class="system-metric" id="system-gpu" role="group" aria-label="显卡使用率、温度不可用">
+          <span class="system-metric-label" aria-hidden="true">GPU</span>
+          <span class="system-metric-value" id="gpu-usage" aria-hidden="true">—</span>
+          <span class="system-metric-temperature" id="gpu-temperature" aria-hidden="true">—</span>
+        </div>
+        <span class="sr-only" id="system-metrics-help">上传和下载速率按字节每秒显示；温度单位为摄氏度。— 表示传感器未提供数据或采样已过期。</span>
+      </section>
+
       <button
         class="resize-handle"
         id="resize-handle"

@@ -215,12 +215,28 @@ test("keeps the compact manager and exposes screen-bounded vertical quote resizi
   assert.equal(windowConfig.width, 208);
   assert.equal(windowConfig.minWidth, 208);
   assert.equal(windowConfig.maxWidth, 208);
-  assert.equal(windowConfig.height, 92);
+  assert.equal(windowConfig.height, 136);
   assert.equal(windowConfig.minHeight, 92);
   assert.equal(windowConfig.maxHeight, undefined);
   assert.equal(windowConfig.dragDropEnabled, false);
   assert.equal(windowConfig.resizable, false);
   assert.equal(windowConfig.maximizable, false);
+});
+
+test("keeps system metrics in a compact main-only read boundary", () => {
+  const html = readProjectFile("src/index.html");
+  const css = readProjectFile("src/styles.css");
+  const rust = readProjectFile("src-tauri/src/lib.rs");
+  assert.match(html, /id="system-metrics"/);
+  assert.match(html, /id="system-upload"[\s\S]*id="upload-rate"[\s\S]*id="system-download"[\s\S]*id="download-rate"/);
+  assert.match(css, /44px/);
+  assert.match(rust, /const SYSTEM_METRICS_HEIGHT: u32 = 44/);
+  assert.match(rust, /fn get_system_metrics[\s\S]*?window\.label\(\) != MAIN_WINDOW_LABEL[\s\S]*?metrics\.snapshot\(\)/);
+  assert.match(readProjectFile("src-tauri/build.rs"), /"get_system_metrics"/);
+  assert.match(readProjectFile("src-tauri/capabilities/main.json"), /"allow-get-system-metrics"/);
+  for (const label of ["about", "chart", "settings"]) {
+    assert.doesNotMatch(readProjectFile(`src-tauri/capabilities/${label}.json`), /system-metrics/);
+  }
 });
 
 test("provides one maximized candlestick window without hiding the compact monitor", () => {
@@ -452,6 +468,7 @@ test("provides a compact single-instance About window with a scoped repository l
     "main-capability",
     "about-capability",
     "chart-capability",
+    "settings-capability",
   ]);
   assert.doesNotMatch(JSON.stringify(aboutCapability), /opener:default|\*/);
   assert.equal(packageMetadata.license, "GPL-3.0-only");
@@ -460,6 +477,51 @@ test("provides a compact single-instance About window with a scoped repository l
   assert.match(license, /GNU GENERAL PUBLIC LICENSE\s+Version 3, 29 June 2007/);
   assert.match(license, /END OF TERMS AND CONDITIONS/);
   assert.equal(tauriConfig.bundle.licenseFile, "../LICENSE");
+});
+
+test("isolates the tray settings window and its autostart permissions", () => {
+  const config = JSON.parse(readProjectFile("src-tauri/tauri.conf.json")) as TauriConfig;
+  const windows = config.app.windows.filter(({ label }) => label === "settings");
+  assert.equal(windows.length, 1);
+  const settings = windows[0]!;
+  assert.equal(settings.url, "settings.html");
+  assert.equal(settings.width, 420);
+  assert.equal(settings.height, 280);
+  assert.equal(settings.resizable, false);
+  assert.equal(settings.maximizable, false);
+  assert.equal(settings.decorations, true);
+  assert.equal(settings.skipTaskbar, true);
+  assert.equal(settings.visible, false);
+  assert.equal(settings.focus, false);
+
+  const capability = JSON.parse(readProjectFile("src-tauri/capabilities/settings.json")) as {
+    windows: string[];
+    permissions: string[];
+  };
+  assert.deepEqual(capability.windows, ["settings"]);
+  assert.deepEqual(capability.permissions, ["allow-get-autostart-enabled", "allow-set-autostart-enabled", "allow-get-temperature-status"]);
+  for (const window of ["main", "about", "chart"]) {
+    assert.doesNotMatch(readProjectFile(`src-tauri/capabilities/${window}.json`), /autostart/);
+    assert.doesNotMatch(readProjectFile(`src-tauri/capabilities/${window}.json`), /temperature/);
+  }
+
+  const html = readProjectFile("src/settings.html");
+  const typescript = readProjectFile("src/settings.ts");
+  assert.match(html, /开机自动启动/);
+  assert.match(html, /type="checkbox"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.doesNotMatch(html, /\btitle\s*=/i);
+  assert.doesNotMatch(html, /temperature-driver|获取温度驱动/);
+  assert.doesNotMatch(typescript, /\.title\s*=|localStorage|\.innerHTML\s*=/);
+  const frontendBuild = readProjectFile("scripts/frontend.ts");
+  assert.match(frontendBuild, /"settings\.html"/);
+  assert.match(frontendBuild, /"settings\.css"/);
+  const rust = readProjectFile("src-tauri/src/lib.rs");
+  assert.match(rust, /MenuItem::with_id\(app, "settings", "设置"/);
+  assert.match(rust, /"settings"\s*=>\s*Some\(TrayAction::ShowSettings\)/);
+  const build = readProjectFile("src-tauri/build.rs");
+  assert.match(build, /"get_autostart_enabled"/);
+  assert.match(build, /"set_autostart_enabled"/);
 });
 
 test("keeps market-data CSP origins explicit and aligned with browser-safe transports", () => {

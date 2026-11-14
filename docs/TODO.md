@@ -6,7 +6,7 @@ Standing validation preference: automated checks must not take over desktop wind
 
 ## P0 — Blocking
 
-None. Current scoped chart improvements, package delivery, and verification state are recorded in `CURRENT_STATE.md`. A separate confirmed chart-selection defect is listed below.
+None for the completed settings/system-status/temperature implementation. The closed-thread handoff, package delivery and verification state are recorded in `CURRENT_STATE.md`. A separate confirmed chart-selection defect is listed below.
 
 ## P1 — Chart correctness
 
@@ -16,8 +16,14 @@ None. Current scoped chart improvements, package delivery, and verification stat
 
 ## P2 — Release quality and cross-platform confidence
 
-- [ ] Provide a local Windows installer and collect the user's installed-artifact chart acceptance when that validation is requested.
-  - The `1.7.0` installer build/metadata and bounded local release-executable smoke are complete; see `CURRENT_STATE.md`. Remaining work is installed-runtime evidence covering main/chart coexistence, live exact-source candles/price guide across supported providers and intervals, full-history extra zoom space, pan/reset and close-to-hide. Building and publishing do not themselves authorize replacing the installed application.
+- [ ] Collect user-performed system-status/temperature acceptance from the latest Windows preview in `CURRENT_STATE.md`.
+  - CPU temperature was confirmed working by the user on 2026-11-14. Verify upload appears before download with matching typography/alignment, the installer handles PawnIO, double-click startup requests administrator access, enabled login startup retains that access, and unsupported DIMM temperature stays honest. The `44px` footer is unchanged. DIMM temperature requires actual sensor/chipset support. Automated checks are in `CURRENT_STATE.md`; no agent-driven driver installation, task registration or desktop automation. Linux/macOS runtime acceptance remains target-dependent.
+
+- [ ] Collect user-performed settings and elevated login-autostart acceptance from the latest local preview.
+  - Verify tray “设置” opens one reusable window, closing hides it, and the switch enables/disables launch on the next user login. Windows preview and automated results are in `CURRENT_STATE.md`; macOS 12/Linux acceptance requires a suitable target package. Do not launch/install or change this machine's autostart settings on the user's behalf without an explicit request.
+
+- [ ] Collect the user's installed-artifact chart acceptance from the delivered local Windows preview.
+  - The latest preview in `CURRENT_STATE.md` also includes the previously delivered restyle and smooth-history fix. Their implementation checks are retained in Git history; chart code was unchanged by this thread. Rebuild only if a later change or missing local artifact requires it. User acceptance remains unreported for main/chart coexistence, layout/controls/OHLC, live exact-source candles/price guide, smoother history browsing, zoom/pan/reset and close-to-hide. Older native smoke evidence does not verify this preview. Do not install or drive it on the user's behalf without a new explicit request.
 
 - [ ] Collect user-performed runtime acceptance on supported macOS and Linux environments after the next relevant release candidate.
   - Done when macOS bundle/deployment metadata reports the 12.0 floor and startup plus the fixed ES2025 output are exercised on macOS 12.x; tray visibility/actions (including About and its scoped GitHub opener), monitor/About/chart close-to-hide, chart/main dual-window work-area maximize and always-on-top interaction, all five candle intervals plus chart wheel/button/keyboard zoom, pointer-captured pan and reset, crosshair/axis markers and paced prefetch/cancellation, main-row mouse/keyboard activation/ordering and restart persistence, screen-bounded quote-height drag (fixed `208px` width, expansion to the available work-area/content limit, overflow behavior, and `170px` management cap), Coinbase/Bybit/Gate catalog and WebSocket/REST connectivity, stock-perpetual search/display, UTC rollover, and packaging startup are recorded for macOS arm64/x64 as available plus a mainstream Linux desktop/Wayland setup.
@@ -32,9 +38,6 @@ None. Current scoped chart improvements, package delivery, and verification stat
   - Done when non-tag changes run the full TypeScript/frontend tests and Rust fmt/test/check/clippy set without publishing artifacts or Releases. Include the deprecated checkout/setup-node action runtimes recorded in `KNOWN_ISSUES.md` in the scoped CI upgrade, and verify the release matrix afterward.
 
 ## P3 — Known technical debt
-
-- [ ] Resolve the isolated extra `}` at `src/styles.css:349` in a separately authorized maintenance change.
-  - Done when the token is removed and non-disruptive UI/static checks pass; any native 208px visual acceptance is performed by the user using a local installer. Consider adding a CSS syntax checker to prevent recurrence.
 
 - [ ] Remove or deliberately restore the unused `minimize_window` IPC command.
   - Done when `src-tauri/src/lib.rs`, `src-tauri/build.rs`, permissions, architecture docs, and tests agree on the reduced command surface; closing must still hide to tray.
@@ -51,4 +54,4 @@ None. Current scoped chart improvements, package delivery, and verification stat
 - [ ] Expand exact-source chart history beyond Coinbase/Bybit/Gate only if broader K-line coverage is requested.
   - Done when each added Kraken/Bitstamp/Bitfinex route uses the exact currently displayed product/source, current official history semantics, target WebView CORS evidence or a narrowly allowlisted native boundary, and parser/abort/CSP tests; no cross-source fallback or synthetic candle is permitted.
 
-Do not add alerts, autostart, auto-update, or unrelated features merely because they are absent; none is currently requested.
+Settings, opt-in autostart, system status and temperature collection are implemented; only the explicit acceptance items above remain. Do not add alerts, auto-update, or unrelated features merely because they are absent.

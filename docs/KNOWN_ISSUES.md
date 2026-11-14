@@ -12,7 +12,7 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Runner warning:** The successful `v1.7.0` run `34436389439` reports that the Node 20 action runtimes in `actions/checkout@v4` and `actions/setup-node@v4` are deprecated and being forced to Node 24. This concerns the actions' own runtime, not the project's explicit `setup-node` selection of Node 20. Update those action majors in scoped CI maintenance and verify the matrix again; this warning did not fail the release.
 
-**Workaround:** Run the full command set in `AGENTS.md` locally before committing.
+**Workaround:** Run the checks in `AGENTS.md` relevant to changed behavior and retain their results in `CURRENT_STATE.md`. Reuse passing checks for unchanged code; keep native acceptance separate and user-performed.
 
 ## Unsigned artifacts
 
@@ -26,13 +26,17 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 ## Cross-platform runtime acceptance is incomplete
 
-**Symptom:** Windows has native smoke coverage, while macOS/Linux are primarily proven by historical CI builds, not full current-feature runtime tests.
+**Symptom:** Windows has historical native smoke coverage and user-confirmed CPU temperature readings, but final installed-runtime acceptance of the new settings/status layout, integrated PawnIO installer and elevated login startup is still pending, alongside the earlier chart restyle/smooth-history acceptance. Unit/type/build/headless checks are recorded in `CURRENT_STATE.md`; they are not native acceptance. macOS/Linux are primarily proven by historical CI builds, not full current-feature runtime tests.
 
 **Impact:** Tray integration, WebView networking/CORS, fonts, and window-manager behavior may differ by target.
 
 **Not fully verified:** The fixed ES2025 output and runtime API surface on the minimum supported macOS 12.x system WKWebView and representative Linux WebKitGTK versions; Bitstamp/Bybit/Gate REST CORS under macOS WKWebView/Linux WebKit; Bybit/Gate public WebSockets and historical K-line requests; the stock-perpetual search/add/display flow; the compact tray-opened About window and its exact-URL repository opener; quote-row mouse drag ordering in a real Tauri WebView on each platform; the pointer-captured screen/work-area-bounded quote-height drag under macOS/Linux window managers; the new chart/main dual-window placement, maximize, always-on-top, close-to-hide, wheel/keyboard zoom, and pointer-captured candle pan interaction in a packaged Tauri runtime outside Windows; and all Wayland tray/always-on-top combinations on those platforms. The two shipped `v1.6.2` DMGs did pass bundle and Mach-O deployment metadata checks at exactly 12.0, but they predate the chart feature.
 
 **Next direction:** Provide packages for user-performed acceptance on real target systems, including macOS 12.x; automated checks must not take over the user's desktop. Do not “fix” a platform by widening CSP or claiming TypeScript `target` supplies runtime polyfills.
+
+## Login autostart registration and runtime acceptance
+
+The settings switch manages the current user's startup registration, not a service before login. Windows now uses an InteractiveToken/highest-level scheduled task because ordinary HKCU Run cannot reliably start a requireAdministrator application. The registered identity is the account running the elevated app; using another administrator's credentials does not configure startup for the original standard-user account. System policy, a disabled task or macOS launchd overrides may suppress startup. Linux AppImages must remain at the registered path. Real login acceptance remains user-performed; tests never register tasks on this development machine.
 
 ## Chart selection rejects valid Bybit mappings that differ from the ticker
 
@@ -110,17 +114,13 @@ One chart-selection defect is confirmed below; there is no known flaky test at t
 
 **Workaround:** Document supported desktop expectations. On restore/online/visibility, the app reconnects and refreshes. It cannot override UAC/security desktop, lock screens, exclusive fullscreen, or arbitrary compositors.
 
-## Isolated CSS parse token
+## System-status sensor coverage
 
-**Symptom:** `src/styles.css:349` contains an unmatched extra `}` after the marker-color rules.
+CPU/memory usage and network transmit/receive throughput are available through normal OS counters. Windows bundles a LibreHardwareMonitorLib 0.9.6 CPU/DIMM collector, the installer supplies the official PawnIO dependency, and release startup requests administrator permission. Existing WMI remains fallback, and NVIDIA utilization/temperature use NVML. Settings distinguishes unreadable sensors and failures; missing drivers direct the user to rerun the application installer. Memory means system RAM/DIMMs, never GPU VRAM. Missing sensors remain `—`; no ACPI/board reading or DIMM threshold is substituted. A driver cannot add a sensor to an unsupported DIMM or guarantee SMBus access on every motherboard.
 
-**Impact:** Current browsers ignore the stray token and the native layout smoke passed, but no CSS linter guards syntax and future parser/context changes could expose a styling issue.
+The user confirmed on 2026-11-14 that CPU temperature works with the prior helper preview after driver/admin setup; memory still reports no readable sensor. This is user acceptance of CPU sampling, not confirmation that the four DDR4 DIMMs have accessible temperature sensors. Earlier helper checks without the driver are historical. Default-elevation, integrated dependency installation and elevated-login-task acceptance remain pending the new installer. The agent has not installed a driver, created a login task or launched the native app/installer for testing.
 
-**Reproduction:** Inspect lines 341–349. This is stable by source inspection.
-
-**Current action:** None in this documentation-only checkpoint; CSS maintenance was not requested.
-
-**Next direction:** Remove it in a separately authorized maintenance change, rerun static/headless layout checks and provide a local installer for user-performed native acceptance when needed. Do not control desktop windows or input for testing.
+On Linux/macOS, only explicitly identifiable sysinfo components are used for temperature; NVIDIA NVML is available on Linux when installed. There is no universal AMD/Intel/Apple GPU utilization backend in this implementation, so unsupported GPU fields remain `—`. GPU readings select one supported device's usage and temperature together. Upload/download rates sum non-loopback interfaces and include LAN traffic; virtual/VPN interfaces may account for the same traffic more than once. These are measured transmit/receive rates, not an internet speed test. Non-Windows real-target/runtime acceptance remains pending.
 
 ## Unused native minimize command
 

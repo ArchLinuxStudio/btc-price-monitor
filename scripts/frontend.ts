@@ -17,6 +17,8 @@ const staticFiles = new Map<string, string>([
   ["styles.css", resolve(sourceDirectory, "styles.css")],
   ["about.html", resolve(sourceDirectory, "about.html")],
   ["about.css", resolve(sourceDirectory, "about.css")],
+  ["settings.html", resolve(sourceDirectory, "settings.html")],
+  ["settings.css", resolve(sourceDirectory, "settings.css")],
   ["chart.html", resolve(sourceDirectory, "chart.html")],
   ["chart.css", resolve(sourceDirectory, "chart.css")],
   ["app-icon.svg", resolve(repositoryDirectory, "assets", "app-icon.svg")],

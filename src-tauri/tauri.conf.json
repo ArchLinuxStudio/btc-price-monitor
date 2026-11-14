@@ -15,7 +15,7 @@
         "label": "main",
         "title": "Crypto Top — Market Watchlist",
         "width": 208,
-        "height": 92,
+        "height": 136,
         "minWidth": 208,
         "minHeight": 92,
         "maxWidth": 208,
@@ -53,6 +53,28 @@
         "focus": false
       },
       {
+        "label": "settings",
+        "title": "设置 — Crypto Top",
+        "url": "settings.html",
+        "width": 420,
+        "height": 280,
+        "minWidth": 420,
+        "minHeight": 280,
+        "maxWidth": 420,
+        "maxHeight": 280,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false,
+        "decorations": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visibleOnAllWorkspaces": true,
+        "shadow": true,
+        "center": true,
+        "visible": false,
+        "focus": false
+      },
+      {
         "label": "chart",
         "title": "Crypto Top — K线图",
         "url": "chart.html",
@@ -75,7 +97,7 @@
       }
     ],
     "security": {
-      "capabilities": ["main-capability", "about-capability", "chart-capability"],
+      "capabilities": ["main-capability", "about-capability", "chart-capability", "settings-capability"],
       "freezePrototype": true,
       "csp": {
         "default-src": ["'self'", "customprotocol:", "asset:"],

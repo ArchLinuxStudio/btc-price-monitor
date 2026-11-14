@@ -1,6 +1,14 @@
 import { PriceFeed } from "./price-feed.js";
 import type { DisplayQuote, FeedStatus, MarketSource, PriceFeedState } from "./price-feed.js";
 import { formatUsdPrice } from "./price-format.js";
+import {
+  formatNetworkRate,
+  formatTemperature,
+  formatUsage,
+  SYSTEM_METRICS_INTERVAL_MS,
+  SystemMetricsPoller,
+} from "./system-metrics.js";
+import type { SystemMetrics } from "./system-metrics.js";
 import { createChartSelection, serializeChartSelection } from "./chart-selection.js";
 import {
   applyBackupSourceMappings,
@@ -86,7 +94,45 @@ const elements = {
   managerStatus: document.querySelector<HTMLSpanElement>("#manager-status")!,
   reorderStatus: document.querySelector<HTMLSpanElement>("#reorder-status")!,
   resizeHandle: document.querySelector<HTMLButtonElement>("#resize-handle")!,
+  systemMetrics: document.querySelector<HTMLElement>("#system-metrics")!,
+  systemUpload: document.querySelector<HTMLElement>("#system-upload")!,
+  uploadRate: document.querySelector<HTMLElement>("#upload-rate")!,
+  systemDownload: document.querySelector<HTMLElement>("#system-download")!,
+  downloadRate: document.querySelector<HTMLElement>("#download-rate")!,
+  systemCpu: document.querySelector<HTMLElement>("#system-cpu")!,
+  cpuUsage: document.querySelector<HTMLElement>("#cpu-usage")!,
+  cpuTemperature: document.querySelector<HTMLElement>("#cpu-temperature")!,
+  systemMemory: document.querySelector<HTMLElement>("#system-memory")!,
+  memoryUsage: document.querySelector<HTMLElement>("#memory-usage")!,
+  memoryTemperature: document.querySelector<HTMLElement>("#memory-temperature")!,
+  systemGpu: document.querySelector<HTMLElement>("#system-gpu")!,
+  gpuUsage: document.querySelector<HTMLElement>("#gpu-usage")!,
+  gpuTemperature: document.querySelector<HTMLElement>("#gpu-temperature")!,
 };
+
+function renderSystemMetrics(metrics: SystemMetrics | null): void {
+  const network = [
+    ["上传", elements.systemUpload, elements.uploadRate, metrics?.uploadBytesPerSecond],
+    ["下载", elements.systemDownload, elements.downloadRate, metrics?.downloadBytesPerSecond],
+  ] as const;
+  for (const [name, group, rateElement, rate] of network) {
+    const formatted = formatNetworkRate(rate ?? null);
+    rateElement.textContent = formatted;
+    group.setAttribute("aria-label", `本机${name}速率 ${formatted === "—" ? "不可用" : formatted}`);
+  }
+  const hardware = [
+    ["CPU", elements.systemCpu, elements.cpuUsage, elements.cpuTemperature, metrics?.cpuUsagePercent, metrics?.cpuTemperatureC],
+    ["内存", elements.systemMemory, elements.memoryUsage, elements.memoryTemperature, metrics?.memoryUsagePercent, metrics?.memoryTemperatureC],
+    ["显卡", elements.systemGpu, elements.gpuUsage, elements.gpuTemperature, metrics?.gpuUsagePercent, metrics?.gpuTemperatureC],
+  ] as const;
+  for (const [name, group, usageElement, temperatureElement, usage, temperature] of hardware) {
+    const percent = formatUsage(usage ?? null);
+    const degrees = formatTemperature(temperature ?? null);
+    usageElement.textContent = percent;
+    temperatureElement.textContent = degrees;
+    group.setAttribute("aria-label", `${name}使用率 ${percent === "—" ? "不可用" : percent}，温度 ${degrees === "—" ? "不可用" : degrees}`);
+  }
+}
 
 const statusLabels: Record<FeedStatus, { compact: string; full: string }> = {
   live: { compact: "LIVE", full: "实时行情" },
@@ -755,6 +801,8 @@ function openManager(): void {
   clearQuoteDrag();
   clearResizeDrag(true);
   managementOpen = true;
+  elements.monitor.classList.add("is-managing");
+  elements.systemMetrics.hidden = true;
   updateResizeHandleVisibility();
   elements.quotes.hidden = true;
   elements.manager.hidden = false;
@@ -773,6 +821,8 @@ function openManager(): void {
 function closeManager(restoreFocus: boolean): void {
   if (!managementOpen) return;
   managementOpen = false;
+  elements.monitor.classList.remove("is-managing");
+  elements.systemMetrics.hidden = false;
   updateResizeHandleVisibility();
   elements.manager.hidden = true;
   elements.quotes.hidden = false;
@@ -1063,6 +1113,18 @@ feed.subscribe(queueRender);
 feed.start();
 void ensureBackupSourceMappings(false);
 
+const systemMetricsPoller = new SystemMetricsPoller({
+  read: async () => {
+    const invoke = (globalThis as TauriGlobal).__TAURI__?.core?.invoke;
+    return invoke ? invoke("get_system_metrics") : null;
+  },
+  onChange: renderSystemMetrics,
+});
+void systemMetricsPoller.refresh();
+const systemMetricsTimer = setInterval(() => {
+  if (document.visibilityState === "visible") void systemMetricsPoller.refresh();
+}, SYSTEM_METRICS_INTERVAL_MS);
+
 globalThis.addEventListener("online", () => {
   feed.reconnectAll();
   void ensureBackupSourceMappings(true);
@@ -1070,13 +1132,25 @@ globalThis.addEventListener("online", () => {
 globalThis.addEventListener("offline", () => queueRender(feed.getState()));
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") {
+    void systemMetricsPoller.refresh();
     feed.reconnectAll();
   } else {
     clearQuoteDrag();
     closeManager(false);
   }
 });
-globalThis.addEventListener("beforeunload", () => feed.stop(), { once: true });
+function stopSystemMetrics(): void {
+  clearInterval(systemMetricsTimer);
+  systemMetricsPoller.dispose();
+}
+
+globalThis.addEventListener("beforeunload", () => {
+  stopSystemMetrics();
+  feed.stop();
+}, { once: true });
+globalThis.addEventListener("pagehide", (event) => {
+  if (!event.persisted) stopSystemMetrics();
+});
 
 setInterval(() => {
   if (latestState) renderUpdateTime(latestState.lastUpdateAt);

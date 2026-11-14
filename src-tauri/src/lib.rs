@@ -1,5 +1,8 @@
 use std::sync::Mutex;
 
+mod autostart;
+mod system_metrics;
+
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -9,11 +12,13 @@ use tauri::{
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const ABOUT_WINDOW_LABEL: &str = "about";
+const SETTINGS_WINDOW_LABEL: &str = "settings";
 const CHART_WINDOW_LABEL: &str = "chart";
 const CHART_SELECTION_EVENT: &str = "chart-selection-changed";
 const MAX_CHART_SELECTION_BYTES: usize = 4096;
 const MONITOR_WIDTH: u32 = 208;
 const MONITOR_MIN_HEIGHT: u32 = 92;
+const SYSTEM_METRICS_HEIGHT: u32 = 44;
 const MONITOR_MANAGEMENT_MAX_HEIGHT: u32 = 170;
 
 #[derive(Debug, Default)]
@@ -27,20 +32,21 @@ enum TrayAction {
     ShowMain,
     HideMain,
     ShowAbout,
+    ShowSettings,
     Quit,
 }
 
 fn quote_auto_height(row_count: u32) -> u32 {
     let visible_rows = row_count.clamp(2, 4);
-    26 + 33 * visible_rows
+    26 + SYSTEM_METRICS_HEIGHT + 33 * visible_rows
 }
 
 fn quote_content_height(row_count: u32) -> u32 {
-    26u32.saturating_add(33u32.saturating_mul(row_count.max(2)))
+    (26 + SYSTEM_METRICS_HEIGHT).saturating_add(33u32.saturating_mul(row_count.max(2)))
 }
 
 fn quote_height(row_count: u32, requested_height: u32, available_height: u32) -> u32 {
-    let minimum_height = quote_auto_height(row_count);
+    let minimum_height = quote_auto_height(row_count).min(available_height.max(MONITOR_MIN_HEIGHT));
     let maximum_height = quote_content_height(row_count)
         .min(available_height)
         .max(minimum_height);
@@ -175,6 +181,16 @@ fn show_about_window(app: &AppHandle) -> Result<(), String> {
     window.set_focus().map_err(|error| error.to_string())
 }
 
+fn show_settings_window(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window(SETTINGS_WINDOW_LABEL)
+        .ok_or_else(|| "settings window is unavailable".to_owned())?;
+    window.unminimize().map_err(|error| error.to_string())?;
+    window.center().map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())?;
+    window.set_focus().map_err(|error| error.to_string())
+}
+
 fn validate_chart_selection(selection_json: &str) -> Result<(), String> {
     if selection_json.is_empty() {
         return Err("chart selection is empty".to_owned());
@@ -198,7 +214,10 @@ fn place_chart_on_main_monitor(app: &AppHandle, chart: &WebviewWindow) {
 }
 
 fn hides_on_close(label: &str) -> bool {
-    label == MAIN_WINDOW_LABEL || label == ABOUT_WINDOW_LABEL || label == CHART_WINDOW_LABEL
+    label == MAIN_WINDOW_LABEL
+        || label == ABOUT_WINDOW_LABEL
+        || label == SETTINGS_WINDOW_LABEL
+        || label == CHART_WINDOW_LABEL
 }
 
 fn tray_action(id: &str) -> Option<TrayAction> {
@@ -206,6 +225,7 @@ fn tray_action(id: &str) -> Option<TrayAction> {
         "show-window" => Some(TrayAction::ShowMain),
         "hide-window" => Some(TrayAction::HideMain),
         "about" => Some(TrayAction::ShowAbout),
+        "settings" => Some(TrayAction::ShowSettings),
         "quit" => Some(TrayAction::Quit),
         _ => None,
     }
@@ -215,6 +235,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show_item = MenuItem::with_id(app, "show-window", "显示窗口", true, None::<&str>)?;
     let hide_item = MenuItem::with_id(app, "hide-window", "隐藏窗口", true, None::<&str>)?;
     let window_separator = PredefinedMenuItem::separator(app)?;
+    let settings_item = MenuItem::with_id(app, "settings", "设置", true, None::<&str>)?;
     let about_item = MenuItem::with_id(app, "about", "关于 Crypto Top", true, None::<&str>)?;
     let quit_separator = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItem::with_id(app, "quit", "退出 Crypto Top", true, None::<&str>)?;
@@ -224,6 +245,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             &show_item,
             &hide_item,
             &window_separator,
+            &settings_item,
             &about_item,
             &quit_separator,
             &quit_item,
@@ -242,6 +264,9 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             }
             Some(TrayAction::ShowAbout) => {
                 let _ = show_about_window(app);
+            }
+            Some(TrayAction::ShowSettings) => {
+                let _ = show_settings_window(app);
             }
             Some(TrayAction::Quit) => app.exit(0),
             None => {}
@@ -392,13 +417,55 @@ fn close_chart_window(app: AppHandle, window: WebviewWindow) -> Result<(), Strin
     show_main_window(&app)
 }
 
+#[tauri::command]
+fn get_system_metrics(
+    window: WebviewWindow,
+    metrics: State<'_, system_metrics::SystemMetricsState>,
+) -> Result<system_metrics::SystemMetrics, String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("system metrics command called from an unexpected window".to_owned());
+    }
+    metrics.snapshot()
+}
+
+fn validate_temperature_settings(label: &str) -> Result<(), String> {
+    if label != SETTINGS_WINDOW_LABEL {
+        return Err("temperature settings command called from an unexpected window".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_temperature_status(
+    window: WebviewWindow,
+    metrics: State<'_, system_metrics::SystemMetricsState>,
+) -> Result<system_metrics::TemperatureStatus, String> {
+    validate_temperature_settings(window.label())?;
+    metrics.temperature_status()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(autostart::AutostartAccess::default())
+        .manage(system_metrics::SystemMetricsState::default())
         .manage(Mutex::new(MonitorLayoutState::default()))
         .manage(Mutex::new(None::<String>))
         .setup(|app| {
+            autostart::migrate_existing(app.handle().clone());
+            #[cfg(debug_assertions)]
+            let helper_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("resources/temperature-helper/CryptoTop.TemperatureHelper.exe");
+            #[cfg(not(debug_assertions))]
+            let helper_path = app
+                .path()
+                .resource_dir()?
+                .join("temperature-helper/CryptoTop.TemperatureHelper.exe");
+            system_metrics::start(
+                &app.state::<system_metrics::SystemMetricsState>(),
+                helper_path,
+            )?;
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -434,7 +501,11 @@ pub fn run() {
             resize_monitor_height,
             show_chart_window,
             get_chart_selection,
-            close_chart_window
+            close_chart_window,
+            autostart::get_autostart_enabled,
+            autostart::set_autostart_enabled,
+            get_system_metrics,
+            get_temperature_status
         ])
         .build(tauri::generate_context!())
         .expect("failed to build the Crypto Top application");
@@ -452,29 +523,31 @@ pub fn run() {
 mod tests {
     use super::{
         hides_on_close, logical_available_height, monitor_height, quote_content_height,
-        quote_height, tray_action, validate_chart_selection, TrayAction, MAX_CHART_SELECTION_BYTES,
-        MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT,
+        quote_height, tray_action, validate_chart_selection, validate_temperature_settings,
+        TrayAction, MAX_CHART_SELECTION_BYTES, MONITOR_MANAGEMENT_MAX_HEIGHT, MONITOR_MIN_HEIGHT,
     };
 
     #[test]
     fn quote_layout_height_is_clamped_to_two_through_four_rows() {
-        assert_eq!(monitor_height(0, false, 0), MONITOR_MIN_HEIGHT);
-        assert_eq!(monitor_height(1, false, 0), MONITOR_MIN_HEIGHT);
-        assert_eq!(monitor_height(2, false, 0), 92);
-        assert_eq!(monitor_height(3, false, 0), 125);
-        assert_eq!(monitor_height(4, false, 0), 158);
-        assert_eq!(monitor_height(5, false, 0), 158);
-        assert_eq!(monitor_height(u32::MAX, false, 0), 158);
+        assert_eq!(monitor_height(0, false, 0), 136);
+        assert_eq!(monitor_height(1, false, 0), 136);
+        assert_eq!(monitor_height(2, false, 0), 136);
+        assert_eq!(monitor_height(3, false, 0), 169);
+        assert_eq!(monitor_height(4, false, 0), 202);
+        assert_eq!(monitor_height(5, false, 0), 202);
+        assert_eq!(monitor_height(u32::MAX, false, 0), 202);
     }
 
     #[test]
     fn dragged_quote_height_is_clamped_to_auto_and_content_bounds() {
-        assert_eq!(quote_height(4, MONITOR_MIN_HEIGHT, 900), 158);
-        assert_eq!(quote_height(5, MONITOR_MIN_HEIGHT, 900), 158);
-        assert_eq!(quote_height(5, 170, 900), 170);
-        assert_eq!(quote_height(5, u32::MAX, 900), 191);
-        assert_eq!(quote_height(8, u32::MAX, 900), 290);
-        assert_eq!(quote_height(9, u32::MAX, 900), 323);
+        assert_eq!(quote_height(4, MONITOR_MIN_HEIGHT, 900), 202);
+        assert_eq!(quote_height(5, MONITOR_MIN_HEIGHT, 900), 202);
+        assert_eq!(quote_height(5, 214, 900), 214);
+        assert_eq!(quote_height(5, u32::MAX, 900), 235);
+        assert_eq!(quote_height(8, u32::MAX, 900), 334);
+        assert_eq!(quote_height(9, u32::MAX, 900), 367);
+        assert_eq!(quote_height(4, 202, 170), 170);
+        assert_eq!(quote_height(2, 136, 110), 110);
         assert_eq!(quote_height(40, u32::MAX, 900), 900);
         assert_eq!(quote_height(u32::MAX, u32::MAX, 900), 900);
         assert_eq!(quote_content_height(u32::MAX), u32::MAX);
@@ -508,6 +581,7 @@ mod tests {
     fn only_managed_windows_hide_instead_of_closing() {
         assert!(hides_on_close("main"));
         assert!(hides_on_close("about"));
+        assert!(hides_on_close("settings"));
         assert!(hides_on_close("chart"));
         assert!(!hides_on_close("unexpected"));
     }
@@ -527,7 +601,16 @@ mod tests {
         assert_eq!(tray_action("show-window"), Some(TrayAction::ShowMain));
         assert_eq!(tray_action("hide-window"), Some(TrayAction::HideMain));
         assert_eq!(tray_action("about"), Some(TrayAction::ShowAbout));
+        assert_eq!(tray_action("settings"), Some(TrayAction::ShowSettings));
         assert_eq!(tray_action("quit"), Some(TrayAction::Quit));
         assert_eq!(tray_action("unexpected"), None);
+    }
+
+    #[test]
+    fn temperature_commands_are_settings_only() {
+        assert!(validate_temperature_settings("settings").is_ok());
+        for label in ["main", "about", "chart", "unexpected"] {
+            assert!(validate_temperature_settings(label).is_err());
+        }
     }
 }

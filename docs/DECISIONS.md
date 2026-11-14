@@ -50,13 +50,31 @@ This document records accepted decisions that a future developer might otherwise
 
 **Context:** Earlier `372×188` and `264×92` designs were rejected as too large/wide. The user repeatedly asked for a compact, modern, premium-looking monitor without extreme-price whitespace.
 
-**Decision:** Width stays `208px`; default BTC/ETH view is `208×92`. Automatic quote height caps at four visible rows, while five or more selected products expose a bottom handle that can increase quote height up to the lesser of selected content and the current monitor's remaining work-area height. There is no eight-row manual-height ceiling; longer watchlists remain available through internal scrolling. Management still replaces the quote region temporarily and remains capped at `170px`.
+**Decision:** Width stays `208px`; the 2026-11-10 system-status request adds a `44px` footer, making the default BTC/ETH view `208×136`. Automatic quote height still caps at four visible quote rows (`202px` including the footer), while five or more selected products expose a bottom handle that can increase quote-view height up to the lesser of selected content and the current monitor's remaining work-area height. There is no eight-row manual-height ceiling; longer watchlists remain available through internal scrolling. Management replaces the quote region temporarily, hides the footer, and remains capped at `170px`.
 
 **Reason:** The accepted practical display range is BTC in the hundreds of thousands and ETH in the tens of thousands; verified current boundaries include `$999,999.99`, `$99,999.99`, and `−99.99%` without collision.
 
-**Rejected alternatives:** Restoring the large card/footer design, changing width, automatic expansion beyond four rows, allowing manual expansion beyond the current screen work area, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row.
+**Rejected alternatives:** Restoring the old large-card design, changing width, automatic expansion beyond four quote rows, allowing manual expansion beyond the current screen work area, reserving width for unrealistic extremes, or placing permanent delete controls in every quote row. The compact system-status footer is separately authorized by the 2026-11-10 request.
 
 **Implications:** Internal scrolling remains whenever content actually overflows. Layout changes require a real rendered image when presenting a prototype. Native layout acceptance includes drag growth/shrink, fixed width and the management cap; effective 2026-09-10, provide a local installer for the user to verify those interactions, following the non-disruptive validation decision below. Automated checks must not take over the user's desktop, and browser evidence alone must not be labeled native acceptance.
+
+## Decision: Compact per-second local system status
+
+**Status:** Accepted; explicit user requests on 2026-11-10 and 2026-11-14
+
+**Decision:** Add a fixed `44px`, two-row footer below the quotes, containing transmit/receive rates plus CPU, memory and GPU usage/temperature. The 2026-11-14 request places upload before download with consistent layout: the left column shows upload above download, and three equal hardware columns show utilization above temperature. Keep rate formatting, typography and right alignment identical, without shrinking the existing numerical font. Preserve `208px` width and quote row dimensions; automatic window heights remain `136/169/202px`. Hide the footer during watchlist management to retain its `170px` cap. Rust samples once per second on a dedicated worker and exposes only a main-window read of cached data; hardware operations never run in the UI thread or start a process every second. Frontend polling is single-flight, and failed/stale/missing measurements display `—` rather than zero or an old value.
+
+**Semantics:** Upload/download mean measured transmit/receive throughput of included network interfaces (including local-network traffic), not a bandwidth speed test. Both directions share the same refresh and actual elapsed interval; new/removed interfaces and reset counters cannot create spikes, and a counter reset in one direction does not hide the other. CPU is total CPU utilization, memory is used physical memory divided by total, and GPU readings come from the same selected supported device. Sensor values require explicit CPU/DIMM/GPU identity; do not substitute ACPI thermal zones, motherboard temperatures or GPU VRAM temperature for system RAM temperature. Unavailable sensors remain unavailable.
+
+**Temperature collection update (2026-11-13):** The user requested actual CPU and RAM temperature collection after diagnosis showed that relying on an existing WMI monitor was insufficient. Windows bundles a small .NET Framework 4.7.2 helper using pinned LibreHardwareMonitorLib 0.9.6. It opens the installed PawnIO driver and samples only CPU and memory, with one hidden persistent process and private standard-I/O pipes. No third-party monitor application is required. Existing WMI providers remain a fallback; other OS backends remain unchanged.
+
+**Installation/elevation update (2026-11-14):** After confirming CPU readings work, the user explicitly requested default administrator startup and bundling PawnIO so users do not install it separately. Windows release builds embed `requireAdministrator` with `uiAccess=false`; normal shell startup uses the standard Windows UAC consent flow. Debug/unit-test builds remain unelevated to keep development checks non-disruptive. Windows packaging now installs per-machine under Program Files and includes the pinned official PawnIO setup dependency. The installer handles missing/outdated driver installation; runtime sampling does not install/repair drivers, alter driver ACLs or disable Windows security. Settings no longer directs users to a manual driver download. This supersedes the earlier manual-driver/manual-elevation policy, not the no-agent-installer-testing preference.
+
+Windows login autostart uses a current-user InteractiveToken scheduled task at highest available run level, with no stored password and no SYSTEM service. It remains opt-in; an existing enabled legacy HKCU Run entry migrates to the task when the upgraded app starts. New/disabled users are not opted in. Elevated persistent tasks must target the protected Program Files installation, never a user-writable development checkout. Uninstall removes only this product's matching tasks; the shared PawnIO dependency remains installed for other software.
+
+Only actual sensor readings count: CPU distance-to-TjMax and DIMM alarm thresholds/resolution are excluded. RAM uses the highest readable DIMM temperature, not a promise that every DIMM supports it. Helper readings expire after three seconds, blocked helpers are terminated, restarts are paced, and parent pipe closure ends the helper. Temperature failures cannot block network/utilization/GPU sampling. Settings distinguishes missing component/driver, permission requirements, unreadable sensors and transient failure.
+
+**Implications:** Keep Rust height calculations, static Tauri height, CSS footer budget and geometry tests synchronized. Add no CSP origins, broad window permissions, frontend dependencies or market-feed reconnections. User-performed native/runtime acceptance remains separate from headless layout and read-only sampler verification.
 
 ## Decision: Separate real-USD crypto spot from labeled stock-related USDT perpetuals
 
@@ -134,6 +152,20 @@ This document records accepted decisions that a future developer might otherwise
 
 **Implications:** Do not promise that hidden WebViews process every tick on every OS; promise that the process stays resident and reconnects/continues when restored.
 
+## Decision: Add tray settings with opt-in login autostart
+
+**Status:** Accepted; explicit user request on 2026-11-10
+
+**Context:** The user requested a Settings item in the tray context menu, opening a settings interface whose first option is automatic startup.
+
+**Decision:** Reuse one hidden, decorated `420×280px` local `settings` WebView. The tray item centers, shows and focuses it; closing hides it. Its accessible “开机自动启动” switch controls automatic launch when the current user logs in. Keep the normal visible-monitor startup behavior. Use narrow current-user OS registration behind two settings-only native commands, with macOS LaunchAgent to retain macOS 12 compatibility. Since the 2026-11-14 administrator-startup request, Windows uses a highest-level InteractiveToken scheduled task; the fixed PowerShell COM adapter receives executable paths as data. Escape Linux desktop-entry Exec values and serialize macOS ProgramArguments as plist data. Installation/startup never enables a new preference; only an existing explicit Windows opt-in migrates from HKCU Run. Read OS state on opening/focus and after changes; serialize operations and show recoverable errors.
+
+**Reason:** The system registration persists the actual preference across restarts without maintaining a potentially stale second boolean in localStorage. Native caller checks and an isolated capability keep this OS-changing operation out of the monitor, chart and About pages. A separate settings window preserves the monitor's fixed `208px` layout.
+
+**Dependency choice:** The initial source review found that the Tauri-2.11-compatible autostart plugin delegates to `auto-launch` 0.5, whose Windows/Linux templates insert executable paths without quoting and whose macOS template omits XML escaping; `auto-launch` 0.6 retained raw Windows/Linux interpolation. A small native backend keeps executable paths as data without vendoring or upgrading Tauri. Windows now uses the system Task Scheduler COM interface through fixed PowerShell code; no frontend plugin permission is added.
+
+**Implications:** Autostart means user login, not a service running before login. Windows uses a restricted current-user highest-level task targeting the Program Files installation; Linux uses a desktop autostart entry; macOS uses a user LaunchAgent. Enable from the installed location; moving an AppImage requires re-registering it. OS policy or a separate system startup override can still prevent launch. Keep settings assets, native commands, capability, static build copying and behavior tests synchronized. Do not grant direct plugin commands, add a bundler, change market feeds/CSP, or add unrelated preferences. Interactive startup/installed-package acceptance remains user-performed.
+
 ## Decision: Use a compact local About window with a scoped repository opener
 
 **Status:** Accepted; updated by explicit user request on 2026-08-30
@@ -160,7 +192,7 @@ This document records accepted decisions that a future developer might otherwise
 
 **Rejected alternatives:** Any fixed selected-item cap, silently truncating persisted products, disabling search results because the list is “full,” retaining the eight-row/`290px` manual ceiling, unbounded automatic desktop expansion, general OS resizing, and exposing arbitrary frontend width/height control or set-size permissions.
 
-**Implications:** No `MAX_PRODUCTS`-style application constant, persistence truncation, eight-row frontend saturation, or static main-window `maxHeight` may return. Keep the `26 + 33 × rows` content budget, the `158px` automatic maximum, the `170px` management cap, overflow accessibility, complete quote-row sizing IPC, Rust content/work-area clamps, Tauri width limits, and README behavior synchronized. The dragged preference is session-only and is clamped again after product changes or monitor/work-area changes.
+**Implications:** No `MAX_PRODUCTS`-style application constant, persistence truncation, eight-row frontend saturation, or static main-window `maxHeight` may return. With the 2026-11-10 footer, keep the `26 + 44 + 33 × rows` content budget, the `202px` automatic maximum, the unchanged `170px` management cap, overflow accessibility, complete quote-row sizing IPC, Rust content/work-area clamps, Tauri width limits, and README behavior synchronized. The dragged preference is session-only and is clamped again after product changes or monitor/work-area changes.
 
 ## Decision: Every quote row is reorderable without reconnecting market feeds
 

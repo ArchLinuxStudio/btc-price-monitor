@@ -8,6 +8,7 @@
     "core:window:default",
     "core:window:allow-start-dragging",
     "allow-window-controls",
-    "allow-show-chart-window"
+    "allow-show-chart-window",
+    "allow-get-system-metrics"
   ]
 }

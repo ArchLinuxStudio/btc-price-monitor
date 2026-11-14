@@ -40,6 +40,12 @@ npm.cmd run build:windows
 
 Output is under `src-tauri/target/release/bundle/nsis/`. macOS and Linux bundles must be built on suitable target runners/systems; do not relabel a Windows artifact or otherwise fabricate cross-platform bundles.
 
+Windows builds additionally require .NET SDK 8 for the bundled CPU/DIMM temperature helper. `tauri.windows.conf.json` invokes `npm run temperature:build` before build/dev, and CI installs the SDK only for Windows. The PowerShell script performs locked NuGet restore and builds net472 x64 with DLLs/licenses into ignored `src-tauri/resources/temperature-helper/`; no runtime SDK is needed by users. Windows packaging also invokes `npm run pawnio:prepare`, which fetches the pinned official PawnIO 2.2.0 setup, checks its expected hash/publisher, and includes it unmodified inside NSIS. This download is the explicitly requested third-party installation dependency, not independent verification of this project's GitHub-built release attachments. See `native/pawnio/README.md` and the helper README for provenance and behavior. A missing/invalid dependency fails the build.
+
+Release builds embed `windows/app.manifest` with `requireAdministrator`; debug tests retain normal privileges. NSIS uses per-machine Program Files installation and `windows/hooks.nsh` for missing/outdated PawnIO, 0/3010 exit handling, legacy shortcut migration and product-scoped task cleanup on uninstall. The shared driver remains installed. Legacy per-user binaries/data are not deleted; matching current-user shortcuts are retargeted without running an HKCU-provided uninstall command. Inspect the built executable's manifest and generated NSIS resource/hook list without launching either executable. `scripts/check-windows-startup.ps1` verifies task definitions in memory without registering or executing tasks.
+
+The scheduled task supplies a restricted security descriptor and combines create/update with [`TASK_DONT_ADD_PRINCIPAL_ACE`](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskfolder-registertaskdefinition), so Task Scheduler does not extend the ordinary user's read/execute grant. Administrator/SYSTEM retain update access.
+
 ## CI matrix and triggers
 
 `.github/workflows/build-desktop.yml` runs on:

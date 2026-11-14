@@ -58,6 +58,12 @@ jobs:
       - name: Install frontend tooling
         run: npm ci
 
+      - name: Install temperature helper build tools
+        if: matrix.platform == 'windows-latest'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
       - name: Run frontend checks
         run: npm run check
 

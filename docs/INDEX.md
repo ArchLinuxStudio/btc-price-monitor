@@ -24,6 +24,7 @@ Start here instead of reading every document. Repository documentation is the pe
 - Watchlist/search/persistence: `CURRENT_STATE.md` → `ARCHITECTURE.md` → `src/watchlist.ts` and its tests.
 - Tray/window/native behavior: `CURRENT_STATE.md` → `ARCHITECTURE.md` → relevant decisions → `src-tauri/src/lib.rs`.
 - Build or publish: `CURRENT_STATE.md` → `RELEASE.md` → `KNOWN_ISSUES.md`.
+- Settings/system status/temperature: `CURRENT_STATE.md` → `ARCHITECTURE.md` → relevant `DECISIONS.md` entries; for Windows collector/driver work also read `native/temperature-helper/README.md` and `native/pawnio/README.md`.
 - New feature proposal: `CURRENT_STATE.md` → `TODO.md` and `DECISIONS.md`; do not infer authorization from an optional idea.
 
 ## Single-source rules
